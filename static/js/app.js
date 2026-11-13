@@ -481,13 +481,21 @@ function initDealTimer() {
 }
 
 // -----------------------------------------------------------------------------
-// 6. Catalog Page (/products) Filtering & Sorting
+// 6. Catalog Page (/products) Filtering, Sorting & Pagination
 // -----------------------------------------------------------------------------
 let catalogFilteredProducts = [];
+let catalogCurrentPage = 1;
+const catalogItemsPerPage = 12;
 
 async function initCatalogPage() {
+  const grid = document.getElementById("catalog-products-grid");
+  if (grid) {
+    grid.innerHTML = createProductSkeletonHTML(catalogItemsPerPage);
+  }
+
   try {
     const res = await fetch("/api/products");
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products catalog`);
     const data = await res.json();
     appState.products = data.products || [];
 
@@ -513,10 +521,21 @@ async function initCatalogPage() {
     applyFilters();
   } catch (err) {
     console.error("Error initializing catalog page:", err);
+    if (grid) {
+      grid.innerHTML = createErrorStateHTML(err.message, "initCatalogPage");
+    }
+  }
+}
+
+function toggleMobileFilterSidebar() {
+  const sidebar = document.getElementById("catalog-filter-sidebar");
+  if (sidebar) {
+    sidebar.classList.toggle("mobile-open");
   }
 }
 
 function applyFilters() {
+  catalogCurrentPage = 1;
   const selectedCatRadio = document.querySelector('input[name="cat_filter"]:checked');
   const selectedCategory = selectedCatRadio ? selectedCatRadio.value : "";
   const selectedPriceRadio = document.querySelector('input[name="price_filter"]:checked');
@@ -582,20 +601,77 @@ function sortCatalogProducts(sortVal, triggerRender = true) {
   if (triggerRender) renderCatalogGrid();
 }
 
+function changeCatalogPage(page) {
+  const totalPages = Math.ceil(catalogFilteredProducts.length / catalogItemsPerPage) || 1;
+  if (page < 1 || page > totalPages) return;
+  catalogCurrentPage = page;
+  renderCatalogGrid();
+
+  const titleEl = document.getElementById("catalog-title");
+  if (titleEl) {
+    titleEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
 function renderCatalogGrid() {
   const grid = document.getElementById("catalog-products-grid");
   const countEl = document.getElementById("catalog-results-count");
   const emptyEl = document.getElementById("catalog-empty-state");
+  const paginationContainer = document.getElementById("catalog-pagination-container");
   if (!grid) return;
 
-  if (countEl) countEl.textContent = catalogFilteredProducts.length;
+  const totalItems = catalogFilteredProducts.length;
+  const totalPages = Math.ceil(totalItems / catalogItemsPerPage) || 1;
+  if (catalogCurrentPage > totalPages) catalogCurrentPage = totalPages;
 
-  if (catalogFilteredProducts.length === 0) {
+  const startIndex = (catalogCurrentPage - 1) * catalogItemsPerPage;
+  const endIndex = startIndex + catalogItemsPerPage;
+  const pageProducts = catalogFilteredProducts.slice(startIndex, endIndex);
+
+  if (countEl) {
+    if (totalItems === 0) {
+      countEl.textContent = "0";
+    } else {
+      countEl.textContent = `${startIndex + 1}–${Math.min(endIndex, totalItems)} of ${totalItems}`;
+    }
+  }
+
+  if (totalItems === 0) {
     grid.innerHTML = "";
     if (emptyEl) emptyEl.style.display = "block";
+    if (paginationContainer) paginationContainer.innerHTML = "";
   } else {
     if (emptyEl) emptyEl.style.display = "none";
-    grid.innerHTML = catalogFilteredProducts.map(p => createProductCardHTML(p)).join("");
+    grid.innerHTML = pageProducts.map(p => createProductCardHTML(p)).join("");
+
+    // Render Pagination Controls
+    if (paginationContainer) {
+      if (totalPages <= 1) {
+        paginationContainer.innerHTML = "";
+      } else {
+        let pagesHtml = `
+          <button class="pagination-btn" onclick="changeCatalogPage(${catalogCurrentPage - 1})" ${catalogCurrentPage === 1 ? 'disabled' : ''}>
+            <i class="fa-solid fa-chevron-left"></i> Prev
+          </button>
+        `;
+
+        for (let p = 1; p <= totalPages; p++) {
+          pagesHtml += `
+            <button class="pagination-btn ${p === catalogCurrentPage ? 'active' : ''}" onclick="changeCatalogPage(${p})">
+              ${p}
+            </button>
+          `;
+        }
+
+        pagesHtml += `
+          <button class="pagination-btn" onclick="changeCatalogPage(${catalogCurrentPage + 1})" ${catalogCurrentPage === totalPages ? 'disabled' : ''}>
+            Next <i class="fa-solid fa-chevron-right"></i>
+          </button>
+        `;
+
+        paginationContainer.innerHTML = pagesHtml;
+      }
+    }
   }
 }
 
@@ -671,40 +747,85 @@ document.addEventListener("click", (e) => {
 // -----------------------------------------------------------------------------
 // 8. Quick View Modal
 // -----------------------------------------------------------------------------
+let quickViewActiveQty = 1;
+
 async function openQuickView(productId) {
   const modal = document.getElementById("quick-view-overlay");
   const content = document.getElementById("quick-view-content");
   if (!modal || !content) return;
 
+  quickViewActiveQty = 1;
+
   let product = appState.products.find(p => p.id === productId);
   if (!product) {
-    const res = await fetch(`/api/products/${productId}`);
-    const data = await res.json();
-    product = data.product;
+    try {
+      const res = await fetch(`/api/products/${productId}`);
+      const data = await res.json();
+      product = data.product;
+    } catch (e) {
+      console.error("QuickView fetch error:", e);
+    }
   }
   if (!product) return;
 
+  const isWishlisted = appState.wishlist.has(product.id);
+  const discountPercent = product.original_price && product.original_price > product.price
+    ? Math.round(((product.original_price - product.price) / product.original_price) * 100)
+    : 0;
+
+  let stockClass = "product-stock-tag";
+  let stockText = `<i class="fa-solid fa-check"></i> In Stock (${product.stock} units available)`;
+  if (product.stock <= 0) {
+    stockClass += " out-stock";
+    stockText = `<i class="fa-solid fa-circle-xmark"></i> Out of Stock`;
+  } else if (product.stock <= 5) {
+    stockClass += " low-stock";
+    stockText = `<i class="fa-solid fa-triangle-exclamation"></i> Only ${product.stock} left in physical store`;
+  }
+
   content.innerHTML = `
-    <div style="height:320px; border-radius:var(--radius-lg); overflow:hidden; border:1px solid var(--color-border); background:var(--color-bg-subtle);">
+    <div style="height:340px; border-radius:var(--radius-lg); overflow:hidden; border:1px solid var(--color-border); background:var(--color-bg-subtle); position:relative;">
+      ${discountPercent > 0 ? `<span class="product-badge-tag product-badge-deal" style="top:12px; left:12px;">${discountPercent}% OFF</span>` : ''}
+      <button class="wishlist-float-btn ${isWishlisted ? 'active' : ''}" style="top:12px; right:12px;" onclick="toggleWishlist(${product.id}); this.classList.toggle('active');">
+        <i class="${isWishlisted ? 'fa-solid fa-heart' : 'fa-regular fa-heart'}" style="${isWishlisted ? 'color:#E03131;' : ''}"></i>
+      </button>
       <img src="${product.image_url}" alt="${product.title}" style="width:100%; height:100%; object-fit:cover;">
     </div>
-    <div>
+    <div style="display:flex; flex-direction:column;">
       <span class="product-card-brand">${product.brand}</span>
-      <h3 style="font-size:20px; margin-bottom:8px;">${product.title}</h3>
+      <h3 style="font-size:20px; line-height:1.3; margin-bottom:8px;">${product.title}</h3>
+      
       <div class="product-card-rating" style="margin-bottom:12px;">
         <span class="star-rating"><i class="fa-solid fa-star"></i> ${product.rating}</span>
-        <span class="rating-count-text">(${product.rating_count} ratings)</span>
+        <span class="rating-count-text">(${product.rating_count ? product.rating_count.toLocaleString() : '50+'} verified ratings)</span>
       </div>
-      <div class="product-card-pricing" style="margin-bottom:14px;">
+
+      <div class="product-card-pricing" style="margin-bottom:12px;">
         <span class="current-price" style="font-size:24px;">₹${product.price.toLocaleString('en-IN')}</span>
-        ${product.original_price ? `<span class="original-price" style="font-size:16px;">₹${product.original_price.toLocaleString('en-IN')}</span>` : ''}
+        ${product.original_price && product.original_price > product.price ? `<span class="original-price" style="font-size:16px;">₹${product.original_price.toLocaleString('en-IN')}</span>` : ''}
+        ${discountPercent > 0 ? `<span class="discount-percentage">${discountPercent}% off</span>` : ''}
       </div>
-      <p style="font-size:13px; color:var(--color-text-body); line-height:1.6; margin-bottom:18px;">
+
+      <div class="${stockClass}" style="margin-bottom:14px;">
+        ${stockText}
+      </div>
+
+      <p style="font-size:13px; color:var(--color-text-body); line-height:1.6; margin-bottom:16px; flex:1;">
         ${product.description}
       </p>
+
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+        <span style="font-size:13px; font-weight:600; color:var(--color-text-muted);">Quantity:</span>
+        <div class="drawer-qty-control" style="background:var(--color-bg-subtle);">
+          <button onclick="modifyQuickViewQty(-1, ${product.stock})">-</button>
+          <span id="quick-view-qty-val">1</span>
+          <button onclick="modifyQuickViewQty(1, ${product.stock})">+</button>
+        </div>
+      </div>
+
       <div style="display:flex; gap:12px;">
-        <button class="btn-primary" style="flex:1; justify-content:center;" onclick="addToCart(${product.id}); closeQuickViewModal();">
-          <i class="fa-solid fa-bag-shopping"></i> Add to Cart
+        <button class="btn-primary" style="flex:1; justify-content:center;" onclick="addToCart(${product.id}, quickViewActiveQty); closeQuickViewModal();" ${product.stock <= 0 ? 'disabled' : ''}>
+          <i class="fa-solid fa-bag-shopping"></i> Add to Basket
         </button>
         <a href="/product/${product.id}" class="btn-secondary" style="padding:10px 18px;">
           Full Details &rarr;
@@ -713,6 +834,12 @@ async function openQuickView(productId) {
     </div>
   `;
   modal.classList.add("open");
+}
+
+function modifyQuickViewQty(delta, maxStock) {
+  quickViewActiveQty = Math.max(1, Math.min(maxStock || 50, quickViewActiveQty + delta));
+  const el = document.getElementById("quick-view-qty-val");
+  if (el) el.textContent = quickViewActiveQty;
 }
 
 function closeQuickViewModal(e) {

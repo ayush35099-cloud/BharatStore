@@ -15,10 +15,13 @@
   <div class="catalog-page-layout">
     
     <!-- Filter Sidebar -->
-    <aside class="filter-sidebar">
+    <aside class="filter-sidebar" id="catalog-filter-sidebar">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
         <h3 style="font-size:16px;"><i class="fa-solid fa-sliders" style="color:var(--color-primary);"></i> Filters</h3>
-        <button onclick="resetCatalogFilters()" style="background:transparent; border:none; font-size:12px; font-weight:700; color:var(--color-primary); cursor:pointer;">Reset All</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button onclick="resetCatalogFilters()" style="background:transparent; border:none; font-size:12px; font-weight:700; color:var(--color-primary); cursor:pointer;">Reset All</button>
+          <button class="filter-sidebar-close-btn" onclick="toggleMobileFilterSidebar()" style="display:none; background:transparent; border:none; font-size:20px; line-height:1; cursor:pointer; color:var(--color-text-muted);">&times;</button>
+        </div>
       </div>
 
       <!-- Category Filter -->
@@ -130,6 +133,9 @@
         </div>
 
         <div style="display:flex; align-items:center; gap:12px;">
+          <button class="btn-secondary mobile-filter-toggle-btn" onclick="toggleMobileFilterSidebar()">
+            <i class="fa-solid fa-sliders"></i> Filters
+          </button>
           <label style="font-size:12.5px; font-weight:600; color:var(--color-text-muted);">Sort By:</label>
           <select id="catalog-sort-select" class="sort-select" onchange="sortCatalogProducts(this.value)">
             <option value="featured">Featured & Popular</option>
@@ -145,6 +151,9 @@
       <div class="products-grid" id="catalog-products-grid">
         <!-- Injected via JavaScript from /api/products -->
       </div>
+
+      <!-- Pagination Controls -->
+      <div class="pagination-wrapper" id="catalog-pagination-container"></div>
 
       <!-- Empty State -->
       <div id="catalog-empty-state" style="display:none; text-align:center; padding:64px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); margin-top:20px;">

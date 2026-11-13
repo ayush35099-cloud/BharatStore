@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}My Wishlist — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+  
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+    <h2><i class="fa-solid fa-heart" style="color:#E03131; margin-right:8px;"></i> My Saved Wishlist</h2>
+    <span style="font-size:13.5px; color:var(--color-text-muted);">
+      <span id="page-wishlist-count">0</span> items saved
+    </span>
+  </div>
+
+  <!-- Wishlist Grid -->
+  <div class="products-grid" id="wishlist-products-grid">
+    <!-- Populated by app.js -->
+  </div>
+
+  <!-- Empty Wishlist State -->
+  <div id="wishlist-empty-view" style="display:none; text-align:center; padding:72px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); max-width:600px; margin:auto;">
+    <i class="fa-regular fa-heart" style="font-size:56px; color:var(--color-border-strong); margin-bottom:16px;"></i>
+    <h3>Your Wishlist is Empty</h3>
+    <p style="color:var(--color-text-muted); font-size:14px; margin:8px 0 24px 0;">
+      Save items you love by tapping the heart icon on any product card or details page.
+    </p>
+    <a href="/products" class="btn-primary">Browse Catalog</a>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    renderWishlistPage();
+  });
+</script>
+{% endblock %}

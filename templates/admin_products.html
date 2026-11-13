@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Product Management — BharatStore Admin{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="admin-layout">
+    
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar">
+      <div style="padding:10px 14px 18px 14px; border-bottom:1px solid var(--color-border); margin-bottom:14px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-primary); letter-spacing:1px;">Store Management</span>
+        <h3 style="font-size:17px; margin-top:2px;">Merchant Portal</h3>
+      </div>
+      <a href="/admin" class="admin-nav-link"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
+      <a href="/admin/products" class="admin-nav-link active"><i class="fa-solid fa-boxes-stacked"></i> Products (52+)</a>
+      <a href="/admin/inventory" class="admin-nav-link"><i class="fa-solid fa-warehouse"></i> Inventory & Hubs</a>
+      <a href="/admin/orders" class="admin-nav-link"><i class="fa-solid fa-clipboard-list"></i> Order Management</a>
+      <div style="padding:14px 14px 10px 14px; border-top:1px solid var(--color-border); margin-top:18px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-text-muted);">Quick Links</span>
+      </div>
+      <a href="/architecture" class="admin-nav-link"><i class="fa-solid fa-microchip"></i> Aiven Architecture</a>
+      <a href="/" class="admin-nav-link"><i class="fa-solid fa-arrow-left"></i> View Live Store</a>
+    </aside>
+
+    <!-- Main Content -->
+    <main>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+        <div>
+          <span class="section-kicker">Catalog Administration</span>
+          <h2>Product Management (<span id="admin-prod-total-count">52</span> Items)</h2>
+        </div>
+        <button class="btn-primary" onclick="openAddProductModal()" style="font-size:13px;">
+          <i class="fa-solid fa-plus"></i> Add New Product
+        </button>
+      </div>
+
+      <!-- Search & Category Filters -->
+      <div style="display:flex; gap:12px; margin-bottom:20px;">
+        <input type="text" id="admin-prod-search" class="form-control" placeholder="Filter by product name, SKU or brand..." oninput="filterAdminProducts(this.value)">
+        <select id="admin-prod-cat-filter" class="form-control" style="max-width:240px;" onchange="filterAdminProductsByCategory(this.value)">
+          <option value="">All Categories</option>
+          <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
+          <option value="Mobiles & Tablets">Mobiles & Tablets</option>
+          <option value="Laptops & Computers">Laptops & Computers</option>
+          <option value="Audio & Wearables">Audio & Wearables</option>
+          <option value="Home & Kitchen">Home & Kitchen</option>
+          <option value="Fashion & Apparel">Fashion & Apparel</option>
+          <option value="Beauty & Personal Care">Beauty & Personal Care</option>
+        </select>
+      </div>
+
+      <!-- Products Table -->
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); overflow:hidden; box-shadow:var(--shadow-sm);">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Product</th>
+              <th>Category</th>
+              <th>Price (₹)</th>
+              <th>Stock</th>
+              <th>Rating</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="admin-products-table-body">
+            <!-- Populated via app.js -->
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<!-- Add / Edit Product Modal -->
+<div class="cart-drawer-overlay" id="product-modal-overlay" onclick="closeProductModal(event)">
+  <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-xl); max-width:620px; width:92%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);" onclick="event.stopPropagation()">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+      <h3 style="font-size:18px;" id="product-modal-title">Add New Product</h3>
+      <button onclick="closeProductModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+    </div>
+
+    <form onsubmit="handleProductFormSubmit(event)">
+      <input type="hidden" id="modal-product-id" value="">
+      
+      <div class="form-group">
+        <label>Product Title *</label>
+        <input type="text" id="modal-product-title" class="form-control" required placeholder="e.g. Organic Raw Forest Honey 500g">
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label>Brand Name *</label>
+          <input type="text" id="modal-product-brand" class="form-control" required placeholder="e.g. Rosier Foods">
+        </div>
+        <div class="form-group">
+          <label>Category *</label>
+          <select id="modal-product-category" class="form-control" required>
+            <option value="Daily Essentials & Groceries">Daily Essentials & Groceries</option>
+            <option value="Mobiles & Tablets">Mobiles & Tablets</option>
+            <option value="Laptops & Computers">Laptops & Computers</option>
+            <option value="Audio & Wearables">Audio & Wearables</option>
+            <option value="Home & Kitchen">Home & Kitchen</option>
+            <option value="Fashion & Apparel">Fashion & Apparel</option>
+            <option value="Beauty & Personal Care">Beauty & Personal Care</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label>Selling Price (₹) *</label>
+          <input type="number" id="modal-product-price" class="form-control" required min="1">
+        </div>
+        <div class="form-group">
+          <label>Original MRP (₹)</label>
+          <input type="number" id="modal-product-original-price" class="form-control" min="1">
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label>Stock Count *</label>
+          <input type="number" id="modal-product-stock" class="form-control" required min="0">
+        </div>
+        <div class="form-group">
+          <label>SKU (Auto-generated if empty)</label>
+          <input type="text" id="modal-product-sku" class="form-control" placeholder="e.g. BK-FOOD-010">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Image URL (Unsplash or CDN link)</label>
+        <input type="url" id="modal-product-image" class="form-control" placeholder="https://images.unsplash.com/...">
+      </div>
+
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="modal-product-desc" class="form-control" rows="3" placeholder="Product details, ingredients, or specifications..."></textarea>
+      </div>
+
+      <button type="submit" class="btn-primary" style="width:100%; justify-content:center; padding:12px;">
+        Save Product to Catalog
+      </button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    loadAdminProductsTable();
+  });
+</script>
+{% endblock %}

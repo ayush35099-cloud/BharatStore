@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Shopping Cart — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+  
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+    <h2><i class="fa-solid fa-bag-shopping" style="color:var(--color-primary); margin-right:8px;"></i> Shopping Cart</h2>
+    <span style="font-size:13.5px; color:var(--color-text-muted);">
+      <span id="page-cart-item-count">0</span> items in your basket
+    </span>
+  </div>
+
+  <div class="checkout-layout" id="cart-content-wrapper">
+    
+    <!-- Left: Cart Items List -->
+    <div>
+      
+      <!-- Free Shipping Meter -->
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:16px 20px; margin-bottom: 20px; box-shadow:var(--shadow-sm);">
+        <div style="display:flex; justify-content:space-between; font-size:12.5px; font-weight:700; margin-bottom:6px;">
+          <span id="shipping-meter-text"><i class="fa-solid fa-truck-fast" style="color:var(--color-sage);"></i> Add ₹499 for FREE Physical Hub Delivery!</span>
+          <span id="shipping-meter-val" style="color:var(--color-primary);">0%</span>
+        </div>
+        <div style="height:6px; background:var(--color-bg-subtle); border-radius:var(--radius-full); overflow:hidden;">
+          <div id="shipping-meter-bar" style="height:100%; width:0%; background:var(--color-sage); transition:width 0.4s ease;"></div>
+        </div>
+      </div>
+
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:24px; box-shadow:var(--shadow-sm);">
+        <div id="cart-page-items-list">
+          <!-- Populated by app.js -->
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--color-border-subtle);">
+          <a href="/products" class="btn-secondary" style="font-size:13px;">
+            <i class="fa-solid fa-arrow-left"></i> Continue Shopping
+          </a>
+          <button class="btn-secondary" onclick="clearCart()" style="font-size:13px; color:var(--color-danger); border-color:var(--color-danger-light);">
+            <i class="fa-solid fa-trash-can"></i> Clear Basket
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: Order Summary -->
+    <div>
+      <div class="checkout-summary-box">
+        <h3 style="font-size:18px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--color-border);">
+          Order Summary
+        </h3>
+
+        <!-- Coupon Box -->
+        <div style="display:flex; gap:8px; margin-bottom: 20px;">
+          <input type="text" id="coupon-code-input" class="form-control" placeholder="Promo code (try BHARAT10)" style="text-transform:uppercase;">
+          <button class="btn-secondary" onclick="applyCouponCode()" style="padding:0 18px; font-weight:700;">Apply</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:12px; font-size:13.5px; margin-bottom: 20px;">
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Items Subtotal</span>
+            <span id="summary-subtotal" style="color:var(--color-text-main); font-weight:700;">₹0</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Coupon Discount</span>
+            <span id="summary-discount" style="color:var(--color-sage); font-weight:700;">-₹0</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Physical Hub Express Delivery</span>
+            <span id="summary-shipping" style="color:var(--color-sage); font-weight:700;">FREE</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Estimated GST (18%)</span>
+            <span id="summary-taxes" style="color:var(--color-text-main);">Included in Price</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:18px; font-weight:800; color:var(--color-text-main); padding-top:14px; border-top:1.5px solid var(--color-border);">
+            <span>Grand Total</span>
+            <span id="summary-grand-total" style="color:var(--color-primary);">₹0</span>
+          </div>
+        </div>
+
+        <a href="/checkout" class="btn-primary" style="width:100%; justify-content:center; padding:14px; font-size:15px; margin-bottom:14px;">
+          <i class="fa-solid fa-lock"></i> Proceed to Checkout
+        </a>
+
+        <div style="text-align:center; font-size:11.5px; color:var(--color-text-muted);">
+          <i class="fa-solid fa-shield-halved" style="color:var(--color-sage);"></i> 100% Secure Checkout with Aiven ACID Row-Locking
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Empty Cart State -->
+  <div id="cart-empty-view" style="display:none; text-align:center; padding:72px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); max-width:600px; margin:auto;">
+    <i class="fa-solid fa-bag-shopping" style="font-size:56px; color:var(--color-border-strong); margin-bottom:16px;"></i>
+    <h3>Your Basket is Empty</h3>
+    <p style="color:var(--color-text-muted); font-size:14px; margin:8px 0 24px 0;">
+      Looks like you haven't added anything to your cart yet. Explore 52+ authentic products from our physical store catalog!
+    </p>
+    <a href="/products" class="btn-primary">Start Shopping Now</a>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    renderCartPage();
+  });
+</script>
+{% endblock %}

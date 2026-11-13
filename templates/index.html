@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}BharatStore — Physical Stores Across India, Now Online{% endblock %}
+
+{% block content %}
+
+<!-- =========================================================================
+     8. LARGE PROMOTIONAL HERO BANNER & SLIDER
+     ========================================================================= -->
+<section class="hero-banner-section">
+  <div class="container">
+    <div class="hero-slider-card">
+      <div class="hero-content">
+        <span class="hero-tag">
+          <i class="fa-solid fa-sparkles"></i> The New Standard in Indian Retail
+        </span>
+        <h1 class="hero-title">
+          Physical Stores Across India, <em>Now Online</em>.
+        </h1>
+        <p class="hero-subtitle">
+          Experience authentic farm-fresh organic foods, top-tier computing, and everyday essentials dispatched straight from physical metro store hubs to your doorstep in 2 hours.
+        </p>
+        <div class="hero-cta-group">
+          <a href="/products" class="btn-primary">
+            Explore 50+ Products <i class="fa-solid fa-arrow-right"></i>
+          </a>
+          <a href="/products?category=Daily+Essentials+%26+Groceries" class="btn-secondary">
+            <i class="fa-solid fa-jar"></i> Pure Organic Foods
+          </a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <img 
+          src="https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=900&auto=format&fit=crop&q=80" 
+          alt="BharatStore Authentic Pure Living"
+          class="hero-image"
+        >
+        <div class="hero-badge-overlay">
+          <div style="font-size: 26px; color: var(--color-primary);"><i class="fa-solid fa-medal"></i></div>
+          <div>
+            <div style="font-size: 13px; font-weight: 800; color: var(--color-text-main);">100% Physical Store Certified</div>
+            <div style="font-size: 11px; color: var(--color-text-muted);">Stock inspected at local metro hubs daily</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4-Feature Highlights Strip -->
+    <div class="features-strip">
+      <div class="feature-box">
+        <div class="feature-icon-circle"><i class="fa-solid fa-bolt"></i></div>
+        <div class="feature-text">
+          <h4>2-Hour Hub Delivery</h4>
+          <p>Dispatched direct from physical city stores</p>
+        </div>
+      </div>
+      <div class="feature-box">
+        <div class="feature-icon-circle"><i class="fa-solid fa-certificate"></i></div>
+        <div class="feature-text">
+          <h4>100% Genuine Origin</h4>
+          <p>Pure A2 Vedic dairy & certified electronics</p>
+        </div>
+      </div>
+      <div class="feature-box">
+        <div class="feature-icon-circle"><i class="fa-solid fa-shield-halved"></i></div>
+        <div class="feature-text">
+          <h4>Aiven ACID Security</h4>
+          <p>Row-level inventory locks & zero overselling</p>
+        </div>
+      </div>
+      <div class="feature-box">
+        <div class="feature-icon-circle"><i class="fa-solid fa-rotate-left"></i></div>
+        <div class="feature-text">
+          <h4>7-Day Store Return</h4>
+          <p>Hassle-free return at any local partner hub</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     9. SHOP BY CATEGORY SECTION
+     ========================================================================= -->
+<section class="section-wrapper">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker">Curated Collections</span>
+        <h2 class="section-title">Shop by Category</h2>
+      </div>
+      <a href="/products" class="section-link">
+        View All Categories <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+    <div class="category-grid">
+      <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-card">
+        <img src="https://images.unsplash.com/photo-1587049352846-4a222e784d38?w=240&auto=format&fit=crop&q=80" alt="Pure Foods" class="category-card-img">
+        <div class="category-card-name">Pure Foods & Groceries</div>
+        <div class="category-card-count">12 Items</div>
+      </a>
+      <a href="/products?category=Mobiles+%26+Tablets" class="category-card">
+        <img src="https://images.unsplash.com/photo-1598327105666-5b89351aff97?w=240&auto=format&fit=crop&q=80" alt="Mobiles" class="category-card-img">
+        <div class="category-card-name">Mobiles & Tablets</div>
+        <div class="category-card-count">6 Items</div>
+      </a>
+      <a href="/products?category=Laptops+%26+Computers" class="category-card">
+        <img src="https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=240&auto=format&fit=crop&q=80" alt="Laptops" class="category-card-img">
+        <div class="category-card-name">Laptops & Tech</div>
+        <div class="category-card-count">8 Items</div>
+      </a>
+      <a href="/products?category=Audio+%26+Wearables" class="category-card">
+        <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=240&auto=format&fit=crop&q=80" alt="Audio" class="category-card-img">
+        <div class="category-card-name">Audio & Wearables</div>
+        <div class="category-card-count">7 Items</div>
+      </a>
+      <a href="/products?category=Home+%26+Kitchen" class="category-card">
+        <img src="https://images.unsplash.com/photo-1585515320310-259814833e62?w=240&auto=format&fit=crop&q=80" alt="Home Kitchen" class="category-card-img">
+        <div class="category-card-name">Home & Kitchen</div>
+        <div class="category-card-count">9 Items</div>
+      </a>
+      <a href="/products?category=Fashion+%26+Apparel" class="category-card">
+        <img src="https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=240&auto=format&fit=crop&q=80" alt="Fashion" class="category-card-img">
+        <div class="category-card-name">Fashion & Apparel</div>
+        <div class="category-card-count">7 Items</div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     11. TODAY'S DEALS (With Live Countdown)
+     ========================================================================= -->
+<section class="section-wrapper" style="background-color: var(--color-bg-subtle); padding: 48px 0;">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span class="section-kicker" style="color: var(--color-terracotta);"><i class="fa-solid fa-fire"></i> Limited Time Offer</span>
+          <div style="display:flex; align-items:center; gap:6px; background:var(--color-bg-surface); padding:3px 10px; border-radius:var(--radius-full); font-size:11.5px; font-weight:700; color:var(--color-terracotta); border:1px solid var(--color-border);">
+            <i class="fa-regular fa-clock"></i> Ends in: <span id="deal-countdown-timer">08h : 42m : 15s</span>
+          </div>
+        </div>
+        <h2 class="section-title">Today's Hub Deals</h2>
+      </div>
+      <a href="/products" class="section-link">
+        Explore All Deals <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+    <!-- Deals Grid (Injected via JS from database) -->
+    <div class="products-grid" id="deals-products-container">
+      <!-- Loaded dynamically by app.js from /api/products -->
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     10. TRENDING PRODUCTS (Traditional Organic Foods & Best Tech)
+     ========================================================================= -->
+<section class="section-wrapper">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker">Customer Favorites</span>
+        <h2 class="section-title">Trending Across India</h2>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-secondary" style="padding: 6px 14px; font-size: 12px;" onclick="filterTrendingTab('all', this)">All</button>
+        <button class="btn-secondary" style="padding: 6px 14px; font-size: 12px;" onclick="filterTrendingTab('Daily Essentials & Groceries', this)">Pure Foods</button>
+        <button class="btn-secondary" style="padding: 6px 14px; font-size: 12px;" onclick="filterTrendingTab('Mobiles & Tablets', this)">Mobiles</button>
+        <button class="btn-secondary" style="padding: 6px 14px; font-size: 12px;" onclick="filterTrendingTab('Laptops & Computers', this)">Laptops</button>
+      </div>
+    </div>
+
+    <div class="products-grid" id="trending-products-container">
+      <!-- Injected via app.js -->
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     14. PROMOTIONAL SPLIT BANNERS
+     ========================================================================= -->
+<section class="section-wrapper">
+  <div class="container">
+    <div class="promo-banners-grid">
+      
+      <!-- Banner 1: Organic Purity (Rosier Aesthetic) -->
+      <div class="promo-banner-card" style="background-image: url('https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800&auto=format&fit=crop&q=80');">
+        <div class="promo-banner-overlay"></div>
+        <div class="promo-banner-content">
+          <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #F5E8D3; font-weight: 700;">Traditional Heritage</span>
+          <h3>A2 Vedic Bilona Ghee & Raw Forest Honey</h3>
+          <p>Hand-crafted from indigenous Gir cows and pristine forest reserves. Free of chemicals, preservatives, and adulteration.</p>
+          <a href="/products?category=Daily+Essentials+%26+Groceries" class="btn-primary" style="background:#FFFFFF; color:#1E1B18;">
+            Shop Pure Organic <i class="fa-solid fa-arrow-right"></i>
+          </a>
+        </div>
+      </div>
+
+      <!-- Banner 2: Next-Gen Computing & Tech -->
+      <div class="promo-banner-card" style="background-image: url('https://images.unsplash.com/photo-1593642632823-8f785ba67e45?w=800&auto=format&fit=crop&q=80');">
+        <div class="promo-banner-overlay" style="background: linear-gradient(90deg, rgba(7, 43, 77, 0.88) 0%, rgba(7, 43, 77, 0.45) 100%);"></div>
+        <div class="promo-banner-content">
+          <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #BFDBFE; font-weight: 700;">High-Performance Gear</span>
+          <h3>Premium Laptops & Workstations</h3>
+          <p>Dell XPS, Apple MacBook Air, and Asus ROG with verified manufacturer warranty and same-day city hub pickup.</p>
+          <a href="/products?category=Laptops+%26+Computers" class="btn-primary" style="background:#FFFFFF; color:#004B8D;">
+            Shop Tech <i class="fa-solid fa-arrow-right"></i>
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     12. BEST-SELLING PRODUCTS
+     ========================================================================= -->
+<section class="section-wrapper">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker">Most Popular</span>
+        <h2 class="section-title">Best-Sellers This Month</h2>
+      </div>
+      <a href="/products" class="section-link">
+        View Best-Seller Chart <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+    <div class="products-grid" id="bestsellers-products-container">
+      <!-- Injected via app.js -->
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     13. RECOMMENDED PRODUCTS
+     ========================================================================= -->
+<section class="section-wrapper" style="background-color: var(--color-bg-subtle); padding: 48px 0;">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker">Curated For You</span>
+        <h2 class="section-title">Recommended by Your Store Hub</h2>
+      </div>
+      <span style="font-size: 13px; color: var(--color-text-muted);">
+        Tailored to <strong id="recommended-hub-label" style="color:var(--color-primary);">Mumbai Hub</strong> customers
+      </span>
+    </div>
+
+    <div class="products-grid" id="recommended-products-container">
+      <!-- Injected via app.js -->
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     15. BRAND / ABOUT STORY SECTION
+     ========================================================================= -->
+<section class="brand-story-section">
+  <div class="container">
+    <div class="brand-story-inner">
+      <div class="story-content">
+        <span class="section-kicker">The BharatStore Philosophy</span>
+        <h2>Where Physical Retail Trust Meets Cloud Velocity</h2>
+        <p class="story-lead">
+          We believe true retail excellence doesn't abandon physical neighborhood stores — it empowers them.
+        </p>
+        <p class="story-body">
+          BharatStore bridges traditional Indian merchants and modern consumers. Every order is fulfilled from local brick-and-mortar store hubs across Mumbai, Bengaluru, Delhi NCR, Hyderabad, Chennai, and Kolkata.
+          Under the hood, Aiven for PostgreSQL guarantees zero overselling through ACID row-level locks, while Apache Kafka broadcasts inventory events in real-time, synchronizing OpenSearch indices within milliseconds.
+        </p>
+        <div class="story-metrics-grid">
+          <div class="metric-item">
+            <h4>52+</h4>
+            <span>Verified Products</span>
+          </div>
+          <div class="metric-item">
+            <h4>6</h4>
+            <span>Metro Store Hubs</span>
+          </div>
+          <div class="metric-item">
+            <h4>100%</h4>
+            <span>ACID Inventory Safe</span>
+          </div>
+        </div>
+      </div>
+      <div class="story-image-wrap">
+        <img 
+          src="https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=800&auto=format&fit=crop&q=80" 
+          alt="BharatStore Hub Architecture"
+          style="width: 100%; height: 380px; object-fit: cover;"
+        >
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     16. CUSTOMER TESTIMONIALS
+     ========================================================================= -->
+<section class="section-wrapper">
+  <div class="container">
+    <div class="section-header" style="text-align: center; justify-content: center; flex-direction: column; align-items: center;">
+      <span class="section-kicker">Verified Shoppers</span>
+      <h2 class="section-title">Loved by Thousands Across India</h2>
+    </div>
+
+    <div class="testimonials-grid">
+      <div class="testimonial-card">
+        <div class="testimonial-rating">
+          <i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i>
+        </div>
+        <p class="testimonial-quote">
+          "The Rosier A2 Gir Cow Bilona Ghee arrived in under 90 minutes from the Worli store hub in a beautiful glass jar. The golden grainy texture and natural aroma are unmatched."
+        </p>
+        <div class="testimonial-user">
+          <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80" alt="Priya" class="testimonial-avatar">
+          <div class="testimonial-meta">
+            <h5>Priya Sharma</h5>
+            <span>Verified Customer &bull; Mumbai Hub</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card">
+        <div class="testimonial-rating">
+          <i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i>
+        </div>
+        <p class="testimonial-quote">
+          "I bought a MacBook Air M2 during the concurrency rush. The transaction visualizer showed the PostgreSQL row lock in real-time. Transparent and arrived the exact same afternoon!"
+        </p>
+        <div class="testimonial-user">
+          <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80" alt="Arjun" class="testimonial-avatar">
+          <div class="testimonial-meta">
+            <h5>Arjun Patel</h5>
+            <span>Tech Lead &bull; Bengaluru Central Hub</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card">
+        <div class="testimonial-rating">
+          <i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star"></i><i class="fa-solid fa-star-half-stroke"></i>
+        </div>
+        <p class="testimonial-quote">
+          "The Khapli wheat flour and Kashmiri saffron are top grade. Having actual physical stores behind the website gives so much peace of mind compared to faceless portals."
+        </p>
+        <div class="testimonial-user">
+          <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Simran" class="testimonial-avatar">
+          <div class="testimonial-meta">
+            <h5>Simran Kaur</h5>
+            <span>Verified Customer &bull; Delhi NCR Hub</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     17. NEWSLETTER SUBSCRIPTION SECTION
+     ========================================================================= -->
+<section class="section-wrapper" style="padding-bottom: 64px;">
+  <div class="container">
+    <div class="newsletter-card">
+      <div class="newsletter-text">
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; color: #A7F3D0;">Stay Informed</span>
+        <h3>Subscribe to BharatStore Hub Updates</h3>
+        <p>Get exclusive early access to farm-fresh arrivals, tech flash sales, and local store discount coupons.</p>
+      </div>
+      <form class="newsletter-form" onsubmit="event.preventDefault(); showToast('Thank you for subscribing to BharatStore updates!'); this.reset();">
+        <input type="email" placeholder="Enter your email address..." class="newsletter-input" required>
+        <button type="submit" class="newsletter-btn">Subscribe</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

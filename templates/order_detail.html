@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Order #{{ order.order_number if order else 'Details' }} — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+  
+  <!-- Breadcrumbs -->
+  <div style="padding: 12px 0 16px 0; font-size: 12.5px; color: var(--color-text-muted);">
+    <a href="/" style="color: var(--color-primary); font-weight:600;"><i class="fa-solid fa-house"></i> Home</a> 
+    <span style="margin: 0 6px;">/</span> 
+    <a href="/orders" style="color: var(--color-primary); font-weight:600;">Orders</a>
+    <span style="margin: 0 6px;">/</span> 
+    <span>Order Details</span>
+  </div>
+
+  {% if order %}
+  <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom: 24px; border-bottom: 1px solid var(--color-border); padding-bottom: 16px;">
+    <div>
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+        <h2 style="font-size:24px;">Order #{{ order.order_number }}</h2>
+        <span class="badge-status {% if order.status == 'CONFIRMED' %}badge-confirmed{% elif order.status == 'CANCELLED' %}badge-cancelled{% else %}badge-pending{% endif %}">
+          {{ order.status }}
+        </span>
+      </div>
+      <span style="font-size:12.5px; color:var(--color-text-muted);">
+        Placed on {{ order.created_at }} &bull; Fulfillment Hub: <strong>{{ order.shipping_city }}</strong>
+      </span>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn-secondary" onclick="window.print()" style="font-size:13px;">
+        <i class="fa-solid fa-print"></i> Print Tax Invoice
+      </button>
+      {% if order.status != 'CANCELLED' %}
+      <button class="btn-secondary" onclick="cancelOrder({{ order.id }})" style="font-size:13px; color:var(--color-danger); border-color:var(--color-danger-light);">
+        <i class="fa-solid fa-ban"></i> Cancel Order
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Shipment Tracking Stepper -->
+  <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); padding:28px; margin-bottom:28px; box-shadow:var(--shadow-sm);">
+    <h3 style="font-size:16px; margin-bottom:20px;">
+      <i class="fa-solid fa-truck-fast" style="color:var(--color-primary); margin-right:8px;"></i> Hyperlocal Store Hub Tracking
+    </h3>
+
+    {% if tracking %}
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; position:relative; margin-bottom:20px;">
+      <div style="text-align:center;">
+        <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-sage); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px auto; font-size:14px;"><i class="fa-solid fa-check"></i></div>
+        <strong style="font-size:13px; display:block;">Order Committed</strong>
+        <span style="font-size:11px; color:var(--color-text-muted);">PostgreSQL Lock</span>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-sage); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px auto; font-size:14px;"><i class="fa-solid fa-box"></i></div>
+        <strong style="font-size:13px; display:block;">Packed at Hub</strong>
+        <span style="font-size:11px; color:var(--color-text-muted);">{{ order.shipping_city }} Store</span>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-primary); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px auto; font-size:14px;"><i class="fa-solid fa-truck"></i></div>
+        <strong style="font-size:13px; display:block;">Dispatched</strong>
+        <span style="font-size:11px; color:var(--color-text-muted);">BlueDart Express</span>
+      </div>
+      <div style="text-align:center;">
+        <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-bg-subtle); color:var(--color-text-muted); display:flex; align-items:center; justify-content:center; margin:0 auto 8px auto; font-size:14px;"><i class="fa-solid fa-house"></i></div>
+        <strong style="font-size:13px; display:block;">Delivered</strong>
+        <span style="font-size:11px; color:var(--color-text-muted);">Same-Day Hub Delivery</span>
+      </div>
+    </div>
+    <div style="font-size:12px; color:var(--color-text-muted); background:var(--color-bg-subtle); padding:10px 16px; border-radius:var(--radius-sm);">
+      Courier: <strong>{{ tracking.shipment.courier_name }}</strong> &bull; Tracking ID: <strong>{{ tracking.shipment.tracking_number }}</strong>
+    </div>
+    {% else %}
+    <p style="font-size:13px; color:var(--color-text-muted);">Tracking events being initialized via regional Kafka broker...</p>
+    {% endif %}
+  </div>
+
+  <div class="checkout-layout">
+    
+    <!-- Items Table -->
+    <div>
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); padding:24px; box-shadow:var(--shadow-sm);">
+        <h3 style="font-size:16px; margin-bottom:16px;">Purchased Items</h3>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Unit Price</th>
+              <th>Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for itm in order['items'] %}
+            <tr>
+              <td>
+                <div style="display:flex; align-items:center; gap:12px;">
+                  {% if itm.image_url %}
+                  <img src="{{ itm.image_url }}" alt="{{ itm.title }}" style="width:48px; height:48px; border-radius:var(--radius-sm); object-fit:cover;">
+                  {% endif %}
+                  <div>
+                    <strong style="font-size:13px; color:var(--color-text-main); display:block;">{{ itm.title }}</strong>
+                    <span style="font-size:11px; color:var(--color-text-muted);">Product ID: #{{ itm.product_id }}</span>
+                  </div>
+                </div>
+              </td>
+              <td><strong>{{ itm.quantity }}</strong></td>
+              <td>₹{{ "{:,}".format(itm.unit_price | int) }}</td>
+              <td><strong>₹{{ "{:,}".format(itm.subtotal | int) }}</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Right: Summary & Address -->
+    <div>
+      <div class="checkout-summary-box">
+        <h3 style="font-size:16px; margin-bottom:14px;">Customer & Delivery</h3>
+        <div style="font-size:13px; line-height:1.6; margin-bottom:18px;">
+          <strong>{{ order.customer_name }}</strong><br>
+          {{ order.shipping_address }}<br>
+          {{ order.shipping_city }}<br>
+          Email: {{ order.customer_email }}<br>
+          Phone: {{ order.customer_phone }}
+        </div>
+
+        <h3 style="font-size:16px; margin-bottom:10px; padding-top:14px; border-top:1px solid var(--color-border);">Payment Details</h3>
+        <div style="font-size:13px; line-height:1.6; margin-bottom:18px;">
+          Method: <strong>{{ order.payment_method }}</strong><br>
+          Payment Status: <span class="badge-status {% if order.payment_status == 'PAID' %}badge-confirmed{% else %}badge-pending{% endif %}">{{ order.payment_status }}</span><br>
+          Payment Reference: <code>{{ order.payment_id or 'Awaiting Gateway Confirmation' }}</code>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; font-size:18px; font-weight:800; padding-top:14px; border-top:1.5px solid var(--color-border);">
+          <span>Total Paid</span>
+          <span style="color:var(--color-primary);">₹{{ "{:,}".format(order.total_amount | int) }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {% else %}
+  <div style="text-align:center; padding:72px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); max-width:500px; margin:auto;">
+    <i class="fa-solid fa-triangle-exclamation" style="font-size:48px; color:var(--color-danger); margin-bottom:16px;"></i>
+    <h3>Order Not Found</h3>
+    <p style="color:var(--color-text-muted); font-size:13.5px; margin:8px 0 20px 0;">We couldn't locate this order in the PostgreSQL database.</p>
+    <a href="/orders" class="btn-primary">View All Orders</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function cancelOrder(orderId) {
+    if (!confirm("Are you sure you want to cancel Order #" + orderId + "? Reserved stock will be automatically replenished.")) return;
+    const res = await fetch(`/api/orders/${orderId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "Customer cancelled order" })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast("Order cancelled & inventory restored!");
+      setTimeout(() => location.reload(), 800);
+    } else {
+      alert("Cancellation error: " + data.error);
+    }
+  }
+</script>
+{% endblock %}

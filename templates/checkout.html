@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block title %}Checkout — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+  
+  <div style="margin-bottom: 24px;">
+    <h2><i class="fa-solid fa-lock" style="color:var(--color-primary); margin-right:8px;"></i> Secure Checkout</h2>
+    <span style="font-size:13px; color:var(--color-text-muted);">
+      Direct Fulfillment from Your Local Physical Store Hub
+    </span>
+  </div>
+
+  <div class="checkout-layout">
+    
+    <!-- Left Column: Checkout Steps Form -->
+    <div>
+      
+      <!-- Step 1: Delivery Address -->
+      <div class="checkout-step-card">
+        <h3><i class="fa-solid fa-location-dot" style="color:var(--color-primary);"></i> 1. Delivery & Contact Details</h3>
+        
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="checkout-customer-name" class="form-control" value="Priya Sharma" required>
+          </div>
+          <div class="form-group">
+            <label>Phone Number *</label>
+            <input type="tel" id="checkout-customer-phone" class="form-control" value="+91 98201 12345" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Email Address (For Live Kafka & BlueDart Tracking) *</label>
+          <input type="email" id="checkout-customer-email" class="form-control" value="priya.sharma@example.in" required>
+        </div>
+
+        <div class="form-group">
+          <label>Street Address / Apartment / Landmark *</label>
+          <input type="text" id="checkout-shipping-address" class="form-control" value="Flat 402, Sea Green Apts, Worli Sea Face" required>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label>Physical Store Fulfillment Metro Hub *</label>
+            <select id="checkout-shipping-city" class="form-control" onchange="updateCheckoutCity(this.value)">
+              <option value="Mumbai">Mumbai MegaHub (Andheri / Worli)</option>
+              <option value="Bengaluru">Bengaluru Central Hub (Indiranagar)</option>
+              <option value="Delhi">Delhi NCR Hub (Connaught Place)</option>
+              <option value="Hyderabad">Hyderabad Hub (HITEC City)</option>
+              <option value="Chennai">Chennai Hub (Anna Nagar)</option>
+              <option value="Kolkata">Kolkata Hub (Park Street)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Postal PIN Code *</label>
+            <input type="text" id="checkout-pincode" class="form-control" value="400030" maxlength="6" required>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Delivery Option -->
+      <div class="checkout-step-card">
+        <h3><i class="fa-solid fa-truck-fast" style="color:var(--color-primary);"></i> 2. Hub Dispatch Mode</h3>
+        
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <label style="display:flex; align-items:flex-start; gap:12px; padding:14px; border:1.5px solid var(--color-primary); border-radius:var(--radius-md); background:var(--color-primary-light); cursor:pointer;">
+            <input type="radio" name="shipping_speed" value="express" checked style="margin-top:4px;">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <strong style="color:var(--color-text-main); font-size:14px;">Hyperlocal 2-Hour Express Delivery</strong>
+                <span class="badge-status badge-confirmed" style="font-size:10px;">FREE</span>
+              </div>
+              <p style="font-size:12px; color:var(--color-text-body); margin-top:2px;">Dispatched immediately via BlueDart / Hub Courier from your metro store hub.</p>
+            </div>
+          </label>
+          <label style="display:flex; align-items:flex-start; gap:12px; padding:14px; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-bg-base); cursor:pointer;">
+            <input type="radio" name="shipping_speed" value="store_pickup" style="margin-top:4px;">
+            <div>
+              <strong style="color:var(--color-text-main); font-size:14px;">Store Counter Pickup (Click & Collect)</strong>
+              <p style="font-size:12px; color:var(--color-text-body); margin-top:2px;">Ready for immediate pickup at the front counter of your selected city store hub.</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Step 3: Payment Method (Gateway Ready / PENDING_PAYMENT Notice) -->
+      <div class="checkout-step-card">
+        <h3><i class="fa-solid fa-credit-card" style="color:var(--color-primary);"></i> 3. Payment Method</h3>
+        
+        <!-- Important Compliance Callout -->
+        <div style="background:var(--color-bg-subtle); border-left:4px solid var(--color-accent-navy); padding:14px 16px; border-radius:var(--radius-sm); margin-bottom:18px; font-size:12.5px; line-height:1.5;">
+          <strong style="color:var(--color-accent-navy);"><i class="fa-solid fa-circle-info"></i> Payment Gateway Integration Stage:</strong><br>
+          Live payment gateway integration will be finalized in the upcoming phase. All online orders will be placed in <strong>PENDING_PAYMENT</strong> status with stock safely locked in PostgreSQL, and will not be marked as paid until cryptographic gateway confirmation is received.
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:center; gap:12px; padding:12px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer;">
+            <input type="radio" name="checkout_payment_method" value="UPI" checked>
+            <i class="fa-solid fa-qrcode" style="font-size:18px; color:var(--color-primary);"></i>
+            <div>
+              <strong style="font-size:13.5px;">UPI FastPay (GPay, PhonePe, Paytm, BHIM)</strong>
+              <div style="font-size:11.5px; color:var(--color-text-muted);">Instant QR code & VPA transfer</div>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:12px; padding:12px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer;">
+            <input type="radio" name="checkout_payment_method" value="CARD">
+            <i class="fa-regular fa-credit-card" style="font-size:18px; color:var(--color-primary);"></i>
+            <div>
+              <strong style="font-size:13.5px;">RuPay / Visa / MasterCard (Debit & Credit)</strong>
+              <div style="font-size:11.5px; color:var(--color-text-muted);">Indian & International cards accepted</div>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:12px; padding:12px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer;">
+            <input type="radio" name="checkout_payment_method" value="NETBANKING">
+            <i class="fa-solid fa-building-columns" style="font-size:18px; color:var(--color-primary);"></i>
+            <div>
+              <strong style="font-size:13.5px;">Net Banking (HDFC, SBI, ICICI, Axis & 50+ Banks)</strong>
+              <div style="font-size:11.5px; color:var(--color-text-muted);">Direct bank transfer</div>
+            </div>
+          </label>
+
+          <label style="display:flex; align-items:center; gap:12px; padding:12px 16px; border:1.5px solid var(--color-border); border-radius:var(--radius-md); cursor:pointer;">
+            <input type="radio" name="checkout_payment_method" value="COD">
+            <i class="fa-solid fa-hand-holding-dollar" style="font-size:18px; color:var(--color-sage);"></i>
+            <div>
+              <strong style="font-size:13.5px;">Cash on Delivery (COD) / Pay at Hub</strong>
+              <div style="font-size:11.5px; color:var(--color-text-muted);">Pay upon delivery via Cash, Card, or UPI</div>
+            </div>
+          </label>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Right Column: Order Review & Confirmation -->
+    <div>
+      <div class="checkout-summary-box">
+        <h3 style="font-size:18px; margin-bottom:16px;">Items in Order</h3>
+        
+        <div id="checkout-items-preview" style="max-height:220px; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:10px;">
+          <!-- Injected via app.js -->
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; font-size:13px; padding-top:14px; border-top:1px solid var(--color-border); margin-bottom:18px;">
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Subtotal</span>
+            <span id="checkout-subtotal" style="font-weight:700; color:var(--color-text-main);">₹0</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
+            <span>Hub Express Delivery</span>
+            <span style="color:var(--color-sage); font-weight:700;">FREE</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:18px; font-weight:800; color:var(--color-text-main); padding-top:10px; border-top:1.5px solid var(--color-border);">
+            <span>Total Payable</span>
+            <span id="checkout-grand-total" style="color:var(--color-primary);">₹0</span>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="btn-submit-order" style="width:100%; justify-content:center; padding:14px; font-size:15px; margin-bottom:12px;" onclick="placeOrderFromCheckout()">
+          <i class="fa-solid fa-lock"></i> Place Order Securely
+        </button>
+
+        <p style="font-size:11.5px; color:var(--color-text-muted); text-align:center; line-height:1.4;">
+          By placing your order, you agree to BharatStore's terms of service and acknowledge the Aiven ACID stock lock commitment.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Live Checkout Transaction Visualizer Modal -->
+<div class="cart-drawer-overlay" id="tx-modal-overlay">
+  <div style="background:var(--color-bg-surface); padding:32px; border-radius:var(--radius-xl); max-width:640px; width:92%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid var(--color-border); padding-bottom:14px;">
+      <h3 style="font-size:18px;"><i class="fa-solid fa-microchip" style="color:var(--color-primary);"></i> Transaction & Event Pipeline Monitor</h3>
+      <button onclick="closeTxModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+    </div>
+
+    <!-- Stepper -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      
+      <!-- Step 1: DB Row Lock -->
+      <div id="step-db" style="display:flex; gap:14px; align-items:flex-start;">
+        <div style="width:28px; height:28px; border-radius:var(--radius-full); background:var(--color-primary-light); color:var(--color-primary); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; flex-shrink:0;">1</div>
+        <div>
+          <h4 style="font-size:13.5px; font-family:var(--font-sans); font-weight:700;">PostgreSQL ACID Transaction (FOR UPDATE Lock)</h4>
+          <p id="tx-step-1-desc" style="font-size:12px; color:var(--color-text-muted);">Acquiring row lock, verifying inventory invariant, and reserving stock...</p>
+        </div>
+      </div>
+
+      <!-- Step 2: Order State -->
+      <div id="step-state" style="display:flex; gap:14px; align-items:flex-start;">
+        <div style="width:28px; height:28px; border-radius:var(--radius-full); background:var(--color-primary-light); color:var(--color-primary); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; flex-shrink:0;">2</div>
+        <div>
+          <h4 style="font-size:13.5px; font-family:var(--font-sans); font-weight:700;">Order Status Lifecycle Assignment</h4>
+          <p id="tx-step-2-desc" style="font-size:12px; color:var(--color-text-muted);">Initialized order in PENDING_PAYMENT status pending gateway integration.</p>
+        </div>
+      </div>
+
+      <!-- Step 3: Kafka Broadcast -->
+      <div id="step-kafka" style="display:flex; gap:14px; align-items:flex-start;">
+        <div style="width:28px; height:28px; border-radius:var(--radius-full); background:var(--color-primary-light); color:var(--color-primary); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; flex-shrink:0;">3</div>
+        <div>
+          <h4 style="font-size:13.5px; font-family:var(--font-sans); font-weight:700;">Apache Kafka: Event Broadcast</h4>
+          <p id="tx-step-3-desc" style="font-size:12px; color:var(--color-text-muted);">Emitting JSON event to topic 'order-events' for OpenSearch sync & warehouse dispatch.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:24px; text-align:right;">
+      <button class="btn-primary" id="btn-tx-finish" style="display:none;" onclick="redirectToOrderConfirmation()">
+        View Order Confirmation & Tracking <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    initCheckoutPage();
+  });
+</script>
+{% endblock %}

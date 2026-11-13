@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Catalog — BharatStore Marketplace{% endblock %}
+
+{% block content %}
+<div class="container">
+  
+  <!-- Breadcrumbs -->
+  <div style="padding: 16px 0 8px 0; font-size: 12.5px; color: var(--color-text-muted);">
+    <a href="/" style="color: var(--color-primary); font-weight:600;"><i class="fa-solid fa-house"></i> Home</a> 
+    <span style="margin: 0 6px;">/</span> 
+    <span id="breadcrumb-category">Products Catalog</span>
+  </div>
+
+  <div class="catalog-page-layout">
+    
+    <!-- Filter Sidebar -->
+    <aside class="filter-sidebar">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+        <h3 style="font-size:16px;"><i class="fa-solid fa-sliders" style="color:var(--color-primary);"></i> Filters</h3>
+        <button onclick="resetCatalogFilters()" style="background:transparent; border:none; font-size:12px; font-weight:700; color:var(--color-primary); cursor:pointer;">Reset All</button>
+      </div>
+
+      <!-- Category Filter -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>Categories</span>
+        </div>
+        <div id="filter-categories-list">
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="" checked onchange="applyFilters()"> All Categories
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Daily Essentials & Groceries" onchange="applyFilters()"> Pure Organic & Foods
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Mobiles & Tablets" onchange="applyFilters()"> Mobiles & Tablets
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Laptops & Computers" onchange="applyFilters()"> Laptops & Computers
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Audio & Wearables" onchange="applyFilters()"> Audio & Wearables
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Home & Kitchen" onchange="applyFilters()"> Home & Kitchen
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Fashion & Apparel" onchange="applyFilters()"> Fashion & Apparel
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="cat_filter" value="Beauty & Personal Care" onchange="applyFilters()"> Beauty & Personal Care
+          </label>
+        </div>
+      </div>
+
+      <!-- Price Range Filter -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>Price Range</span>
+        </div>
+        <label class="filter-checkbox-label">
+          <input type="radio" name="price_filter" value="all" checked onchange="applyFilters()"> Any Price
+        </label>
+        <label class="filter-checkbox-label">
+          <input type="radio" name="price_filter" value="under_1000" onchange="applyFilters()"> Under ₹1,000
+        </label>
+        <label class="filter-checkbox-label">
+          <input type="radio" name="price_filter" value="1000_5000" onchange="applyFilters()"> ₹1,000 - ₹5,000
+        </label>
+        <label class="filter-checkbox-label">
+          <input type="radio" name="price_filter" value="5000_25000" onchange="applyFilters()"> ₹5,000 - ₹25,000
+        </label>
+        <label class="filter-checkbox-label">
+          <input type="radio" name="price_filter" value="above_25000" onchange="applyFilters()"> Above ₹25,000
+        </label>
+      </div>
+
+      <!-- Rating Filter -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>Customer Rating</span>
+        </div>
+        <label class="filter-checkbox-label">
+          <input type="checkbox" id="filter-rating-4" onchange="applyFilters()"> 4★ & Above
+        </label>
+        <label class="filter-checkbox-label">
+          <input type="checkbox" id="filter-rating-45" onchange="applyFilters()"> 4.5★ & Above
+        </label>
+      </div>
+
+      <!-- Availability Filter -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>Availability</span>
+        </div>
+        <label class="filter-checkbox-label">
+          <input type="checkbox" id="filter-in-stock-only" checked onchange="applyFilters()"> In Stock Only
+        </label>
+      </div>
+
+      <!-- Hub Delivery Filter -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>City Hub Availability</span>
+        </div>
+        <select id="filter-hub-select" class="form-control" onchange="applyFilters()" style="padding:8px 12px; font-size:12.5px;">
+          <option value="All">All 6 Store Hubs</option>
+          <option value="Mumbai">Mumbai MegaHub</option>
+          <option value="Bengaluru">Bengaluru Central</option>
+          <option value="Delhi">Delhi NCR Hub</option>
+          <option value="Hyderabad">Hyderabad Hub</option>
+          <option value="Chennai">Chennai Hub</option>
+          <option value="Kolkata">Kolkata Hub</option>
+        </select>
+      </div>
+
+    </aside>
+
+    <!-- Main Products List Section -->
+    <main class="catalog-main-content">
+      
+      <!-- Catalog Controls Header -->
+      <div class="catalog-header-bar">
+        <div>
+          <h2 style="font-size:22px;" id="catalog-title">All Products</h2>
+          <span style="font-size:12.5px; color:var(--color-text-muted);">
+            Showing <strong id="catalog-results-count" style="color:var(--color-text-main);">52</strong> products
+          </span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px;">
+          <label style="font-size:12.5px; font-weight:600; color:var(--color-text-muted);">Sort By:</label>
+          <select id="catalog-sort-select" class="sort-select" onchange="sortCatalogProducts(this.value)">
+            <option value="featured">Featured & Popular</option>
+            <option value="price_low">Price: Low to High</option>
+            <option value="price_high">Price: High to Low</option>
+            <option value="rating">Highest Rated</option>
+            <option value="discount">Biggest Discount</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Products Grid -->
+      <div class="products-grid" id="catalog-products-grid">
+        <!-- Injected via JavaScript from /api/products -->
+      </div>
+
+      <!-- Empty State -->
+      <div id="catalog-empty-state" style="display:none; text-align:center; padding:64px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); margin-top:20px;">
+        <i class="fa-solid fa-box-open" style="font-size:48px; color:var(--color-border-strong); margin-bottom:16px;"></i>
+        <h3>No Products Found</h3>
+        <p style="color:var(--color-text-muted); font-size:13.5px; max-width:400px; margin:8px auto 20px auto;">
+          We couldn't find any products matching your active filters. Try loosening your price or category selections.
+        </p>
+        <button class="btn-primary" onclick="resetCatalogFilters()">Reset All Filters</button>
+      </div>
+
+    </main>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.ACTIVE_CATEGORY_PARAM = "{{ active_category or '' }}";
+  window.SEARCH_QUERY_PARAM = "{{ search_query or '' }}";
+</script>
+{% endblock %}

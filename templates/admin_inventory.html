@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory & Hubs — BharatStore Admin{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="admin-layout">
+    
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar">
+      <div style="padding:10px 14px 18px 14px; border-bottom:1px solid var(--color-border); margin-bottom:14px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-primary); letter-spacing:1px;">Store Management</span>
+        <h3 style="font-size:17px; margin-top:2px;">Merchant Portal</h3>
+      </div>
+      <a href="/admin" class="admin-nav-link"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
+      <a href="/admin/products" class="admin-nav-link"><i class="fa-solid fa-boxes-stacked"></i> Products (52+)</a>
+      <a href="/admin/inventory" class="admin-nav-link active"><i class="fa-solid fa-warehouse"></i> Inventory & Hubs</a>
+      <a href="/admin/orders" class="admin-nav-link"><i class="fa-solid fa-clipboard-list"></i> Order Management</a>
+      <div style="padding:14px 14px 10px 14px; border-top:1px solid var(--color-border); margin-top:18px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-text-muted);">Quick Links</span>
+      </div>
+      <a href="/architecture" class="admin-nav-link"><i class="fa-solid fa-microchip"></i> Aiven Architecture</a>
+      <a href="/" class="admin-nav-link"><i class="fa-solid fa-arrow-left"></i> View Live Store</a>
+    </aside>
+
+    <!-- Main Content -->
+    <main>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+        <div>
+          <span class="section-kicker">Stock & Warehouse Operations</span>
+          <h2>Physical Store Hub Inventory</h2>
+        </div>
+        <button class="btn-secondary" onclick="triggerAdminResetInventory()" style="font-size:12.5px;">
+          <i class="fa-solid fa-rotate-left"></i> Reset Seed Stock
+        </button>
+      </div>
+
+      <!-- Hubs Overview -->
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:24px;">
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--color-text-muted); margin-bottom:4px;">
+            <span>WEST REGION</span>
+            <span class="badge-status badge-confirmed">ACTIVE</span>
+          </div>
+          <strong style="font-size:14px;">Mumbai MegaHub (Andheri West)</strong>
+          <div style="font-size:12px; color:var(--color-text-muted); margin-top:4px;">Dispatches across Mumbai & MMR region</div>
+        </div>
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--color-text-muted); margin-bottom:4px;">
+            <span>SOUTH REGION</span>
+            <span class="badge-status badge-confirmed">ACTIVE</span>
+          </div>
+          <strong style="font-size:14px;">Bengaluru Central (Indiranagar)</strong>
+          <div style="font-size:12px; color:var(--color-text-muted); margin-top:4px;">Dispatches across Bengaluru metro</div>
+        </div>
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--color-text-muted); margin-bottom:4px;">
+            <span>NORTH REGION</span>
+            <span class="badge-status badge-confirmed">ACTIVE</span>
+          </div>
+          <strong style="font-size:14px;">Delhi NCR Hub (Connaught Place)</strong>
+          <div style="font-size:12px; color:var(--color-text-muted); margin-top:4px;">Dispatches across Delhi, Noida, Gurgaon</div>
+        </div>
+      </div>
+
+      <!-- Filter Controls -->
+      <div style="display:flex; gap:12px; margin-bottom:20px;">
+        <input type="text" id="inv-search" class="form-control" placeholder="Search product stock by title or SKU..." oninput="filterInventoryTable(this.value)">
+        <button class="btn-secondary" onclick="filterLowStockOnly()" style="font-size:13px; white-space:nowrap;">
+          <i class="fa-solid fa-triangle-exclamation" style="color:var(--color-terracotta);"></i> Low Stock (≤ 5 units)
+        </button>
+        <button class="btn-secondary" onclick="loadAdminInventoryTable()" style="font-size:13px;">Show All</button>
+      </div>
+
+      <!-- Inventory Table -->
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); overflow:hidden; box-shadow:var(--shadow-sm);">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Product</th>
+              <th>Category</th>
+              <th>Hub Stock</th>
+              <th>Status</th>
+              <th>Quick Adjust Stock</th>
+            </tr>
+          </thead>
+          <tbody id="admin-inventory-table-body">
+            <!-- Rendered via app.js -->
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    loadAdminInventoryTable();
+  });
+</script>
+{% endblock %}

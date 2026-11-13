@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}BharatStore — Physical Stores Across India, Now Online{% endblock %}</title>
+  
+  <!-- Preconnect & Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- BharatStore Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+
+  <!-- Immediate Theme Check to avoid flash -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem("bharatstore_theme");
+      if (savedTheme) {
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- =========================================================================
+       1. ANNOUNCEMENT / PROMOTION BAR
+       ========================================================================= -->
+  <div class="announcement-bar">
+    <div class="announcement-inner">
+      <div class="announcement-left">
+        <span><i class="fa-solid fa-truck-fast"></i> <strong>FREE 2-HOUR DELIVERY</strong> from local physical hubs across 6 metro cities on orders over ₹499</span>
+      </div>
+      <div class="announcement-right">
+        <span>Use code <strong>BHARAT10</strong> for 10% instant off</span>
+        <a href="/products?category=Daily+Essentials+%26+Groceries"><i class="fa-solid fa-seedling"></i> Farm Fresh Pure Foods</a>
+        <a href="/architecture" style="font-weight:700;"><i class="fa-solid fa-microchip"></i> Aiven Architecture</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       2. MAIN HEADER (Logo, Search, Hub Picker, Account, Wishlist, Cart)
+       ========================================================================= -->
+  <header class="main-header">
+    <div class="container header-inner">
+      
+      <!-- Brand Logo -->
+      <a href="/" class="brand-logo-group">
+        <div class="logo-badge-icon">
+          <i class="fa-solid fa-store"></i>
+        </div>
+        <div class="logo-texts">
+          <span class="brand-name">Bharat<span>Store</span></span>
+          <span class="brand-tagline">Physical Stores Across India, Now Online</span>
+        </div>
+      </a>
+
+      <!-- Delivery Hub Picker -->
+      <div class="hub-selector-box" onclick="openHubSwitchModal()" title="Select your local physical store fulfillment hub">
+        <i class="fa-solid fa-location-dot hub-icon"></i>
+        <div class="hub-details">
+          <span class="hub-label">Deliver To</span>
+          <span class="hub-name" id="current-hub-display">Mumbai Hub</span>
+        </div>
+        <i class="fa-solid fa-chevron-down" style="font-size: 10px; color: var(--color-text-muted);"></i>
+      </div>
+
+      <!-- Search Bar with Category and Autocomplete -->
+      <div class="header-search-form">
+        <form action="/products" method="GET" class="search-input-wrapper">
+          <select name="category" class="search-category-select" id="header-search-category">
+            <option value="">All Categories</option>
+            <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
+            <option value="Mobiles & Tablets">Mobiles & Tablets</option>
+            <option value="Laptops & Computers">Laptops & Tech</option>
+            <option value="Audio & Wearables">Audio & Wearables</option>
+            <option value="Home & Kitchen">Home & Kitchen</option>
+            <option value="Fashion & Apparel">Fashion & Apparel</option>
+            <option value="Beauty & Personal Care">Beauty & Wellness</option>
+          </select>
+          <input 
+            type="text" 
+            name="q" 
+            id="header-search-input" 
+            class="search-input-field" 
+            placeholder="Search 50+ authentic products (e.g. 'A2 ghee', 'lapop', 'iphone', 'kurta')..."
+            autocomplete="off"
+            oninput="handleSearchAutocomplete(this.value)"
+          >
+          <button type="submit" class="search-submit-btn" aria-label="Search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+        </form>
+
+        <!-- Dynamic Typo-Tolerant Autocomplete Dropdown -->
+        <div class="search-suggestions-dropdown" id="search-suggestions-box"></div>
+      </div>
+
+      <!-- Action Icons (Theme, Account, Wishlist, Cart) -->
+      <div class="header-actions">
+        
+        <!-- Theme Toggle -->
+        <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">
+          <i class="fa-solid fa-moon" id="theme-icon"></i>
+        </button>
+
+        <!-- Account Link -->
+        <div style="position: relative;" class="account-dropdown-wrapper">
+          <a href="/profile" class="header-action-link" id="header-user-btn" title="Customer Profile">
+            <i class="fa-regular fa-user"></i>
+            <div style="display:flex; flex-direction:column; line-height: 1.1;">
+              <span style="font-size: 10px; color: var(--color-text-muted);">Hello, <span id="current-user-first-name">Priya</span></span>
+              <span style="font-size: 12px; font-weight:700;">Account</span>
+            </div>
+          </a>
+        </div>
+
+        <!-- Wishlist -->
+        <a href="/wishlist" class="header-action-link" title="My Wishlist">
+          <i class="fa-regular fa-heart"></i>
+          <span class="badge-counter" id="wishlist-badge-count">0</span>
+        </a>
+
+        <!-- Shopping Cart Trigger -->
+        <button class="header-action-link cart-button-highlight" onclick="toggleCartDrawer()" title="View Cart">
+          <i class="fa-solid fa-bag-shopping"></i>
+          <span class="badge-counter" id="cart-badge-count">0</span>
+          <span style="font-size:12.5px; margin-left: 2px;" id="header-cart-subtotal">₹0</span>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================================================
+       7. CATEGORY NAVIGATION BAR
+       ========================================================================= -->
+  <nav class="category-navbar">
+    <div class="container category-nav-inner">
+      <a href="/products" class="category-nav-link active">
+        <i class="fa-solid fa-border-all"></i> All Products
+      </a>
+      <span class="category-nav-separator"></span>
+      <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-nav-link">
+        <i class="fa-solid fa-jar"></i> Pure Organic & Foods
+      </a>
+      <a href="/products?category=Mobiles+%26+Tablets" class="category-nav-link">
+        <i class="fa-solid fa-mobile-screen"></i> Mobiles & Tablets
+      </a>
+      <a href="/products?category=Laptops+%26+Computers" class="category-nav-link">
+        <i class="fa-solid fa-laptop"></i> Laptops & Tech
+      </a>
+      <a href="/products?category=Audio+%26+Wearables" class="category-nav-link">
+        <i class="fa-solid fa-headphones"></i> Audio & Wearables
+      </a>
+      <a href="/products?category=Home+%26+Kitchen" class="category-nav-link">
+        <i class="fa-solid fa-blender"></i> Home & Kitchen
+      </a>
+      <a href="/products?category=Fashion+%26+Apparel" class="category-nav-link">
+        <i class="fa-solid fa-shirt"></i> Fashion & Apparel
+      </a>
+      <a href="/products?category=Beauty+%26+Personal+Care" class="category-nav-link">
+        <i class="fa-solid fa-spa"></i> Beauty & Wellness
+      </a>
+      <span class="category-nav-separator"></span>
+      <a href="/orders" class="category-nav-link" style="color: var(--color-accent-navy);">
+        <i class="fa-solid fa-box"></i> My Orders
+      </a>
+      <a href="/admin" class="category-nav-link" style="color: var(--color-primary);">
+        <i class="fa-solid fa-shield-halved"></i> Admin
+      </a>
+    </div>
+  </nav>
+
+  <!-- =========================================================================
+       MAIN BODY CONTENT BLOCK
+       ========================================================================= -->
+  <main style="flex: 1;">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- =========================================================================
+       18. COMPLETE FOOTER
+       ========================================================================= -->
+  <footer class="main-footer">
+    <div class="container">
+      <div class="footer-top-grid">
+        
+        <!-- Col 1: Brand & Hub Info -->
+        <div class="footer-col">
+          <div class="brand-logo-group" style="margin-bottom: 14px;">
+            <div class="logo-badge-icon" style="width:36px; height:36px; font-size:16px;">
+              <i class="fa-solid fa-store"></i>
+            </div>
+            <span class="brand-name" style="color: #FFFFFF; font-size: 22px;">Bharat<span>Store</span></span>
+          </div>
+          <p style="font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
+            India's premier retail expansion marketplace. Connecting authentic brick-and-mortar store hubs with instant digital commerce, powered by Aiven cloud data infrastructure.
+          </p>
+          <div class="hub-tags-list">
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Mumbai</span>
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Bengaluru</span>
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Delhi NCR</span>
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Hyderabad</span>
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Chennai</span>
+            <span class="hub-pill-tag"><i class="fa-solid fa-store"></i> Kolkata</span>
+          </div>
+        </div>
+
+        <!-- Col 2: Categories -->
+        <div class="footer-col">
+          <h4>Explore Catalog</h4>
+          <ul class="footer-links">
+            <li><a href="/products?category=Daily+Essentials+%26+Groceries">Pure Organic & Foods</a></li>
+            <li><a href="/products?category=Mobiles+%26+Tablets">Smartphones & Tablets</a></li>
+            <li><a href="/products?category=Laptops+%26+Computers">Laptops & Workstations</a></li>
+            <li><a href="/products?category=Audio+%26+Wearables">Headphones & Smartwatches</a></li>
+            <li><a href="/products?category=Home+%26+Kitchen">Kitchen Appliances</a></li>
+            <li><a href="/products?category=Fashion+%26+Apparel">Handloom & Apparel</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Customer Care -->
+        <div class="footer-col">
+          <h4>Customer Care</h4>
+          <ul class="footer-links">
+            <li><a href="/orders">Track Your Order</a></li>
+            <li><a href="/orders">Returns & Exchange</a></li>
+            <li><a href="/cart">Shipping Rates & Policies</a></li>
+            <li><a href="/profile">My Account & Addresses</a></li>
+            <li><a href="/wishlist">My Saved Wishlist</a></li>
+            <li><a href="/architecture">Architecture Specification</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: About & Legal -->
+        <div class="footer-col">
+          <h4>About BharatStore</h4>
+          <ul class="footer-links">
+            <li><a href="/architecture">The Retail Expansion Story</a></li>
+            <li><a href="/admin">Merchant & Admin Portal</a></li>
+            <li><a href="/architecture">Aiven Cloud Infrastructure</a></li>
+            <li><a href="/download-pitch-deck">Download Pitch Deck (PDF)</a></li>
+            <li><a href="/download-zip">Download Clean Project ZIP</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 5: Contact & Security -->
+        <div class="footer-col">
+          <h4>24/7 Hub Support</h4>
+          <p style="font-size: 13px; margin-bottom: 8px;">
+            <i class="fa-solid fa-phone" style="color: var(--color-primary); margin-right: 6px;"></i> +91 1800 2026 888 (Toll Free)
+          </p>
+          <p style="font-size: 13px; margin-bottom: 14px;">
+            <i class="fa-solid fa-envelope" style="color: var(--color-primary); margin-right: 6px;"></i> care@bharatstore.in
+          </p>
+          <div style="font-size: 11px; line-height: 1.5; color: #8A7E72;">
+            <i class="fa-solid fa-shield-halved" style="color: var(--color-sage);"></i> 256-Bit SSL Encrypted Transactions with PostgreSQL Row-Level ACID Locks
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer Bottom -->
+      <div class="footer-bottom">
+        <span>&copy; 2026 BharatStore Retail Ltd. Built for the Aiven Hackathon. Physical Stores Across India, Now Online.</span>
+        <div class="trust-badges-row">
+          <span class="trust-pill"><i class="fa-brands fa-cc-visa"></i> Visa</span>
+          <span class="trust-pill"><i class="fa-brands fa-cc-mastercard"></i> MasterCard</span>
+          <span class="trust-pill"><i class="fa-solid fa-credit-card"></i> RuPay</span>
+          <span class="trust-pill"><i class="fa-solid fa-qrcode"></i> UPI FastPay</span>
+          <span class="trust-pill"><i class="fa-solid fa-cloud"></i> Aiven Cloud</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- =========================================================================
+       SLIDE-OVER SHOPPING CART DRAWER
+       ========================================================================= -->
+  <div class="cart-drawer-overlay" id="cart-drawer-overlay" onclick="closeCartDrawer(event)">
+    <div class="cart-drawer" onclick="event.stopPropagation()">
+      <div class="cart-drawer-header">
+        <h3><i class="fa-solid fa-bag-shopping" style="color: var(--color-primary);"></i> Shopping Cart (<span id="drawer-cart-count">0</span>)</h3>
+        <button class="drawer-close-btn" onclick="toggleCartDrawer()">&times;</button>
+      </div>
+
+      <div class="cart-drawer-items" id="cart-drawer-items-container">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+
+      <div class="cart-drawer-footer">
+        <div class="cart-subtotal-row">
+          <span>Subtotal:</span>
+          <span id="drawer-cart-total">₹0</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <a href="/checkout" class="btn-primary" style="justify-content: center; text-align: center;">
+            <i class="fa-solid fa-lock"></i> Proceed to Checkout
+          </a>
+          <a href="/cart" class="btn-secondary" style="justify-content: center; text-align: center;">
+            View Detailed Cart & Savings
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       PHYSICAL HUB SWITCH MODAL
+       ========================================================================= -->
+  <div class="cart-drawer-overlay" id="hub-modal-overlay" onclick="closeHubSwitchModal(event)">
+    <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-lg); max-width:480px; width:90%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);" onclick="event.stopPropagation()">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="font-size:18px;"><i class="fa-solid fa-location-dot" style="color:var(--color-primary);"></i> Select Local Store Hub</h3>
+        <button onclick="closeHubSwitchModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+      <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:18px;">
+        Choose your nearest physical store hub to view live hyper-local inventory stock and 2-hour express delivery availability.
+      </p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;" id="hub-options-container">
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Mumbai')"><i class="fa-solid fa-store"></i> Mumbai MegaHub</button>
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Bengaluru')"><i class="fa-solid fa-store"></i> Bengaluru Central</button>
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Delhi')"><i class="fa-solid fa-store"></i> Delhi NCR Hub</button>
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Hyderabad')"><i class="fa-solid fa-store"></i> Hyderabad Hub</button>
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Chennai')"><i class="fa-solid fa-store"></i> Chennai Hub</button>
+        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Kolkata')"><i class="fa-solid fa-store"></i> Kolkata Hub</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       QUICK-VIEW PRODUCT MODAL
+       ========================================================================= -->
+  <div class="cart-drawer-overlay" id="quick-view-overlay" onclick="closeQuickViewModal(event)">
+    <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-xl); max-width:820px; width:92%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg); position:relative;" onclick="event.stopPropagation()">
+      <button onclick="closeQuickViewModal()" style="position:absolute; top:18px; right:18px; background:transparent; border:none; font-size:24px; cursor:pointer; color:var(--color-text-muted);">&times;</button>
+      <div id="quick-view-content" style="display:grid; grid-template-columns:1fr 1.2fr; gap:28px;">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- =========================================================================
+       LIVE KAFKA EVENT STREAM TRAY (Bottom Collapsible)
+       ========================================================================= -->
+  <div class="event-inspector-tray collapsed" id="event-inspector-tray">
+    <div class="tray-header" onclick="toggleEventTray()">
+      <div>
+        <i class="fa-solid fa-bolt" style="color: #F59E0B;"></i> 
+        <span>Aiven Apache Kafka Real-Time Stream</span>
+        <span style="font-weight:400; opacity:0.8; margin-left:8px;">Topic: <code>order-events</code></span>
+      </div>
+      <div>
+        <span id="kafka-tray-status" style="font-size:11px; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:var(--radius-xs); margin-right:8px;">Live Connected</span>
+        <i class="fa-solid fa-chevron-up" id="tray-toggle-icon"></i>
+      </div>
+    </div>
+    <div class="tray-content" id="kafka-tray-logs">
+      <div style="color: #8A7E72;">[Kafka Consumer] Listening to live events broadcast from order transactions...</div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/live-events.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

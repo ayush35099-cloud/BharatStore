@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.title }} — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container">
+  
+  <!-- Breadcrumbs -->
+  <div style="padding: 16px 0 12px 0; font-size: 12.5px; color: var(--color-text-muted);">
+    <a href="/" style="color: var(--color-primary); font-weight:600;"><i class="fa-solid fa-house"></i> Home</a> 
+    <span style="margin: 0 6px;">/</span> 
+    <a href="/products?category={{ product.category | urlencode }}" style="color: var(--color-primary); font-weight:600;">{{ product.category }}</a>
+    <span style="margin: 0 6px;">/</span> 
+    <span>{{ product.title }}</span>
+  </div>
+
+  <div class="product-detail-layout">
+    
+    <!-- Left: Gallery -->
+    <div class="detail-gallery-pane">
+      <div class="detail-gallery-main">
+        <img id="main-detail-img" src="{{ product.image_url }}" alt="{{ product.title }}">
+      </div>
+      <div class="detail-thumbs-row">
+        <div class="detail-thumb-item active" onclick="switchDetailImage('{{ product.image_url }}', this)">
+          <img src="{{ product.image_url }}" alt="Primary" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Information & Purchasing -->
+    <div class="detail-info-pane">
+      <div class="product-card-brand" style="font-size: 13px;">{{ product.brand }}</div>
+      <h1>{{ product.title }}</h1>
+      
+      <div style="display:flex; align-items:center; gap:16px; margin: 10px 0 16px 0; font-size: 13px;">
+        <div class="star-rating">
+          <i class="fa-solid fa-star"></i> {{ product.rating }}
+        </div>
+        <span style="color: var(--color-text-muted);">({{ product.rating_count }} Verified Ratings)</span>
+        <span style="color: var(--color-border-strong);">|</span>
+        <span style="color: var(--color-text-muted); font-family: var(--font-mono); font-size: 11.5px;">SKU: {{ product.sku }}</span>
+      </div>
+
+      <!-- Pricing Box -->
+      <div class="detail-price-box">
+        <span class="current-price" style="font-size: 32px;">₹{{ "{:,}".format(product.price | int) }}</span>
+        {% if product.original_price and product.original_price > product.price %}
+        <span class="original-price" style="font-size: 18px;">₹{{ "{:,}".format(product.original_price | int) }}</span>
+        <span class="discount-percentage" style="font-size: 14px; padding: 2px 10px;">
+          Save {{ ((product.original_price - product.price) / product.original_price * 100) | round | int }}%
+        </span>
+        {% endif %}
+      </div>
+
+      <!-- Hub Availability -->
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:14px 18px; margin-bottom: 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-size: 13px; font-weight:700; color:var(--color-text-main);">
+            <i class="fa-solid fa-store" style="color:var(--color-primary); margin-right:6px;"></i> Physical Store Hub Fulfillment
+          </span>
+          <span class="badge-status badge-confirmed" style="font-size:11px;">
+            <i class="fa-solid fa-check"></i> In Stock ({{ product.stock }} units)
+          </span>
+        </div>
+        <p style="font-size: 12px; color: var(--color-text-muted); line-height: 1.4;">
+          Available for instant 2-hour delivery or in-store pickup across hubs: 
+          <strong>{{ product.cities | join(", ") if product.cities else "Mumbai, Bengaluru, Delhi" }}</strong>.
+        </p>
+      </div>
+
+      <!-- Quantity & Action Buttons -->
+      <div style="display:flex; gap:16px; align-items:center; margin-bottom: 24px;">
+        <div style="display:flex; align-items:center; border:1.5px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden; background:var(--color-bg-base);">
+          <button style="border:none; background:transparent; padding:10px 16px; cursor:pointer; font-weight:800;" onclick="decrementDetailQty()">-</button>
+          <span id="detail-qty-input" style="padding:10px 14px; font-size:14px; font-weight:700;">1</span>
+          <button style="border:none; background:transparent; padding:10px 16px; cursor:pointer; font-weight:800;" onclick="incrementDetailQty({{ product.stock }})">+</button>
+        </div>
+
+        <button class="btn-primary" style="flex:1; padding:14px 24px; font-size:15px; justify-content:center;" onclick="addCurrentProductToCart({{ product.id }})">
+          <i class="fa-solid fa-bag-shopping"></i> Add to Cart
+        </button>
+
+        <button class="btn-secondary" style="padding:14px 20px; font-size:15px;" onclick="toggleWishlist({{ product.id }})" title="Add to Wishlist">
+          <i class="fa-regular fa-heart"></i>
+        </button>
+      </div>
+
+      <!-- Description -->
+      <div style="margin-top: 24px;">
+        <h3 style="font-size:16px; margin-bottom:8px;">About This Product</h3>
+        <p style="font-size:13.5px; line-height:1.7; color:var(--color-text-body);">
+          {{ product.description }}
+        </p>
+      </div>
+
+      <!-- Specifications Table -->
+      <div style="margin-top: 24px;">
+        <h3 style="font-size:16px; margin-bottom:12px;">Product Specifications</h3>
+        <table class="detail-specs-table">
+          <tbody>
+            <tr>
+              <th>Brand</th>
+              <td>{{ product.brand }}</td>
+            </tr>
+            <tr>
+              <th>Category</th>
+              <td>{{ product.category }}</td>
+            </tr>
+            <tr>
+              <th>SKU Reference</th>
+              <td>{{ product.sku }}</td>
+            </tr>
+            <tr>
+              <th>Fulfillment Mode</th>
+              <td>Hyperlocal Physical Hub Express (BlueDart / Hub Courier)</td>
+            </tr>
+            <tr>
+              <th>Return Policy</th>
+              <td>7-Day Replacement or Hub Return Guaranteed</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Customer Reviews Section -->
+  <section style="margin-top: 48px; padding-top: 36px; border-top: 1px solid var(--color-border);">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px;">
+      <div>
+        <span class="section-kicker">Verified Feedback</span>
+        <h2 style="font-size:24px;">Customer Reviews & Ratings</h2>
+      </div>
+      <button class="btn-secondary" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> Write a Review</button>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;" id="reviews-list-container">
+      {% if reviews and reviews | length > 0 %}
+        {% for r in reviews %}
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:20px; box-shadow:var(--shadow-sm);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div class="star-rating">
+              {% for i in range(r.rating) %}<i class="fa-solid fa-star"></i>{% endfor %}
+            </div>
+            <span style="font-size:11px; color:var(--color-text-muted);">Verified Buyer</span>
+          </div>
+          <h4 style="font-size:14px; font-weight:700; margin-bottom:6px;">{{ r.title }}</h4>
+          <p style="font-size:13px; color:var(--color-text-body); line-height:1.6; margin-bottom:12px;">{{ r.comment }}</p>
+          <span style="font-size:11.5px; font-weight:600; color:var(--color-text-muted);">&mdash; {{ r.customer_name or "Verified Customer" }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div style="grid-column: 1 / -1; padding:32px; text-align:center; background:var(--color-bg-surface); border-radius:var(--radius-lg); border:1px solid var(--color-border);">
+          <p style="color:var(--color-text-muted);">No reviews written yet. Be the first to share your experience with this physical store product!</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+</div>
+
+<!-- Write Review Modal -->
+<div class="cart-drawer-overlay" id="write-review-modal" onclick="closeReviewModal(event)">
+  <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-xl); max-width:500px; width:90%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);" onclick="event.stopPropagation()">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+      <h3 style="font-size:18px;"><i class="fa-solid fa-star" style="color:#F59E0B;"></i> Write a Customer Review</h3>
+      <button onclick="closeReviewModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+    </div>
+    <form onsubmit="submitProductReview(event, {{ product.id }})">
+      <div class="form-group">
+        <label>Your Rating (1 to 5 Stars)</label>
+        <select id="review-rating-select" class="form-control">
+          <option value="5">5 Stars — Outstanding Quality</option>
+          <option value="4">4 Stars — Very Good</option>
+          <option value="3">3 Stars — Average</option>
+          <option value="2">2 Stars — Below Expectations</option>
+          <option value="1">1 Star — Poor</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Review Headline</label>
+        <input type="text" id="review-title-input" class="form-control" placeholder="e.g. Excellent purity and packaging!" required>
+      </div>
+      <div class="form-group">
+        <label>Detailed Feedback</label>
+        <textarea id="review-comment-input" class="form-control" rows="4" placeholder="Describe your experience with the item..." required></textarea>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%; justify-content:center; padding:12px;">Submit Verified Review</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let detailQty = 1;
+  function incrementDetailQty(maxStock) {
+    if (detailQty < maxStock) {
+      detailQty++;
+      document.getElementById("detail-qty-input").textContent = detailQty;
+    }
+  }
+  function decrementDetailQty() {
+    if (detailQty > 1) {
+      detailQty--;
+      document.getElementById("detail-qty-input").textContent = detailQty;
+    }
+  }
+  function addCurrentProductToCart(productId) {
+    addToCart(productId, detailQty);
+    showToast("Added to your cart!");
+  }
+  function openReviewModal() {
+    document.getElementById("write-review-modal").classList.add("open");
+  }
+  function closeReviewModal() {
+    document.getElementById("write-review-modal").classList.remove("open");
+  }
+  async function submitProductReview(e, productId) {
+    e.preventDefault();
+    const rating = document.getElementById("review-rating-select").value;
+    const title = document.getElementById("review-title-input").value;
+    const comment = document.getElementById("review-comment-input").value;
+
+    const res = await fetch(`/api/products/${productId}/reviews`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: parseInt(rating), title, comment, customer_id: 1 })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast("Thank you for your verified review!");
+      closeReviewModal();
+      setTimeout(() => location.reload(), 800);
+    }
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+# =============================================================================
+# BharatStore — Core Python Dependencies
+# =============================================================================
+# Web Framework & CORS Support
+Flask==3.0.0
+Flask-Cors==4.0.0
+
+# Environment Variable Management
+python-dotenv>=1.0.1
+
+# HTTP Client
+requests>=2.31.0
+
+# Database Client (PostgreSQL / Aiven Cloud)
+psycopg2-binary>=2.9.9
+
+# Distributed Event Streaming (Apache Kafka / Aiven Cloud)
+kafka-python-ng>=2.2.2
+
+# Distributed Search Engine (OpenSearch / Aiven Cloud)
+opensearch-py>=2.6.0

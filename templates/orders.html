@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Order History — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 24px; padding-bottom: 64px;">
+  
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+    <div>
+      <span class="section-kicker">Order Fulfillment Ledger</span>
+      <h2><i class="fa-solid fa-box" style="color:var(--color-primary); margin-right:8px;"></i> My Orders & Shipments</h2>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <a href="/products" class="btn-primary" style="font-size:13px; padding:10px 20px;">
+        <i class="fa-solid fa-cart-shopping"></i> Continue Shopping
+      </a>
+    </div>
+  </div>
+
+  <!-- Orders Filter Tabs -->
+  <div style="display:flex; gap:10px; margin-bottom:24px; overflow-x:auto; padding-bottom:4px;">
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px; border-color:var(--color-primary); color:var(--color-primary); background:var(--color-primary-light);" onclick="filterOrdersTab('all', this)">All Orders</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('PENDING_PAYMENT', this)">Pending Payment</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('CONFIRMED', this)">Confirmed</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('CANCELLED', this)">Cancelled</button>
+  </div>
+
+  <!-- Orders List Container -->
+  <div id="orders-page-list-container" style="display:flex; flex-direction:column; gap:20px;">
+    <!-- Rendered dynamically by app.js from /api/orders -->
+  </div>
+
+  <!-- Empty Orders State -->
+  <div id="orders-empty-state" style="display:none; text-align:center; padding:72px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); max-width:600px; margin:auto;">
+    <i class="fa-solid fa-box-open" style="font-size:56px; color:var(--color-border-strong); margin-bottom:16px;"></i>
+    <h3>No Orders Found</h3>
+    <p style="color:var(--color-text-muted); font-size:14px; margin:8px 0 24px 0;">
+      You haven't placed any orders yet. Try adding authentic items to your basket!
+    </p>
+    <a href="/products" class="btn-primary">Browse 50+ Products</a>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    loadUserOrders();
+  });
+</script>
+{% endblock %}

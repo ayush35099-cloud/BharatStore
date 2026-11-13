@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard — BharatStore{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="admin-layout">
+    
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar">
+      <div style="padding:10px 14px 18px 14px; border-bottom:1px solid var(--color-border); margin-bottom:14px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-primary); letter-spacing:1px;">Store Management</span>
+        <h3 style="font-size:17px; margin-top:2px;">Merchant Portal</h3>
+      </div>
+
+      <a href="/admin" class="admin-nav-link active">
+        <i class="fa-solid fa-chart-line"></i> Dashboard
+      </a>
+      <a href="/admin/products" class="admin-nav-link">
+        <i class="fa-solid fa-boxes-stacked"></i> Products (52+)
+      </a>
+      <a href="/admin/inventory" class="admin-nav-link">
+        <i class="fa-solid fa-warehouse"></i> Inventory & Hubs
+      </a>
+      <a href="/admin/orders" class="admin-nav-link">
+        <i class="fa-solid fa-clipboard-list"></i> Order Management
+      </a>
+      
+      <div style="padding:14px 14px 10px 14px; border-top:1px solid var(--color-border); margin-top:18px;">
+        <span style="font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--color-text-muted);">Quick Links</span>
+      </div>
+      <a href="/architecture" class="admin-nav-link" style="color:var(--color-accent-navy);">
+        <i class="fa-solid fa-microchip"></i> Aiven Architecture
+      </a>
+      <a href="/" class="admin-nav-link">
+        <i class="fa-solid fa-arrow-left"></i> View Live Store
+      </a>
+    </aside>
+
+    <!-- Main Admin Dashboard Content -->
+    <main>
+      
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+        <div>
+          <span class="section-kicker">Regional Retail Control</span>
+          <h2>Admin Dashboard</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-secondary" onclick="triggerAdminResetInventory()" style="font-size:12.5px;">
+            <i class="fa-solid fa-rotate-left"></i> Reset Seed Stock
+          </button>
+          <button class="btn-primary" onclick="triggerConcurrencyRaceTest()" style="font-size:12.5px;">
+            <i class="fa-solid fa-bolt"></i> Run 10-Buyer Concurrency Test
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Grid -->
+      <div class="admin-kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span>Total Sales Revenue</span>
+            <i class="fa-solid fa-indian-rupee-sign" style="color:var(--color-primary);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-revenue">₹0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span>Total Orders Placed</span>
+            <i class="fa-solid fa-box" style="color:var(--color-accent-navy);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-orders">0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span>Active Products</span>
+            <i class="fa-solid fa-tags" style="color:var(--color-sage);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-products">52</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-header">
+            <span>Low Stock Alerts</span>
+            <i class="fa-solid fa-triangle-exclamation" style="color:var(--color-terracotta);"></i>
+          </div>
+          <div class="kpi-value" id="kpi-low-stock" style="color:var(--color-terracotta);">0</div>
+        </div>
+      </div>
+
+      <!-- Aiven Cloud Status Cards -->
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin-bottom:28px;">
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px; display:flex; align-items:center; gap:12px;">
+          <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-primary-light); color:var(--color-primary); display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-database"></i></div>
+          <div>
+            <strong style="font-size:13px; display:block;">PostgreSQL ACID Engine</strong>
+            <span style="font-size:11px; color:var(--color-sage);"><i class="fa-solid fa-circle-check"></i> Row-Level Locks Active</span>
+          </div>
+        </div>
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px; display:flex; align-items:center; gap:12px;">
+          <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-accent-navy-light); color:var(--color-accent-navy); display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-bolt"></i></div>
+          <div>
+            <strong style="font-size:13px; display:block;">Apache Kafka Stream</strong>
+            <span style="font-size:11px; color:var(--color-sage);"><i class="fa-solid fa-circle-check"></i> Topic: order-events</span>
+          </div>
+        </div>
+        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:16px; display:flex; align-items:center; gap:12px;">
+          <div style="width:36px; height:36px; border-radius:var(--radius-full); background:var(--color-sage-light); color:var(--color-sage); display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-magnifying-glass"></i></div>
+          <div>
+            <strong style="font-size:13px; display:block;">OpenSearch Engine</strong>
+            <span style="font-size:11px; color:var(--color-sage);"><i class="fa-solid fa-circle-check"></i> 52 Products Indexed</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Orders Table -->
+      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); padding:24px; box-shadow:var(--shadow-sm);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <h3 style="font-size:16px;"><i class="fa-solid fa-receipt" style="color:var(--color-primary); margin-right:8px;"></i> Recent Store Orders</h3>
+          <a href="/admin/orders" class="section-link" style="font-size:12.5px;">View All Orders &rarr;</a>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Order #</th>
+                <th>Customer</th>
+                <th>Metro Hub</th>
+                <th>Total</th>
+                <th>Order Status</th>
+                <th>Payment</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="admin-recent-orders-body">
+              <!-- Rendered via app.js -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    loadAdminDashboardStats();
+  });
+</script>
+{% endblock %}

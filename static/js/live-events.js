@@ -7,7 +7,7 @@ let eventCounter = 0;
 let isTrayExpanded = false;
 
 function initEventStream() {
-  const trayList = document.getElementById("tray-events-list");
+  const trayList = document.getElementById("tray-events-list") || document.getElementById("kafka-tray-logs");
   const counterSpan = document.getElementById("event-counter");
 
   // Establish Server-Sent Events stream
@@ -33,16 +33,18 @@ async function pollRecentEvents() {
   try {
     const res = await fetch("/api/events/recent?limit=15");
     const events = await res.json();
-    const trayList = document.getElementById("tray-events-list");
-    trayList.innerHTML = "";
-    events.forEach(evt => appendEventToTray(evt, false));
+    const trayList = document.getElementById("tray-events-list") || document.getElementById("kafka-tray-logs");
+    if (trayList) {
+      trayList.innerHTML = "";
+      events.forEach(evt => appendEventToTray(evt, false));
+    }
   } catch (err) {
     console.error("Error polling events:", err);
   }
 }
 
 function appendEventToTray(evt, increment = true) {
-  const trayList = document.getElementById("tray-events-list");
+  const trayList = document.getElementById("tray-events-list") || document.getElementById("kafka-tray-logs");
   if (!trayList) return;
 
   if (increment) {

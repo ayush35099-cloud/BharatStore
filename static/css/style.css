@@ -1935,3 +1935,75 @@ button, input, select, textarea {
   .footer-top-grid { grid-template-columns: 1fr; }
   .admin-kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* =========================================================================
+   UI STATES: SKELETON LOADERS, EMPTY & ERROR STATES
+   ========================================================================= */
+@keyframes shimmerAnim {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--color-bg-subtle) 25%, var(--color-surface-warm) 50%, var(--color-bg-subtle) 75%);
+  background-size: 200% 100%;
+  animation: shimmerAnim 1.5s infinite ease-in-out;
+}
+
+[data-theme="dark"] .shimmer {
+  background: linear-gradient(90deg, #1E1B18 25%, #2C2621 50%, #1E1B18 75%);
+  background-size: 200% 100%;
+}
+
+.product-card-skeleton {
+  pointer-events: none;
+}
+
+.skeleton-thumb {
+  width: 100%;
+  height: 220px;
+  background-color: var(--color-bg-subtle);
+}
+
+.skeleton-line {
+  background-color: var(--color-bg-subtle);
+  border-radius: var(--radius-xs);
+}
+
+.ui-state-box {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px 24px;
+  background-color: var(--color-bg-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  margin: 16px 0;
+}
+
+.ui-state-icon {
+  font-size: 38px;
+  margin-bottom: 14px;
+}
+
+.ui-error-state .ui-state-icon {
+  color: var(--color-terracotta);
+}
+
+.ui-empty-state .ui-state-icon {
+  color: var(--color-text-muted);
+}
+
+.ui-state-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--color-text-main);
+}
+
+.ui-state-desc {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  max-width: 440px;
+  margin: 0 auto 16px auto;
+}
+

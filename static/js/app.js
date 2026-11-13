@@ -263,8 +263,48 @@ function toggleWishlist(productId) {
 }
 
 // -----------------------------------------------------------------------------
-// 4. Product Card Template Generator (Rosier + Amazon/Flipkart Spec)
+// 4. Product Card Template & UI State Generators
 // -----------------------------------------------------------------------------
+function createProductSkeletonHTML(count = 4) {
+  let html = "";
+  for (let i = 0; i < count; i++) {
+    html += `
+      <div class="product-card product-card-skeleton">
+        <div class="skeleton-thumb shimmer"></div>
+        <div class="product-card-body">
+          <div class="skeleton-line shimmer" style="width: 35%; height: 12px; margin-bottom: 8px;"></div>
+          <div class="skeleton-line shimmer" style="width: 85%; height: 16px; margin-bottom: 8px;"></div>
+          <div class="skeleton-line shimmer" style="width: 60%; height: 14px; margin-bottom: 12px;"></div>
+          <div class="skeleton-line shimmer" style="width: 45%; height: 18px; margin-bottom: 14px;"></div>
+          <div class="skeleton-line shimmer" style="width: 100%; height: 36px; border-radius: var(--radius-sm);"></div>
+        </div>
+      </div>
+    `;
+  }
+  return html;
+}
+
+function createErrorStateHTML(message, retryFnName) {
+  return `
+    <div class="ui-state-box ui-error-state">
+      <div class="ui-state-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+      <h4 class="ui-state-title">Unable to Connect to Store Hub</h4>
+      <p class="ui-state-desc">${message || 'We could not fetch live products from the physical hub network.'}</p>
+      ${retryFnName ? `<button class="btn-primary" onclick="${retryFnName}()"><i class="fa-solid fa-rotate-right"></i> Retry Connection</button>` : ''}
+    </div>
+  `;
+}
+
+function createEmptyStateHTML(title, desc) {
+  return `
+    <div class="ui-state-box ui-empty-state">
+      <div class="ui-state-icon"><i class="fa-solid fa-box-open"></i></div>
+      <h4 class="ui-state-title">${title || 'No Products Found'}</h4>
+      <p class="ui-state-desc">${desc || 'Check back soon as local store inventory is updated daily.'}</p>
+    </div>
+  `;
+}
+
 function createProductCardHTML(p) {
   const isWishlisted = appState.wishlist.has(p.id);
   const discountPercent = p.original_price && p.original_price > p.price
@@ -328,13 +368,34 @@ function createProductCardHTML(p) {
 }
 
 // -----------------------------------------------------------------------------
-// 5. Homepage Sections Populator
+// 5. Homepage Sections Populator (with Skeletons, Error & Empty Handling)
 // -----------------------------------------------------------------------------
 async function loadHomepageSections() {
+  const dealsContainer = document.getElementById("deals-products-container");
+  const trendingContainer = document.getElementById("trending-products-container");
+  const bestsellersContainer = document.getElementById("bestsellers-products-container");
+  const recommendedContainer = document.getElementById("recommended-products-container");
+
+  // Show loading skeletons immediately
+  if (dealsContainer) dealsContainer.innerHTML = createProductSkeletonHTML(4);
+  if (trendingContainer) trendingContainer.innerHTML = createProductSkeletonHTML(8);
+  if (bestsellersContainer) bestsellersContainer.innerHTML = createProductSkeletonHTML(4);
+  if (recommendedContainer) recommendedContainer.innerHTML = createProductSkeletonHTML(4);
+
   try {
     const res = await fetch("/api/products");
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products from backend API`);
     const data = await res.json();
     appState.products = data.products || [];
+
+    if (appState.products.length === 0) {
+      const emptyHtml = createEmptyStateHTML("Catalog Updating", "Physical store inventory is syncing with cloud nodes.");
+      if (dealsContainer) dealsContainer.innerHTML = emptyHtml;
+      if (trendingContainer) trendingContainer.innerHTML = emptyHtml;
+      if (bestsellersContainer) bestsellersContainer.innerHTML = emptyHtml;
+      if (recommendedContainer) recommendedContainer.innerHTML = emptyHtml;
+      return;
+    }
 
     // 1. Deals Section: Products with highest discount %
     const deals = [...appState.products]
@@ -342,9 +403,10 @@ async function loadHomepageSections() {
       .sort((a, b) => ((b.original_price - b.price) / b.original_price) - ((a.original_price - a.price) / a.original_price))
       .slice(0, 4);
 
-    const dealsContainer = document.getElementById("deals-products-container");
     if (dealsContainer) {
-      dealsContainer.innerHTML = deals.map(p => createProductCardHTML(p)).join("");
+      dealsContainer.innerHTML = deals.length > 0 
+        ? deals.map(p => createProductCardHTML(p)).join("")
+        : createEmptyStateHTML("No Active Deals", "Check back later for flash discounts.");
     }
 
     // 2. Trending Section
@@ -355,9 +417,10 @@ async function loadHomepageSections() {
       .sort((a, b) => (b.rating_count || 0) - (a.rating_count || 0))
       .slice(0, 4);
 
-    const bestsellersContainer = document.getElementById("bestsellers-products-container");
     if (bestsellersContainer) {
-      bestsellersContainer.innerHTML = bestsellers.map(p => createProductCardHTML(p)).join("");
+      bestsellersContainer.innerHTML = bestsellers.length > 0
+        ? bestsellers.map(p => createProductCardHTML(p)).join("")
+        : createEmptyStateHTML("No Best Sellers", "Catalog will populate based on shopper activity.");
     }
 
     // 4. Recommended for Hub: Products available in current city
@@ -365,13 +428,19 @@ async function loadHomepageSections() {
       .filter(p => !p.cities || p.cities.includes(appState.currentCity))
       .slice(0, 4);
 
-    const recommendedContainer = document.getElementById("recommended-products-container");
     if (recommendedContainer) {
-      recommendedContainer.innerHTML = recommended.map(p => createProductCardHTML(p)).join("");
+      recommendedContainer.innerHTML = recommended.length > 0
+        ? recommended.map(p => createProductCardHTML(p)).join("")
+        : createEmptyStateHTML("No Hub Recommendations", `No specific items found for ${appState.currentCity} Hub.`);
     }
 
   } catch (err) {
     console.error("Error loading homepage sections:", err);
+    const errHtml = createErrorStateHTML(err.message, "loadHomepageSections");
+    if (dealsContainer) dealsContainer.innerHTML = errHtml;
+    if (trendingContainer) trendingContainer.innerHTML = errHtml;
+    if (bestsellersContainer) bestsellersContainer.innerHTML = errHtml;
+    if (recommendedContainer) recommendedContainer.innerHTML = errHtml;
   }
 }
 

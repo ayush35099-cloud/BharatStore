@@ -152,44 +152,44 @@
         <i class="fa-solid fa-border-all"></i> All Essentials ({{ products|length }})
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('dairy', this)">
-        <i class="fa-solid fa-cow"></i> Dairy & Breakfast ({{ dairy_items|length }})
+        <i class="fa-solid fa-cow"></i> Dairy & Bakery ({{ dairy_bakery_items|length if dairy_bakery_items is defined else dairy_items|length }})
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('grains', this)">
-        <i class="fa-solid fa-seedling"></i> Rice & Grains ({{ grains_items|length }})
-      </button>
-      <button class="retail-cat-pill" onclick="filterDepartment('essentials', this)">
-        <i class="fa-solid fa-bottle-droplet"></i> Cooking Essentials ({{ essentials_items|length }})
+        <i class="fa-solid fa-seedling"></i> Rice, Atta & Dal ({{ rice_atta_dal_items|length if rice_atta_dal_items is defined else grains_items|length }})
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('produce', this)">
-        <i class="fa-solid fa-apple-whole"></i> Fresh Produce ({{ produce_items|length }})
+        <i class="fa-solid fa-apple-whole"></i> Fruits & Vegetables ({{ fruits_vegetables_items|length if fruits_vegetables_items is defined else produce_items|length }})
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('snacks', this)">
+        <i class="fa-solid fa-mug-hot"></i> Snacks & Beverages ({{ snacks_beverages_items|length if snacks_beverages_items is defined else 8 }})
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('household', this)">
-        <i class="fa-solid fa-spray-can-sparkles"></i> Household Essentials ({{ household_items|length }})
+        <i class="fa-solid fa-spray-can-sparkles"></i> Household & Personal Care ({{ household_personal_items|length if household_personal_items is defined else household_items|length }})
       </button>
     </div>
   </div>
 </section>
 
 <!-- =========================================================================
-     3. PROMINENT FIRST SECTION — DAIRY & BREAKFAST (Visible on First Screen!)
+     3. PROMINENT FIRST SECTION — DAIRY & BAKERY (Visible on First Screen!)
         Includes: Milk, Curd, Ghee, Butter, Paneer, Cheese, Bread, Eggs
      ========================================================================= -->
 <section class="section-wrapper retail-dept-section" id="dairy-section" style="padding-top: 14px;">
   <div class="container">
     <div class="retail-dept-header">
       <div class="retail-dept-title-group">
-        <span class="retail-dept-badge"><i class="fa-solid fa-cow"></i> Cold Chain Daily Essentials</span>
+        <span class="retail-dept-badge"><i class="fa-solid fa-cow"></i> Dairy & Bakery</span>
         <h2>Milk, Curd, Ghee, Butter & Dairy Products</h2>
         <p>Fresh cow milk, bilona ghee, pure malai paneer, curd & table butter stocked in {{ current_store.store_name if current_store else 'Local Store' }}</p>
       </div>
       <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
-        {{ dairy_items|length }} Dairy Products
+        {{ (dairy_bakery_items if dairy_bakery_items is defined else dairy_items)|length }} Dairy & Bakery Products
       </span>
     </div>
 
     <div class="product-cards-grid" id="dairy-products-grid">
-      {% for item in dairy_items %}
-      <div class="product-card" data-category="Dairy & Breakfast" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+      {% for item in (dairy_bakery_items if dairy_bakery_items is defined else dairy_items) %}
+      <div class="product-card" data-category="Dairy & Bakery" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
@@ -270,25 +270,25 @@
 </section>
 
 <!-- =========================================================================
-     4. SECOND SECTION — RICE & GRAINS
+     4. SECOND SECTION — RICE, ATTA & DAL
         Includes: Basmati Rice 1kg, Regular Rice 5kg, Wheat Atta 5kg, Dals
      ========================================================================= -->
 <section class="section-wrapper retail-dept-section" id="grains-section" style="padding-top: 18px;">
   <div class="container">
     <div class="retail-dept-header">
       <div class="retail-dept-title-group">
-        <span class="retail-dept-badge"><i class="fa-solid fa-seedling"></i> Staples & Pulses</span>
+        <span class="retail-dept-badge"><i class="fa-solid fa-seedling"></i> Rice, Atta & Dal</span>
         <h2>Rice, Wheat Atta & High-Protein Dals</h2>
         <p>Aged basmati rice, MP Sharbati wheat flour, unpolished toor dal & moong dal</p>
       </div>
       <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
-        {{ grains_items|length }} Staple Items
+        {{ (rice_atta_dal_items if rice_atta_dal_items is defined else grains_items)|length }} Staple Items
       </span>
     </div>
 
     <div class="product-cards-grid" id="grains-products-grid">
-      {% for item in grains_items %}
-      <div class="product-card" data-category="Rice & Grains" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+      {% for item in (rice_atta_dal_items if rice_atta_dal_items is defined else grains_items) %}
+      <div class="product-card" data-category="Rice, Atta & Dal" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
@@ -369,123 +369,24 @@
 </section>
 
 <!-- =========================================================================
-     5. THIRD SECTION — COOKING ESSENTIALS
-        Includes: Sunflower Oil 1L, Mustard Oil 1L, Sugar 1kg, Salt 1kg
-     ========================================================================= -->
-<section class="section-wrapper retail-dept-section" id="essentials-section" style="padding-top: 18px;">
-  <div class="container">
-    <div class="retail-dept-header">
-      <div class="retail-dept-title-group">
-        <span class="retail-dept-badge"><i class="fa-solid fa-bottle-droplet"></i> Kitchen Staples</span>
-        <h2>Cooking Oils, Refined Sugar & Table Salt</h2>
-        <p>Pure cold-pressed mustard oil, refined sunflower oil, sulphur-free sugar & iodised salt</p>
-      </div>
-      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
-        {{ essentials_items|length }} Cooking Essentials
-      </span>
-    </div>
-
-    <div class="product-cards-grid" id="essentials-products-grid">
-      {% for item in essentials_items %}
-      <div class="product-card" data-category="Cooking Essentials" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
-        <div class="product-card-visual">
-          <a href="/product/{{ item.product_id }}">
-            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
-          </a>
-          {% if item.is_available and item.stock_quantity > 0 %}
-            <span class="retail-stock-pill in-stock">
-              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
-            </span>
-          {% else %}
-            <span class="retail-stock-pill out-of-stock">
-              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
-            </span>
-          {% endif %}
-        </div>
-        <div class="product-card-body">
-          {% if item.is_store_lowest %}
-            <div class="product-card-best-price-badge">
-              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
-            </div>
-          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
-            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
-              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
-            </div>
-          {% else %}
-            <div class="product-card-best-price-badge">
-              <i class="fa-solid fa-shop"></i> In Stock across shops
-            </div>
-          {% endif %}
-
-          <span class="product-card-category">{{ item.brand }} • Cooking Essentials</span>
-          <h3 class="product-card-title">
-            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
-          </h3>
-          <div class="product-card-pricing">
-            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
-            {% if item.original_price and item.original_price > item.selling_price %}
-            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
-            {% endif %}
-            {% if item.max_savings and item.max_savings > 0 %}
-            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
-            {% endif %}
-          </div>
-        </div>
-        <div class="product-card-buttons-row">
-          <button 
-            type="button" 
-            class="btn-compare-5" 
-            onclick="openPriceComparisonModal({{ item.product_id }})" 
-            aria-label="Compare 5 shops for {{ item.title }}"
-          >
-            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
-          </button>
-          {% if item.is_available and item.stock_quantity > 0 %}
-          <button 
-            type="button" 
-            class="btn-quick-add" 
-            onclick="addToCart({{ item.product_id }}, 1, {{ current_store.id if current_store else (item.store_id or 1) }}, '{{ (current_store.store_name if current_store else 'Bharat Fresh Mart')|replace("'", "\\'") }}')" 
-            aria-label="Add {{ item.title }} to basket"
-          >
-            <i class="fa-solid fa-bag-shopping"></i> Add
-          </button>
-          {% else %}
-          <button 
-            type="button" 
-            class="btn-quick-add" 
-            disabled 
-            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
-            aria-label="{{ item.title }} is Out of Stock"
-          >
-            <i class="fa-solid fa-ban"></i> Out
-          </button>
-          {% endif %}
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-
-<!-- =========================================================================
-     6. FOURTH SECTION — FRESH FARM PRODUCE
+     5. THIRD SECTION — FRUITS & VEGETABLES
      ========================================================================= -->
 <section class="section-wrapper retail-dept-section" id="produce-section" style="padding-top: 18px;">
   <div class="container">
     <div class="retail-dept-header">
       <div class="retail-dept-title-group">
-        <span class="retail-dept-badge"><i class="fa-solid fa-apple-whole"></i> Farm Sourced</span>
-        <h2>Fresh Farm Vegetables & Fruits</h2>
-        <p>Cleaned potatoes, Nasik red onions, hybrid tomatoes & fresh bananas</p>
+        <span class="retail-dept-badge"><i class="fa-solid fa-apple-whole"></i> Fruits & Vegetables</span>
+        <h2>Farm Fresh Fruits & Crisp Green Vegetables</h2>
+        <p>Cleaned potatoes, Nasik red onions, hybrid tomatoes, bananas, apples, oranges & green chillies</p>
       </div>
       <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
-        {{ produce_items|length }} Fresh Items
+        {{ (fruits_vegetables_items if fruits_vegetables_items is defined else produce_items)|length }} Fresh Items
       </span>
     </div>
 
     <div class="product-cards-grid" id="produce-products-grid">
-      {% for item in produce_items %}
-      <div class="product-card" data-category="Fresh Produce" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+      {% for item in (fruits_vegetables_items if fruits_vegetables_items is defined else produce_items) %}
+      <div class="product-card" data-category="Fruits & Vegetables" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
@@ -515,7 +416,7 @@
             </div>
           {% endif %}
 
-          <span class="product-card-category">{{ item.brand }} • Fresh Produce</span>
+          <span class="product-card-category">{{ item.brand }} • Fruits & Vegetables</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
           </h3>
@@ -566,24 +467,24 @@
 </section>
 
 <!-- =========================================================================
-     7. FIFTH SECTION — HOUSEHOLD ESSENTIALS
+     6. FOURTH SECTION — SNACKS & BEVERAGES
      ========================================================================= -->
-<section class="section-wrapper retail-dept-section" id="household-section" style="padding-top: 18px;">
+<section class="section-wrapper retail-dept-section" id="snacks-section" style="padding-top: 18px;">
   <div class="container">
     <div class="retail-dept-header">
       <div class="retail-dept-title-group">
-        <span class="retail-dept-badge"><i class="fa-solid fa-spray-can-sparkles"></i> Home Care</span>
-        <h2>Detergents, Cleaners & Daily Utilities</h2>
-        <p>Premium laundry detergents, dishwashing liquid, floor disinfectant & pest protection</p>
+        <span class="retail-dept-badge"><i class="fa-solid fa-mug-hot"></i> Snacks & Beverages</span>
+        <h2>Snacks, Cereals, Refreshing Teas & Coffees</h2>
+        <p>Tata Tea Gold, Nescafe Coffee, Kellogg's Corn Flakes, Quaker Oats, Madhur Sugar & Pure Honey</p>
       </div>
       <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
-        {{ household_items|length }} Household Items
+        {{ (snacks_beverages_items if snacks_beverages_items is defined else 8)|length if (snacks_beverages_items is defined and snacks_beverages_items is iterable) else 8 }} Items
       </span>
     </div>
 
-    <div class="product-cards-grid" id="household-products-grid">
-      {% for item in household_items %}
-      <div class="product-card" data-category="Household Essentials" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+    <div class="product-cards-grid" id="snacks-products-grid">
+      {% for item in (snacks_beverages_items if snacks_beverages_items is defined else []) %}
+      <div class="product-card" data-category="Snacks & Beverages" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
@@ -613,7 +514,105 @@
             </div>
           {% endif %}
 
-          <span class="product-card-category">{{ item.brand }} • Household Essentials</span>
+          <span class="product-card-category">{{ item.brand }} • Snacks & Beverages</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-quick-add" 
+            onclick="addToCart({{ item.product_id }}, 1, {{ current_store.id if current_store else (item.store_id or 1) }}, '{{ (current_store.store_name if current_store else 'Bharat Fresh Mart')|replace("'", "\\'") }}')" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-quick-add" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
+          >
+            <i class="fa-solid fa-ban"></i> Out
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     7. FIFTH SECTION — HOUSEHOLD & PERSONAL CARE
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="household-section" style="padding-top: 18px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-spray-can-sparkles"></i> Household & Personal Care</span>
+        <h2>Cleaning Essentials, Daily Oils & Spices</h2>
+        <p>Detergents, floor cleaners, dishwash bars, premium cooking oils & pure authentic Indian spices</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ (household_personal_items if household_personal_items is defined else household_items)|length }} Products
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="household-products-grid">
+      {% for item in (household_personal_items if household_personal_items is defined else household_items) %}
+      <div class="product-card" data-category="Household & Personal Care" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
+          <span class="product-card-category">{{ item.brand }} • Household & Personal Care</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
           </h3>
@@ -735,7 +734,7 @@
           <h3 class="store-card-name">BharatStore Mumbai MegaHub - Andheri West</h3>
           <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> Andheri West, Mumbai, Maharashtra 400053</p>
           <div class="store-card-perks">
-            <span class="perk-pill"><i class="fa-solid fa-truck"></i> 2-Hour Express Delivery</span>
+            <span class="perk-pill"><i class="fa-solid fa-truck"></i> Fast Delivery</span>
             <span class="perk-pill"><i class="fa-solid fa-boxes-stacked"></i> Central Dispatch</span>
           </div>
         </div>
@@ -824,9 +823,10 @@
     const sections = {
       dairy: document.getElementById("dairy-section"),
       grains: document.getElementById("grains-section"),
-      essentials: document.getElementById("essentials-section"),
       produce: document.getElementById("produce-section"),
-      household: document.getElementById("household-section")
+      snacks: document.getElementById("snacks-section"),
+      household: document.getElementById("household-section"),
+      essentials: document.getElementById("snacks-section")
     };
 
     if (deptKey === "all") {

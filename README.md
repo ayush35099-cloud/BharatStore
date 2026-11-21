@@ -61,9 +61,9 @@ Traditional e-commerce platforms force physical retailers to operate as distant 
 | **Pricing Engine** | Physical shop-specific selling price (₹1–₹3 variations) | National catalog selling price |
 | **Price Comparison** | Real-time 5-shop price comparison modal & lowest price badges | Single marketplace price with coupon discounts |
 | **Stock Tracking** | Real-time `store_inventory` row-level stock | Central `inventory` double-entry ledger |
-| **Delivery Radius** | Strict 15 km local radius with 2-Hour Express Delivery | Nationwide delivery across India |
+| **Delivery Radius** | Strict 15 km local radius with fast doorstep dispatch | Nationwide delivery across India |
 | **Cart Isolation** | Retains local shop items with shop-wise subtotals | Retains marketplace items independently |
-| **Fulfillment Options**| 2-Hour Express Doorstep Delivery (₹20) or Free Store Pickup | Standard Courier & Surface Logistics |
+| **Fulfillment Options**| Reliable Doorstep Delivery from local partner store | Standard Courier & Surface Logistics |
 
 ---
 
@@ -203,7 +203,38 @@ Phase 8 introduces enterprise-grade physical store inventory and stock managemen
 
 ---
 
-## 8. Technology Stack
+## 8. Phase 14: Complete UI/UX Polish, Address Management & Simplified Categories
+
+Phase 14 delivers comprehensive UI/UX refinement across both shopping modes:
+
+### 1. Saved Address Management
+- **5-Address Server Enforcement:** Maximum 5 saved delivery addresses per customer strictly enforced at the backend database and API level.
+- **Duplicate Address Prevention:** Rejects duplicate addresses matching on street address line 1, city, and 6-digit postal PIN code (case-insensitive and trimmed).
+- **Full Address Lifecycle:** Seamless editing, deleting, and selecting primary default address, automatically prefilled on checkout.
+- **Clear User Messaging:** Prompts with `"Maximum limit of 5 saved addresses reached. Please delete an address to add a new one."` when attempting to exceed the limit.
+
+### 2. Streamlined 5 Retail Categories
+Retail Near Me catalog is cleanly unified into five essential categories across the UI, search dropdowns, filters, and APIs:
+1. **Fruits & Vegetables:** Fresh potatoes, onions, tomatoes, bananas, apples, oranges, ginger, chillies, capsicum, coriander.
+2. **Dairy & Bakery:** Amul milk, curd, paneer, butter, ghee, cheese, whole wheat bread, farm fresh eggs.
+3. **Rice, Atta & Dal:** Basmati rice, Sona Masoori, Sharbati atta, toor dal, moong dal, chana dal, urad dal, rajma, kabuli chana, poha.
+4. **Snacks & Beverages:** Tata Tea Gold/Premium, Bru/Nescafe coffee, rolled oats, corn flakes, Madhur sugar, wild honey.
+5. **Household & Personal Care:** Detergents, floor cleaner, dishwash gel, antiseptic, toilet cleaner, cooking oils, table salt, turmeric, chilli powder.
+
+### 3. Authentic Imagery & Hero Separation
+- **Online Shopping:** Features modern e-commerce visual of a woman shopping from home using a smartphone and credit/debit card (`/static/images/online-shopping-hero.jpg`).
+- **Retail Near Me:** Preserves dedicated local grocery and neighborhood store storefront aesthetics.
+- **Authentic Grocery Visuals:** Authentic raw product photography for dals, rice, spices, dairy, and oils with SVG placeholder fallback.
+
+### 4. Search Bar & Navigation Polish
+- Search magnifying glass cleanly positioned inside the search input across Online and Retail modes.
+- Mode-aware dynamic placeholders and category filters.
+- Cart drawer UX with locked background scrolling, sticky header/footer, and responsive word wrapping without clipping.
+- Unsupported delivery claims (such as 2-hour promises or pickup confusion) removed in favor of transparent standard doorstep delivery.
+
+---
+
+## 9. Technology Stack
 
 - **Backend Framework:** Python 3.10+, Flask 3.0.0, Flask-CORS 4.0.0
 - **Database Engine:**

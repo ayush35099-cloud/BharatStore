@@ -43,6 +43,12 @@ class TestPhase3LocationManagement(unittest.TestCase):
         cls.app.config["TESTING"] = True
         cls.app.config["SECRET_KEY"] = "test-secret-key-phase-3-location"
         cls.db = DatabaseService()
+        # Clean up any leftover test addresses for customer 1
+        conn = cls.db._get_sqlite_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM addresses WHERE customer_id = 1 AND address_line1 LIKE '%Express Towers%';")
+        conn.commit()
+        conn.close()
 
     def setUp(self):
         self.client = self.app.test_client()

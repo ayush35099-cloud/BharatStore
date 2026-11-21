@@ -372,6 +372,26 @@ button, input, select, textarea {
   text-overflow: ellipsis;
 }
 
+.search-input-inner-container {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  position: relative;
+}
+
+.search-inner-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  pointer-events: none;
+}
+
+.search-input-inner-container .search-input-field {
+  padding-left: 34px;
+  width: 100%;
+}
+
 .search-input-field {
   flex: 1;
   border: none;

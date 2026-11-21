@@ -381,19 +381,46 @@ Open your browser to:
 
 | Variable | Required | Default / Fallback | Description |
 | :--- | :---: | :--- | :--- |
-| `PORT` | Optional | `5000` | Port for the local Flask server |
+| `PORT` | Optional | `5000` | Port for the web service (automatically assigned by Render) |
+| `FLASK_ENV` | Optional | `production` | Set to `production` on Render to enable HTTPS cookies |
 | `SECRET_KEY` | **Required** | *Auto-generated on launch* | Cryptographic 256-bit key for session signing |
 | `ADMIN_API_KEY` | **Required** | `""` | Timing-safe secret token for administrative APIs |
 | `MAX_QUANTITY_PER_ITEM`| Optional | `50` | Maximum units per cart line item |
 | `ALLOW_INSECURE_TEST_ENDPOINTS` | Optional | `false` | Security guard to disable mock routes in production |
-| `AIVEN_PG_URL` | Optional | *SQLite local fallback* | PostgreSQL connection string for Aiven Cloud |
+| `DATABASE_URL` | Optional | *SQLite local fallback* | Standard Render / Aiven PostgreSQL connection URI |
+| `AIVEN_PG_URL` | Optional | *Uses DATABASE_URL* | Aiven PostgreSQL connection URI |
 | `AIVEN_KAFKA_BOOTSTRAP_SERVERS`| Optional | *In-memory SSE stream* | Apache Kafka bootstrap broker addresses |
 | `AIVEN_OPENSEARCH_URL` | Optional | *Local fuzzy DSL engine* | OpenSearch cluster endpoint |
 | `RAZORPAY_KEY_ID` | Optional | *Simulated checkout* | Razorpay API key ID for live transactions |
 
 ---
 
-## 13. REST API Documentation
+## 13. Render Cloud Deployment Guide
+
+BharatStore is prepared for zero-downtime deployment on [Render](https://render.com) using Gunicorn and Python 3.10.
+
+### Web Service Settings on Render
+
+- **Environment:** `Python 3`
+- **Build Command:**
+  ```bash
+  pip install -r requirements.txt
+  ```
+- **Start Command:**
+  ```bash
+  gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+  ```
+
+### Render Blueprint (1-Click Deployment)
+A production-ready `render.yaml` specification is included in the root directory. You can deploy both the Flask Web Service and an optional Managed PostgreSQL Database directly using Render Blueprints.
+
+### Graceful Fallbacks on Render
+- If `DATABASE_URL` is omitted, BharatStore operates with a persistent local SQLite engine with full ACID row-locking.
+- If Apache Kafka or OpenSearch are not configured, in-memory event streaming and fuzzy search engines automatically activate so the storefront and checkout remain 100% operational.
+
+---
+
+## 14. REST API Documentation
 
 ### Retail Near Me & Price Comparison Endpoints
 

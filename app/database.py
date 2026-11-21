@@ -495,14 +495,24 @@ class DatabaseService:
                     rows = []
                 if len(rows) < limit:
                     exclude_ids = [product_id] + [r["id"] for r in rows]
-                    cur.execute("""
-                    SELECT p.*, i.stock_quantity as stock
-                    FROM products p
-                    JOIN inventory i ON p.id = i.product_id
-                    WHERE p.id NOT IN %s
-                    ORDER BY p.rating DESC
-                    LIMIT %s;
-                    """, (tuple(exclude_ids), limit - len(rows)))
+                    if category == "Daily Essentials & Groceries":
+                        cur.execute("""
+                        SELECT p.*, i.stock_quantity as stock
+                        FROM products p
+                        JOIN inventory i ON p.id = i.product_id
+                        WHERE p.id NOT IN %s AND p.category = 'Daily Essentials & Groceries'
+                        ORDER BY p.rating DESC
+                        LIMIT %s;
+                        """, (tuple(exclude_ids), limit - len(rows)))
+                    else:
+                        cur.execute("""
+                        SELECT p.*, i.stock_quantity as stock
+                        FROM products p
+                        JOIN inventory i ON p.id = i.product_id
+                        WHERE p.id NOT IN %s
+                        ORDER BY p.rating DESC
+                        LIMIT %s;
+                        """, (tuple(exclude_ids), limit - len(rows)))
                     rows.extend([dict(r) for r in cur.fetchall()])
             conn.close()
             for r in rows:
@@ -527,14 +537,24 @@ class DatabaseService:
             if len(rows) < limit:
                 exclude_ids = [product_id] + [r["id"] for r in rows]
                 placeholders = ",".join("?" * len(exclude_ids))
-                cur.execute(f"""
-                SELECT p.*, i.stock_quantity as stock
-                FROM products p
-                JOIN inventory i ON p.id = i.product_id
-                WHERE p.id NOT IN ({placeholders})
-                ORDER BY p.rating DESC
-                LIMIT ?;
-                """, (*exclude_ids, limit - len(rows)))
+                if category == "Daily Essentials & Groceries":
+                    cur.execute(f"""
+                    SELECT p.*, i.stock_quantity as stock
+                    FROM products p
+                    JOIN inventory i ON p.id = i.product_id
+                    WHERE p.id NOT IN ({placeholders}) AND p.category = 'Daily Essentials & Groceries'
+                    ORDER BY p.rating DESC
+                    LIMIT ?;
+                    """, (*exclude_ids, limit - len(rows)))
+                else:
+                    cur.execute(f"""
+                    SELECT p.*, i.stock_quantity as stock
+                    FROM products p
+                    JOIN inventory i ON p.id = i.product_id
+                    WHERE p.id NOT IN ({placeholders})
+                    ORDER BY p.rating DESC
+                    LIMIT ?;
+                    """, (*exclude_ids, limit - len(rows)))
                 rows.extend([dict(r) for r in cur.fetchall()])
             conn.close()
             for r in rows:
@@ -2375,6 +2395,19 @@ class DatabaseService:
                 created = dict(cur.fetchone())
                 conn.commit()
             conn.close()
+            try:
+                self.record_store_stock_movement(
+                    store_id=store_id,
+                    product_id=product_id,
+                    movement_type="RESTOCKED",
+                    quantity=stock_quantity,
+                    balance_after=stock_quantity,
+                    reference_type="INITIAL_STOCK",
+                    reference_id=str(product_id),
+                    notes=f"Initial stock added for store #{store_id}"
+                )
+            except Exception as me:
+                logger.warning(f"Could not record stock movement for store {store_id}: {me}")
             return created
         else:
             conn = self._get_sqlite_connection()
@@ -2389,6 +2422,19 @@ class DatabaseService:
             row = dict(cur.fetchone())
             row["is_available"] = bool(row.get("is_available"))
             conn.close()
+            try:
+                self.record_store_stock_movement(
+                    store_id=store_id,
+                    product_id=product_id,
+                    movement_type="RESTOCKED",
+                    quantity=stock_quantity,
+                    balance_after=stock_quantity,
+                    reference_type="INITIAL_STOCK",
+                    reference_id=str(product_id),
+                    notes=f"Initial stock added for store #{store_id}"
+                )
+            except Exception as me:
+                logger.warning(f"Could not record stock movement for store {store_id}: {me}")
             return row
 
     def get_store_inventory(self, store_id: int) -> List[Dict[str, Any]]:
@@ -2544,6 +2590,22 @@ class DatabaseService:
                 updated = dict(cur.fetchone())
                 conn.commit()
             conn.close()
+            if "stock_quantity" in data and stock_quantity != existing.get("stock_quantity", 0):
+                diff = stock_quantity - existing.get("stock_quantity", 0)
+                m_type = "RESTOCKED" if diff > 0 else "ADJUSTED"
+                try:
+                    self.record_store_stock_movement(
+                        store_id=store_id,
+                        product_id=product_id,
+                        movement_type=m_type,
+                        quantity=abs(diff),
+                        balance_after=stock_quantity,
+                        reference_type="STORE_UPDATE",
+                        reference_id=str(product_id),
+                        notes=f"Stock updated from {existing.get('stock_quantity', 0)} to {stock_quantity}"
+                    )
+                except Exception as me:
+                    logger.warning(f"Could not record stock movement for store {store_id}: {me}")
             return updated
         else:
             conn = self._get_sqlite_connection()
@@ -2556,6 +2618,22 @@ class DatabaseService:
             """, (selling_price, original_price, stock_quantity, low_stock_threshold, 1 if is_available else 0, store_id, product_id))
             conn.commit()
             conn.close()
+            if "stock_quantity" in data and stock_quantity != existing.get("stock_quantity", 0):
+                diff = stock_quantity - existing.get("stock_quantity", 0)
+                m_type = "RESTOCKED" if diff > 0 else "ADJUSTED"
+                try:
+                    self.record_store_stock_movement(
+                        store_id=store_id,
+                        product_id=product_id,
+                        movement_type=m_type,
+                        quantity=abs(diff),
+                        balance_after=stock_quantity,
+                        reference_type="STORE_UPDATE",
+                        reference_id=str(product_id),
+                        notes=f"Stock updated from {existing.get('stock_quantity', 0)} to {stock_quantity}"
+                    )
+                except Exception as me:
+                    logger.warning(f"Could not record stock movement for store {store_id}: {me}")
             return self.get_store_product(store_id, product_id)
 
     def remove_store_inventory(self, store_id: int, product_id: int) -> bool:
@@ -2590,6 +2668,105 @@ class DatabaseService:
         """
         all_items = self.get_store_inventory(store_id)
         return [item for item in all_items if (item.get("stock_quantity", 0) - item.get("reserved_quantity", 0)) <= item.get("low_stock_threshold", 5)]
+
+    def get_out_of_stock_products(self, store_id: int) -> List[Dict[str, Any]]:
+        """
+        Returns items at the specified store that are out of stock (stock_quantity <= 0 or is_available = FALSE).
+        """
+        all_items = self.get_store_inventory(store_id)
+        return [item for item in all_items if not item.get("is_available") or int(item.get("stock_quantity", 0)) <= 0]
+
+    def record_store_stock_movement(self, store_id: int, product_id: int, movement_type: str, quantity: int, balance_after: int, reference_type: str = "STORE_ADJUST", reference_id: str = "0", notes: str = "") -> Dict[str, Any]:
+        """
+        Appends an entry to the immutable stock movement ledger for a physical store.
+        """
+        ref_id_str = f"store_{store_id}:{reference_id}"
+        detailed_notes = f"[Store #{store_id}] {notes}" if not notes.startswith(f"[Store #{store_id}]") else notes
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO inventory_movements (product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id, product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes, created_at;
+                """, (product_id, movement_type, quantity, balance_after, reference_type, ref_id_str, detailed_notes))
+                row = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return row
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO inventory_movements (product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, (product_id, movement_type, quantity, balance_after, reference_type, ref_id_str, detailed_notes))
+            m_id = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT id, product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes, created_at FROM inventory_movements WHERE id = ?;", (m_id,))
+            cols = [c[0] for c in cur.description]
+            row = dict(zip(cols, cur.fetchone()))
+            conn.close()
+            return row
+
+    def get_store_stock_movements(self, store_id: int, product_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves recent stock movement history for a physical store.
+        """
+        ref_prefix = f"store_{store_id}:%"
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if product_id:
+                    cur.execute("""
+                        SELECT m.id, m.product_id, m.movement_type, m.quantity, m.balance_after, m.reference_type, m.reference_id, m.notes, m.created_at,
+                               p.title AS product_title, p.sku
+                        FROM inventory_movements m
+                        JOIN products p ON m.product_id = p.id
+                        WHERE (m.reference_id LIKE %s OR m.notes LIKE %s) AND m.product_id = %s
+                        ORDER BY m.id DESC
+                        LIMIT %s;
+                    """, (ref_prefix, f"%[Store #{store_id}]%", product_id, limit))
+                else:
+                    cur.execute("""
+                        SELECT m.id, m.product_id, m.movement_type, m.quantity, m.balance_after, m.reference_type, m.reference_id, m.notes, m.created_at,
+                               p.title AS product_title, p.sku
+                        FROM inventory_movements m
+                        JOIN products p ON m.product_id = p.id
+                        WHERE (m.reference_id LIKE %s OR m.notes LIKE %s)
+                        ORDER BY m.id DESC
+                        LIMIT %s;
+                    """, (ref_prefix, f"%[Store #{store_id}]%", limit))
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if product_id:
+                cur.execute("""
+                    SELECT m.id, m.product_id, m.movement_type, m.quantity, m.balance_after, m.reference_type, m.reference_id, m.notes, m.created_at,
+                           p.title AS product_title, p.sku
+                    FROM inventory_movements m
+                    JOIN products p ON m.product_id = p.id
+                    WHERE (m.reference_id LIKE ? OR m.notes LIKE ?) AND m.product_id = ?
+                    ORDER BY m.id DESC
+                    LIMIT ?;
+                """, (ref_prefix, f"%[Store #{store_id}]%", product_id, limit))
+            else:
+                cur.execute("""
+                    SELECT m.id, m.product_id, m.movement_type, m.quantity, m.balance_after, m.reference_type, m.reference_id, m.notes, m.created_at,
+                           p.title AS product_title, p.sku
+                    FROM inventory_movements m
+                    JOIN products p ON m.product_id = p.id
+                    WHERE (m.reference_id LIKE ? OR m.notes LIKE ?)
+                    ORDER BY m.id DESC
+                    LIMIT ?;
+                """, (ref_prefix, f"%[Store #{store_id}]%", limit))
+            cols = [c[0] for c in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+            return rows
 
     # -------------------------------------------------------------------------
     # Concurrency, Stock Reservation & Overselling Protection
@@ -2729,8 +2906,9 @@ class DatabaseService:
                 "rating": st.get("rating", 4.8),
                 "delivery_time": st.get("delivery_time", "20-30 min"),
                 "badge": st.get("badge", ""),
-                "price": sp,
-                "original_price": op,
+                "price": round(sp, 2),
+                "selling_price": round(sp, 2),
+                "original_price": round(op, 2),
                 "stock_quantity": sq,
                 "is_available": ia,
                 "status_text": status_text,

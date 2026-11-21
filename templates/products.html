@@ -39,30 +39,60 @@
           <span>Categories</span>
         </div>
         <div id="filter-categories-list">
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="" checked onchange="applyFilters()"> All Categories
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Daily Essentials & Groceries" onchange="applyFilters()"> Pure Organic & Foods
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Mobiles & Tablets" onchange="applyFilters()"> Mobiles & Tablets
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Laptops & Computers" onchange="applyFilters()"> Laptops & Computers
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Audio & Wearables" onchange="applyFilters()"> Audio & Wearables
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Home & Kitchen" onchange="applyFilters()"> Home & Kitchen
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Fashion & Apparel" onchange="applyFilters()"> Fashion & Apparel
-          </label>
-          <label class="filter-checkbox-label">
-            <input type="radio" name="cat_filter" value="Beauty & Personal Care" onchange="applyFilters()"> Beauty & Personal Care
-          </label>
+          {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="" checked onchange="applyFilters()"> All Groceries
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Dairy & Breakfast" onchange="applyFilters()"> Dairy & Breakfast
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Rice & Grains" onchange="applyFilters()"> Rice & Grains
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Cooking Essentials" onchange="applyFilters()"> Cooking Essentials
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Fresh Produce" onchange="applyFilters()"> Fresh Produce
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Snacks & Beverages" onchange="applyFilters()"> Snacks & Beverages
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Household Essentials" onchange="applyFilters()"> Household Essentials
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Personal Care" onchange="applyFilters()"> Personal Care
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Packaged Foods" onchange="applyFilters()"> Packaged Foods
+            </label>
+          {% else %}
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="" checked onchange="applyFilters()"> All Categories
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Daily Essentials & Groceries" onchange="applyFilters()"> Pure Organic & Foods
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Mobiles & Tablets" onchange="applyFilters()"> Mobiles & Tablets
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Laptops & Computers" onchange="applyFilters()"> Laptops & Computers
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Audio & Wearables" onchange="applyFilters()"> Audio & Wearables
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Home & Kitchen" onchange="applyFilters()"> Home & Kitchen
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Fashion & Apparel" onchange="applyFilters()"> Fashion & Apparel
+            </label>
+            <label class="filter-checkbox-label">
+              <input type="radio" name="cat_filter" value="Beauty & Personal Care" onchange="applyFilters()"> Beauty & Personal Care
+            </label>
+          {% endif %}
         </div>
       </div>
 

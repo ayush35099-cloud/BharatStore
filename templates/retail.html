@@ -11,16 +11,16 @@
     <div class="retail-hero-card">
       <div class="retail-hero-content">
         <div class="retail-badge-row">
-          <span class="retail-live-badge"><i class="fa-solid fa-bolt"></i> Quick Commerce</span>
+          <span class="retail-live-badge"><i class="fa-solid fa-store"></i> Verified Local Stores</span>
           <span class="retail-radius-badge"><i class="fa-solid fa-scale-balanced"></i> 5-Shop Price Comparison</span>
-          <span class="retail-status-badge"><i class="fa-solid fa-clock"></i> 2-Hour Express Delivery</span>
+          <span class="retail-status-badge"><i class="fa-solid fa-boxes-stacked"></i> Live Store Stock</span>
         </div>
 
         <h1 class="retail-hero-title">
-          Neighbourhood Physical Stores, <em>Delivered in 2 Hours</em>
+          Neighbourhood Physical Stores, <em>Best Local Prices</em>
         </h1>
         <p class="retail-hero-subtitle">
-          Compare prices across five neighbourhood grocery shops in Bengaluru and buy at the price you prefer. Order fresh milk, bilona ghee, pure paneer, atta, and cooking essentials with 2-hour express delivery or free store pickup.
+          Compare prices across five neighbourhood grocery shops in Bengaluru and buy at the price you prefer. Sourced directly from verified local merchants with transparent, store-specific inventory.
         </p>
 
         <!-- Active Store Bar -->
@@ -34,7 +34,7 @@
               {{ current_store.store_name if current_store else (current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'Bharat Fresh Mart') }}
             </strong>
             <span class="active-store-meta" id="retail-hero-store-meta">
-              {{ current_store.full_address if current_store else (current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Indiranagar, Bengaluru') }} • {{ current_store.store_description if current_store else '' }} • 2-Hour Express Delivery (₹20) or Store Pickup (FREE)
+              {{ current_store.full_address if current_store else (current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Indiranagar, Bengaluru') }} • {{ current_store.store_description if current_store else '' }} • Live In-Store Inventory
             </span>
           </div>
           <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Delivery Location">
@@ -95,8 +95,8 @@
           <div class="retail-perks-list">
             <div><i class="fa-solid fa-circle-check"></i> 5 Verified Bengaluru grocery shops</div>
             <div><i class="fa-solid fa-circle-check"></i> Real-time per-store stock & pricing</div>
-            <div><i class="fa-solid fa-circle-check"></i> 2-Hour Express Doorstep Delivery</div>
-            <div><i class="fa-solid fa-circle-check"></i> ₹0 Store Pickup with no wait time</div>
+            <div><i class="fa-solid fa-circle-check"></i> Verified In-Store Grocery Inventory</div>
+            <div><i class="fa-solid fa-circle-check"></i> Independent store pricing & stock levels</div>
             <div><i class="fa-solid fa-circle-check"></i> Chilled dairy cold-chain assurance</div>
           </div>
         </div>
@@ -701,8 +701,7 @@
           <h3 class="store-card-name">{{ st.store_name }}</h3>
           <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> {{ st.full_address }}</p>
           <div class="store-card-perks">
-            <span class="perk-pill"><i class="fa-solid fa-truck"></i> 2-Hour Express Delivery</span>
-            <span class="perk-pill"><i class="fa-solid fa-hand-holding-dollar"></i> Free Pickup</span>
+            <span class="perk-pill"><i class="fa-solid fa-store"></i> Verified Local Shop</span>
             <span class="perk-pill"><i class="fa-solid fa-shield-check"></i> Live Inventory</span>
           </div>
         </div>
@@ -737,7 +736,7 @@
           <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> Andheri West, Mumbai, Maharashtra 400053</p>
           <div class="store-card-perks">
             <span class="perk-pill"><i class="fa-solid fa-truck"></i> 2-Hour Express Delivery</span>
-            <span class="perk-pill"><i class="fa-solid fa-hand-holding-dollar"></i> Central Dispatch</span>
+            <span class="perk-pill"><i class="fa-solid fa-boxes-stacked"></i> Central Dispatch</span>
           </div>
         </div>
         <div class="store-card-footer">
@@ -921,18 +920,30 @@
 
       let shopsHtml = "";
       (data.stores_comparison || []).forEach(shop => {
-        const isLowest = shop.is_lowest;
-        const inStock = shop.is_available && shop.stock_quantity > 0;
-        const rowClass = isLowest ? "compare-shop-row lowest-price-row" : "compare-shop-row";
+        const isLowest = Boolean(shop.is_lowest);
+        const inStock = Boolean(shop.is_available && shop.stock_quantity > 0);
+        const rowClass = (isLowest && inStock) ? "compare-shop-row lowest-price-row" : "compare-shop-row";
+
+        // Parse price safely - prevents ₹NaN
+        const rawPrice = (shop.selling_price !== undefined && shop.selling_price !== null) ? shop.selling_price : shop.price;
+        const priceNum = parseFloat(rawPrice);
+        const priceDisplay = (!isNaN(priceNum) && isFinite(priceNum) && priceNum > 0)
+          ? `₹${priceNum.toFixed(2)}`
+          : "Price unavailable";
+
+        // Savings calculation
+        const savingsNum = parseFloat(shop.savings !== undefined ? shop.savings : data.max_savings);
+        const showSavings = isLowest && inStock && !isNaN(savingsNum) && isFinite(savingsNum) && savingsNum > 0;
+        const savingsDisplay = showSavings ? `<div class="savings">Save ₹${savingsNum.toFixed(2)}</div>` : '';
 
         shopsHtml += `
           <div class="${rowClass}">
             <div class="compare-shop-info">
               <strong>
                 ${shop.store_name}
-                ${isLowest ? '<span style="font-size:10px; background:#10B981; color:#fff; padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:700;"><i class="fa-solid fa-tag"></i> LOWEST PRICE</span>' : ''}
+                ${(isLowest && inStock) ? '<span style="font-size:10px; background:#10B981; color:#fff; padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:700;"><i class="fa-solid fa-tag"></i> LOWEST PRICE</span>' : ''}
               </strong>
-              <span><i class="fa-solid fa-location-dot"></i> ${shop.locality || shop.city} • <i class="fa-solid fa-clock"></i> ${shop.delivery_time || '20-30m'} • <i class="fa-solid fa-star" style="color:#F59E0B;"></i> ${shop.rating || 4.7}</span>
+              <span><i class="fa-solid fa-location-dot"></i> ${shop.area || shop.locality || shop.city} • <i class="fa-solid fa-clock"></i> ${shop.delivery_time || '20-30m'} • <i class="fa-solid fa-star" style="color:#F59E0B;"></i> ${shop.rating || 4.7}</span>
               <div style="font-size:11px; margin-top:3px; color:${inStock ? '#059669' : '#DC2626'}; font-weight:600;">
                 ${inStock ? `<i class="fa-solid fa-circle-check"></i> In Stock (${shop.stock_quantity} available)` : '<i class="fa-solid fa-circle-xmark"></i> Out of Stock at this shop'}
               </div>
@@ -940,8 +951,8 @@
 
             <div style="display:flex; align-items:center; gap:12px;">
               <div class="compare-shop-pricing">
-                <div class="price">₹${parseFloat(shop.selling_price).toFixed(2)}</div>
-                ${isLowest && data.max_savings > 0 ? `<div class="savings">Save ₹${data.max_savings.toFixed(2)}</div>` : ''}
+                <div class="price">${priceDisplay}</div>
+                ${savingsDisplay}
               </div>
 
               <div>
@@ -950,7 +961,7 @@
                     type="button" 
                     class="btn-primary" 
                     style="padding:7px 12px; font-size:12px; font-weight:700; white-space:nowrap;"
-                    onclick="addFromSpecificShop(${p.id}, ${shop.store_id}, '${shop.store_name.replace(/'/g, "\\'")}', 1)"
+                    onclick="addFromSpecificShop(${p.id}, ${shop.store_id}, '${(shop.store_name || '').replace(/'/g, "\\'")}', 1)"
                   >
                     <i class="fa-solid fa-cart-plus"></i> Buy from Shop
                   </button>
@@ -970,13 +981,21 @@
         `;
       });
 
+      const lowestPriceNum = parseFloat(data.lowest_price);
+      const lowestDisplay = (!isNaN(lowestPriceNum) && isFinite(lowestPriceNum) && lowestPriceNum > 0)
+        ? `₹${lowestPriceNum.toFixed(2)}`
+        : "Unavailable";
+      const lowestStoreInfo = (data.lowest_store_name && lowestDisplay !== "Unavailable")
+        ? `(Lowest at ${data.lowest_store_name})`
+        : "";
+
       content.innerHTML = `
         <div style="display:flex; gap:14px; align-items:center; padding:12px; background:var(--color-bg-subtle); border-radius:var(--radius-md); margin-bottom:16px;">
           <img src="${p.image_url}" alt="${p.title}" style="width:60px; height:60px; object-fit:contain; background:#fff; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:4px;">
           <div>
             <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700; color:var(--color-text-main);">${p.title}</h4>
             <div style="font-size:12px; color:var(--color-text-muted);">
-              Pack/Unit: <strong>${p.pack_size || p.unit_quantity || 'Standard'}</strong> • Lowest across shops: <strong style="color:#059669;">₹${parseFloat(data.lowest_price).toFixed(2)}</strong> (Lowest at ${data.lowest_store_name})
+              Pack/Unit: <strong>${p.pack_size || p.unit_quantity || 'Standard'}</strong> • Lowest across shops: <strong style="color:#059669;">${lowestDisplay}</strong> ${lowestStoreInfo}
             </div>
           </div>
         </div>

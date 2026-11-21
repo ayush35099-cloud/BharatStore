@@ -23,6 +23,7 @@ class TestPhase7MultiStoreCartCheckout(unittest.TestCase):
         cls.app = create_app()
         cls.client = cls.app.test_client()
         cls.db = DatabaseService()
+        cls.db.reset_inventory()
 
     def setUp(self):
         # Create unique session / customer IDs per test to ensure pristine isolation
@@ -466,12 +467,14 @@ class TestPhase7MultiStoreCartCheckout(unittest.TestCase):
     # =========================================================================
     def test_33_cross_customer_cart_isolation(self):
         """Spec 33: User A cannot view or modify User B's cart."""
-        headers_b = {"Content-Type": "application/json", "X-Customer-Id": "888"}
+        cust_b = 88800 + int(uuid.uuid4().hex[:4], 16)
+        cust_a = 77700 + int(uuid.uuid4().hex[:4], 16)
+        headers_b = {"Content-Type": "application/json", "X-Customer-Id": str(cust_b)}
         res_b = self.client.post("/api/cart/online/add", json={"product_id": 1, "quantity": 1}, headers=headers_b)
         item_id_b = res_b.get_json()["cart"]["items"][0]["item_id"]
 
         # User A attempts to modify User B's item
-        headers_a = {"Content-Type": "application/json", "X-Customer-Id": "777"}
+        headers_a = {"Content-Type": "application/json", "X-Customer-Id": str(cust_a)}
         res_tamper = self.client.patch(f"/api/cart/items/{item_id_b}", json={"quantity": 5}, headers=headers_a)
         self.assertEqual(res_tamper.status_code, 403)
         print(" [PASSED] 33. Cross-customer cart modification strictly blocked with HTTP 403")
@@ -481,14 +484,14 @@ class TestPhase7MultiStoreCartCheckout(unittest.TestCase):
         sess1 = str(uuid.uuid4())
         sess2 = str(uuid.uuid4())
 
-        self.client.post("/api/cart/online/add?session_id=" + sess1, json={"product_id": 1, "quantity": 2})
-        self.client.post("/api/cart/online/add?session_id=" + sess2, json={"product_id": 1, "quantity": 5})
+        self.client.post("/api/cart/online/add?session_id=" + sess1, json={"product_id": 1, "quantity": 1})
+        self.client.post("/api/cart/online/add?session_id=" + sess2, json={"product_id": 1, "quantity": 2})
 
         cart1 = self.client.get("/api/cart/online?session_id=" + sess1).get_json()["cart"]
         cart2 = self.client.get("/api/cart/online?session_id=" + sess2).get_json()["cart"]
 
-        self.assertEqual(cart1["total_items"], 2)
-        self.assertEqual(cart2["total_items"], 5)
+        self.assertEqual(cart1["total_items"], 1)
+        self.assertEqual(cart2["total_items"], 2)
         print(" [PASSED] 34. Guest carts strictly partitioned by session ID")
 
     def test_35_nonexistent_store_id_rejected(self):

@@ -127,6 +127,62 @@ def set_current_shopping_mode(mode: str) -> bool:
     return False
 
 # -------------------------------------------------------------------------
+# Phase 8: Strict Retail Category Isolation
+# -------------------------------------------------------------------------
+ALLOWED_RETAIL_CATEGORIES = {
+    "Dairy & Breakfast",
+    "Rice & Grains",
+    "Cooking Essentials",
+    "Fresh Produce",
+    "Snacks & Beverages",
+    "Household Essentials",
+    "Personal Care",
+    "Packaged Foods",
+    "Daily Essentials & Groceries",
+    "Beauty & Personal Care",
+}
+
+NON_GROCERY_CATEGORIES = {
+    "Mobiles & Tablets",
+    "Laptops & Computers",
+    "Audio & Wearables",
+    "Home & Kitchen",
+    "Fashion & Apparel",
+    "Electronics",
+}
+
+def resolve_shopping_mode(explicit_mode: Optional[str] = None) -> str:
+    """Resolves shopping mode from explicit argument, request parameters, or session."""
+    if explicit_mode:
+        canonical = normalize_shopping_mode(explicit_mode)
+        if canonical:
+            return canonical
+    try:
+        from flask import request
+        param = request.args.get("mode") or request.args.get("shopping_mode")
+        if param:
+            canonical = normalize_shopping_mode(param)
+            if canonical:
+                return canonical
+    except Exception:
+        pass
+    return get_current_shopping_mode()
+
+def is_retail_grocery_product(product: Optional[Dict[str, Any]]) -> bool:
+    """Returns True if the product belongs strictly to grocery categories and not non-grocery."""
+    if not product or not isinstance(product, dict):
+        return False
+    cat = (product.get("category") or "").strip()
+    sub = (product.get("sub_category") or "").strip()
+    if cat in NON_GROCERY_CATEGORIES or sub in NON_GROCERY_CATEGORIES:
+        return False
+    if cat == "Daily Essentials & Groceries" or cat in ALLOWED_RETAIL_CATEGORIES:
+        return True
+    if sub in ALLOWED_RETAIL_CATEGORIES:
+        return True
+    return False
+
+# -------------------------------------------------------------------------
 # Phase 3: Location Constants, Distance Calculation & Context Injector
 # -------------------------------------------------------------------------
 CITIES_AND_AREAS_DATA = [
@@ -653,6 +709,10 @@ def get_retail_catalog_api():
 @main_bp.route("/api/retail/compare/<int:product_id>", methods=["GET"])
 def get_retail_product_compare_api(product_id: int):
     """Returns real-time 5-shop price comparison and stock status for a grocery product."""
+    product = db_service.get_product_by_id(product_id)
+    if not product or not is_retail_grocery_product(product):
+        return jsonify({"success": False, "error": f"Grocery product #{product_id} not found."}), 404
+
     city = request.args.get("city", "Bengaluru")
     comparison = db_service.get_product_price_comparison(product_id, city)
     if not comparison:
@@ -1795,6 +1855,20 @@ def get_hubs():
 def list_products():
     category = request.args.get("category")
     city = request.args.get("city")
+    mode = resolve_shopping_mode()
+
+    if mode == "RETAIL_NEAR_ME":
+        if category and category in NON_GROCERY_CATEGORIES:
+            return jsonify({"total": 0, "products": []})
+        products = db_service.get_all_products(category=category, city=city)
+        filtered = [p for p in products if is_retail_grocery_product(p)]
+        if category and category in ALLOWED_RETAIL_CATEGORIES and category != "Daily Essentials & Groceries":
+            filtered = [
+                p for p in filtered
+                if (p.get("sub_category") == category) or (p.get("category") == category)
+            ]
+        return jsonify({"total": len(filtered), "products": filtered})
+
     products = db_service.get_all_products(category=category, city=city)
     return jsonify({"total": len(products), "products": products})
 
@@ -1803,7 +1877,14 @@ def get_product(product_id: int):
     prod = db_service.get_product_by_id(product_id)
     if not prod:
         return jsonify({"error": "Product not found"}), 404
-    prod["related_products"] = db_service.get_related_products(product_id, prod.get("category"), limit=4)
+    mode = resolve_shopping_mode()
+    if mode == "RETAIL_NEAR_ME" and not is_retail_grocery_product(prod):
+        return jsonify({"error": "Product not available in Retail Near Me mode"}), 404
+
+    related = db_service.get_related_products(product_id, prod.get("category"), limit=4)
+    if mode == "RETAIL_NEAR_ME":
+        related = [p for p in related if is_retail_grocery_product(p)]
+    prod["related_products"] = related
     return jsonify(prod)
 
 @main_bp.route("/api/cart/validate", methods=["POST"])
@@ -1905,6 +1986,29 @@ def search_catalog():
     city = request.args.get("city")
     min_price = request.args.get("min_price", type=float)
     max_price = request.args.get("max_price", type=float)
+    mode = resolve_shopping_mode()
+
+    if mode == "RETAIL_NEAR_ME":
+        if category and category in NON_GROCERY_CATEGORIES:
+            return jsonify({
+                "total": 0,
+                "hits": [],
+                "took_ms": 1,
+                "engine": "opensearch_mode_filtered"
+            })
+        search_result = opensearch_service.search(
+            query_text=query,
+            category=category,
+            city=city,
+            min_price=min_price,
+            max_price=max_price
+        )
+        hits = search_result.get("hits") or search_result.get("results") or []
+        filtered_hits = [h for h in hits if is_retail_grocery_product(h)]
+        search_result["hits"] = filtered_hits
+        search_result["results"] = filtered_hits
+        search_result["total"] = len(filtered_hits)
+        return jsonify(search_result)
 
     search_result = opensearch_service.search(
         query_text=query,
@@ -1918,8 +2022,13 @@ def search_catalog():
 @main_bp.route("/api/search/suggestions", methods=["GET"])
 def search_suggestions():
     query = request.args.get("q", "").strip()
-    suggestions = opensearch_service.get_suggestions(query, limit=5)
-    return jsonify({"query": query, "suggestions": suggestions})
+    mode = resolve_shopping_mode()
+    suggestions = opensearch_service.get_suggestions(query, limit=10)
+    if mode == "RETAIL_NEAR_ME":
+        non_grocery_keywords = {"laptop", "macbook", "phone", "iphone", "samsung galaxy", "headphone", "t-shirt", "watch", "tablet", "audio", "shirt", "apparel"}
+        filtered = [s for s in suggestions if not any(ng in s.lower() for ng in non_grocery_keywords)]
+        return jsonify({"query": query, "suggestions": filtered[:5]})
+    return jsonify({"query": query, "suggestions": suggestions[:5]})
 
 # -------------------------------------------------------------------------
 # Transactional Checkout & Kafka Producer API
@@ -2568,6 +2677,72 @@ def api_get_store_low_stock(store_id: int):
         "store_id": store_id,
         "low_stock_products": items,
         "count": len(items)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/out-of-stock", methods=["GET"])
+@require_admin_auth
+def api_get_store_out_of_stock(store_id: int):
+    """
+    Admin API: Returns products that are out of stock (stock <= 0 or is_available = False) at a store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    items = db_service.get_out_of_stock_products(store_id)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "out_of_stock_products": items,
+        "count": len(items)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/movements", methods=["GET"])
+@require_admin_auth
+def api_get_store_movements(store_id: int):
+    """
+    Admin API: Returns immutable inventory stock movements for a physical retail store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    limit = request.args.get("limit", 50, type=int)
+    movements = db_service.get_store_stock_movements(store_id=store_id, limit=limit)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "movements": movements,
+        "count": len(movements)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/<int:product_id>/movements", methods=["GET"])
+@require_admin_auth
+def api_get_store_product_movements(store_id: int, product_id: int):
+    """
+    Admin API: Returns immutable inventory stock movements for a specific product at a store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    limit = request.args.get("limit", 50, type=int)
+    movements = db_service.get_store_stock_movements(store_id=store_id, product_id=product_id, limit=limit)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "product_id": product_id,
+        "movements": movements,
+        "count": len(movements)
     })
 
 @main_bp.route("/api/stores/<int:store_id>/inventory", methods=["POST"])

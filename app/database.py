@@ -2370,7 +2370,7 @@ class DatabaseService:
             SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
                    si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
                    si.low_stock_threshold, si.is_available, si.updated_at,
-                   p.sku, p.title, p.brand, p.category, p.image_url, p.rating, p.rating_count
+                   p.sku, p.title, p.brand, p.category, p.sub_category, p.image_url, p.description, p.rating, p.rating_count
             FROM store_inventory si
             JOIN products p ON si.product_id = p.id
             WHERE si.store_id = %s
@@ -2379,19 +2379,37 @@ class DatabaseService:
             SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
                    si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
                    si.low_stock_threshold, si.is_available, si.updated_at,
-                   p.sku, p.title, p.brand, p.category, p.image_url, p.rating, p.rating_count
+                   p.sku, p.title, p.brand, p.category, p.sub_category, p.image_url, p.description, p.rating, p.rating_count
             FROM store_inventory si
             JOIN products p ON si.product_id = p.id
             WHERE si.store_id = ?
             ORDER BY p.title ASC;
         """
 
+        def _classify_subcat(title: str, subcat: Optional[str] = None) -> str:
+            if subcat and str(subcat).strip():
+                return subcat
+            t = (title or "").lower()
+            if any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+                return "Dairy & Breakfast"
+            if any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana"]):
+                return "Rice & Grains"
+            if any(k in t for k in ["oil", "sugar", "salt", "masala", "spice"]):
+                return "Cooking Essentials"
+            if any(k in t for k in ["potato", "onion", "tomato", "banana", "fruit", "vegetable"]):
+                return "Fresh Produce"
+            return "Daily Essentials & Groceries"
+
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(sql, (store_id,))
-                rows = [dict(r) for r in cur.fetchall()]
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
+                    rows.append(d)
             conn.close()
             return rows
         else:
@@ -2402,6 +2420,7 @@ class DatabaseService:
             for r in cur.fetchall():
                 d = dict(r)
                 d["is_available"] = bool(d.get("is_available"))
+                d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
                 rows.append(d)
             conn.close()
             return rows
@@ -2420,7 +2439,7 @@ class DatabaseService:
             SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
                    si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
                    si.low_stock_threshold, si.is_available, si.updated_at,
-                   p.sku, p.title, p.brand, p.category, p.image_url, p.description, p.rating, p.rating_count
+                   p.sku, p.title, p.brand, p.category, p.sub_category, p.image_url, p.description, p.rating, p.rating_count
             FROM store_inventory si
             JOIN products p ON si.product_id = p.id
             WHERE si.store_id = %s AND si.product_id = %s;
@@ -2428,7 +2447,7 @@ class DatabaseService:
             SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
                    si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
                    si.low_stock_threshold, si.is_available, si.updated_at,
-                   p.sku, p.title, p.brand, p.category, p.image_url, p.description, p.rating, p.rating_count
+                   p.sku, p.title, p.brand, p.category, p.sub_category, p.image_url, p.description, p.rating, p.rating_count
             FROM store_inventory si
             JOIN products p ON si.product_id = p.id
             WHERE si.store_id = ? AND si.product_id = ?;

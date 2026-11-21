@@ -280,23 +280,141 @@ def inject_shopping_mode():
     }
 
 # -------------------------------------------------------------------------
+# Retail Near Me View Builder
+# -------------------------------------------------------------------------
+def build_retail_context() -> Dict[str, Any]:
+    """
+    Constructs high-performance context for Retail Near Me storefront.
+    Loads real physical stores, store-specific inventory, and groups
+    essential items (Dairy & Breakfast, Rice & Grains, Cooking Essentials, Fresh Produce).
+    """
+    set_current_shopping_mode("RETAIL_NEAR_ME")
+    hubs = db_service.get_store_hubs()
+    stores = db_service.get_all_stores(active_only=True)
+    if not stores:
+        stores = [
+            {"id": 1, "store_name": "BharatStore Bengaluru Tech Store", "store_slug": "bharatstore-bengaluru-tech-store", "city": "Bengaluru", "area": "Indiranagar", "full_address": "100 Feet Road, Indiranagar, Bengaluru 560038", "is_active": True},
+            {"id": 2, "store_name": "Fresh Mart Bengaluru", "store_slug": "fresh-mart-bengaluru", "city": "Bengaluru", "area": "Koramangala", "full_address": "80 Feet Road, Koramangala, Bengaluru 560034", "is_active": True},
+            {"id": 3, "store_name": "BharatStore Mumbai Bandra", "store_slug": "bharatstore-mumbai-bandra", "city": "Mumbai", "area": "Bandra West", "full_address": "Hill Road, Bandra West, Mumbai 400050", "is_active": True},
+            {"id": 4, "store_name": "QuickMart Mumbai", "store_slug": "quickmart-mumbai", "city": "Mumbai", "area": "Andheri West", "full_address": "Lokhandwala Complex, Andheri West, Mumbai 400053", "is_active": True}
+        ]
+
+    # 1. Resolve selected physical store (Query Param -> Session -> City Location -> Default Store 1)
+    store_id_param = request.args.get("store_id")
+    selected_store = None
+    if store_id_param:
+        try:
+            selected_store = db_service.get_store_by_id(int(store_id_param))
+        except (ValueError, TypeError):
+            selected_store = None
+
+    if not selected_store:
+        sess_store_id = session.get("retail_store_id")
+        if sess_store_id:
+            try:
+                selected_store = db_service.get_store_by_id(int(sess_store_id))
+            except (ValueError, TypeError):
+                selected_store = None
+
+    if not selected_store:
+        loc = session.get("delivery_location") or {}
+        city = (loc.get("city") or request.cookies.get("bharatstore_city") or "Bengaluru").strip().lower()
+        if "mumbai" in city:
+            selected_store = next((s for s in stores if s.get("id") == 3), stores[0])
+        else:
+            selected_store = next((s for s in stores if s.get("id") == 1), stores[0])
+
+    session["retail_store_id"] = selected_store["id"]
+
+    # 2. Retrieve store inventory
+    inventory_items = db_service.get_store_inventory(selected_store["id"])
+
+    # Fallback to global catalog if store inventory empty
+    if not inventory_items:
+        raw_prods = db_service.get_all_products()
+        inventory_items = []
+        for p in raw_prods:
+            item = dict(p)
+            item["product_id"] = p["id"]
+            item["selling_price"] = p["price"]
+            item["stock_quantity"] = p.get("stock", 20)
+            item["available_quantity"] = p.get("stock", 20)
+            item["is_available"] = True
+            inventory_items.append(item)
+
+    # 3. Categorize into essential departments
+    dairy_items = []
+    grains_items = []
+    essentials_items = []
+    produce_items = []
+    other_items = []
+
+    for item in inventory_items:
+        sub = item.get("sub_category", "")
+        t = (item.get("title") or "").lower()
+        if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+            item["department"] = "Dairy & Breakfast"
+            dairy_items.append(item)
+        elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana"]):
+            item["department"] = "Rice & Grains"
+            grains_items.append(item)
+        elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice"]):
+            item["department"] = "Cooking Essentials"
+            essentials_items.append(item)
+        elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "fruit", "vegetable"]):
+            item["department"] = "Fresh Produce"
+            produce_items.append(item)
+        else:
+            item["department"] = "Other Essentials"
+            other_items.append(item)
+
+    # Ordered catalog ensuring dairy & essentials lead first
+    ordered_products = dairy_items + grains_items + essentials_items + produce_items + other_items
+
+    return {
+        "hubs": hubs,
+        "stores": stores,
+        "current_store": selected_store,
+        "selected_store_id": selected_store["id"],
+        "dairy_items": dairy_items,
+        "grains_items": grains_items,
+        "essentials_items": essentials_items,
+        "produce_items": produce_items,
+        "products": ordered_products,
+        "all_store_products": inventory_items,
+        "active_mode": "RETAIL_NEAR_ME"
+    }
+
+# -------------------------------------------------------------------------
 # Web Views
 # -------------------------------------------------------------------------
 @main_bp.route("/")
 def index():
     mode = get_current_shopping_mode()
     if mode == "RETAIL_NEAR_ME" and request.args.get("view") != "online":
-        hubs = db_service.get_store_hubs()
-        products = db_service.get_all_products()
-        return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+        ctx = build_retail_context()
+        return render_template("retail.html", **ctx)
     return render_template("index.html")
 
 @main_bp.route("/retail")
 def retail_page():
-    set_current_shopping_mode("RETAIL_NEAR_ME")
-    hubs = db_service.get_store_hubs()
-    products = db_service.get_all_products()
-    return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+    ctx = build_retail_context()
+    return render_template("retail.html", **ctx)
+
+@main_bp.route("/api/retail/catalog", methods=["GET"])
+def get_retail_catalog_api():
+    """Returns dynamic retail catalog grouped by department for live store switcher."""
+    ctx = build_retail_context()
+    return jsonify({
+        "success": True,
+        "current_store": ctx["current_store"],
+        "dairy_items": ctx["dairy_items"],
+        "grains_items": ctx["grains_items"],
+        "essentials_items": ctx["essentials_items"],
+        "produce_items": ctx["produce_items"],
+        "all_products": ctx["products"],
+        "total_items": len(ctx["products"])
+    })
 
 @main_bp.route("/online")
 def online_page():

@@ -148,6 +148,7 @@ def get_pg_schema_ddl() -> List[str]:
             title VARCHAR(255) NOT NULL,
             brand VARCHAR(100) NOT NULL,
             category VARCHAR(100) NOT NULL,
+            sub_category VARCHAR(100),
             category_id INT REFERENCES categories(id) ON DELETE SET NULL,
             seller_id INT REFERENCES sellers(id) ON DELETE SET NULL,
             price NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
@@ -537,6 +538,7 @@ def get_sqlite_schema_ddl() -> List[str]:
             title TEXT NOT NULL,
             brand TEXT NOT NULL,
             category TEXT NOT NULL,
+            sub_category TEXT,
             category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
             seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL,
             price REAL NOT NULL CHECK (price >= 0),
@@ -1039,88 +1041,146 @@ SAMPLE_STORES = [
 ]
 
 EXTRA_GROCERY_PRODUCTS = [
-    {"id": 61, "sku": "BK-GRO-MLK-01", "title": "Amul Taaza Homogenised Toned Milk 1L", "brand": "Amul", "category": "Daily Essentials & Groceries", "price": 60.00, "original_price": 64.00, "stock": 100, "rating": 4.8, "rating_count": 520, "description": "Long life toned milk, nutritious and ready to drink with zero preservatives.", "image_url": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 62, "sku": "BK-GRO-CRD-01", "title": "Mother Dairy Classic Dahi / Curd 500g Pouch", "brand": "Mother Dairy", "category": "Daily Essentials & Groceries", "price": 35.00, "original_price": 38.00, "stock": 50, "rating": 4.7, "rating_count": 310, "description": "Thick, creamy and delicious curd made from pasteurised milk.", "image_url": "https://images.unsplash.com/photo-1571212515416-fef01fc43637?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 63, "sku": "BK-GRO-PNR-01", "title": "Amul Fresh Malai Paneer 200g Pack", "brand": "Amul", "category": "Daily Essentials & Groceries", "price": 95.00, "original_price": 105.00, "stock": 40, "rating": 4.8, "rating_count": 410, "description": "Soft and succulent malai paneer packed with protein and calcium.", "image_url": "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 64, "sku": "BK-GRO-BTR-01", "title": "Amul Pasteurised Salted Butter 100g", "brand": "Amul", "category": "Daily Essentials & Groceries", "price": 58.00, "original_price": 60.00, "stock": 60, "rating": 4.9, "rating_count": 890, "description": "Utterly butterly delicious classic salted table butter.", "image_url": "https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 65, "sku": "BK-GRO-RIC-01", "title": "India Gate Feast Rozzana Basmati Rice 1kg", "brand": "India Gate", "category": "Daily Essentials & Groceries", "price": 110.00, "original_price": 125.00, "stock": 45, "rating": 4.6, "rating_count": 640, "description": "Aged aromatic basmati rice with slender grains, ideal for everyday dining.", "image_url": "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 66, "sku": "BK-GRO-RIC-02", "title": "Fortune Everyday Sona Masoori Rice 5kg Bag", "brand": "Fortune", "category": "Daily Essentials & Groceries", "price": 340.00, "original_price": 380.00, "stock": 35, "rating": 4.5, "rating_count": 280, "description": "Lightweight, aromatic medium-grain rice perfect for daily curries and dal.", "image_url": "https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 67, "sku": "BK-GRO-BSN-01", "title": "Tata Sampann 100% Chana Dal Besan 1kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "price": 115.00, "original_price": 130.00, "stock": 30, "rating": 4.7, "rating_count": 220, "description": "Made from unpolished chickpeas, naturally rich in dietary protein and fiber.", "image_url": "https://images.unsplash.com/photo-1627485937980-221c88ac04f9?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 68, "sku": "BK-GRO-DAL-01", "title": "Tata Sampann Unpolished Toor / Arhar Dal 1kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "price": 175.00, "original_price": 195.00, "stock": 50, "rating": 4.7, "rating_count": 510, "description": "Unpolished toor dal retaining natural dietary nutrients and taste.", "image_url": "https://images.unsplash.com/photo-1585994192701-f1a505c817ea?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 69, "sku": "BK-GRO-DAL-02", "title": "Organic Tattva Yellow Moong Dal Split 1kg", "brand": "Organic Tattva", "category": "Daily Essentials & Groceries", "price": 165.00, "original_price": 185.00, "stock": 40, "rating": 4.6, "rating_count": 340, "description": "Certified organic yellow moong dal, easy to digest and rich in vitamins.", "image_url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 70, "sku": "BK-GRO-DAL-03", "title": "Tata Sampann Unpolished Chana Dal 1kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "price": 120.00, "original_price": 135.00, "stock": 35, "rating": 4.5, "rating_count": 190, "description": "Unpolished, healthy chana dal sourced directly from select Indian farms.", "image_url": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 71, "sku": "BK-GRO-SGR-01", "title": "Madhur Pure & Hygienic Refined Sugar 1kg", "brand": "Madhur", "category": "Daily Essentials & Groceries", "price": 54.00, "original_price": 60.00, "stock": 80, "rating": 4.8, "rating_count": 720, "description": "Sulphur-free sparkling white refined sugar untouched by hand.", "image_url": "https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 72, "sku": "BK-GRO-POT-01", "title": "Fresh Farm Select New Crop Potato 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "price": 38.00, "original_price": 45.00, "stock": 120, "rating": 4.4, "rating_count": 430, "description": "Cleaned, mud-free fresh farm potatoes ideal for boiling and curries.", "image_url": "https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 73, "sku": "BK-GRO-ONN-01", "title": "Fresh Farm Nasik Red Onion 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "price": 42.00, "original_price": 50.00, "stock": 100, "rating": 4.5, "rating_count": 610, "description": "Crisp and pungent premium Nasik red onions.", "image_url": "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 74, "sku": "BK-GRO-TOM-01", "title": "Fresh Farm Ripe Hybrid Tomato 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "price": 35.00, "original_price": 42.00, "stock": 90, "rating": 4.6, "rating_count": 520, "description": "Plump and juicy vine-ripened red hybrid tomatoes.", "image_url": "https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
-    {"id": 75, "sku": "BK-GRO-BAN-01", "title": "Fresh Robusta Bananas 1 Dozen (approx 1.2kg)", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "price": 65.00, "original_price": 75.00, "stock": 70, "rating": 4.7, "rating_count": 390, "description": "Sweet, naturally ripened golden yellow Robusta bananas.", "image_url": "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]}
+    # 1. Milk & Dairy (Requested Essentials)
+    {"id": 61, "sku": "BK-GRO-MLK-01", "title": "Amul Taaza Milk – 1 L", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 60.00, "original_price": 64.00, "stock": 100, "rating": 4.8, "rating_count": 520, "description": "Long life pasteurised toned milk, rich in nutrients and ready to drink with zero preservatives.", "image_url": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 76, "sku": "BK-GRO-MLK-02", "title": "Amul Gold Milk – 500 ml", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 33.00, "original_price": 35.00, "stock": 80, "rating": 4.9, "rating_count": 410, "description": "Standardised pasteurised fresh full cream milk with 6.0% fat and 9.0% SNF.", "image_url": "https://images.unsplash.com/photo-1563636619-e9143da7973b?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 77, "sku": "BK-GRO-MLK-03", "title": "Mother Dairy Milk – 1 L", "brand": "Mother Dairy", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 66.00, "original_price": 68.00, "stock": 90, "rating": 4.7, "rating_count": 380, "description": "Full cream wholesome pasteurised milk, rich in calcium and natural vitamin A.", "image_url": "https://images.unsplash.com/photo-1528750997573-59b89d56f4f7?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 62, "sku": "BK-GRO-CRD-01", "title": "Fresh Curd – 500 g", "brand": "Mother Dairy", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 35.00, "original_price": 38.00, "stock": 50, "rating": 4.7, "rating_count": 310, "description": "Thick, creamy and delicious dahi made from pasteurised toned milk.", "image_url": "https://images.unsplash.com/photo-1571212515416-fef01fc43637?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 78, "sku": "BK-GRO-CRD-02", "title": "Amul Masti Dahi – 400 g", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 35.00, "original_price": 38.00, "stock": 60, "rating": 4.8, "rating_count": 490, "description": "Creamy, smooth probiotic curd made under the highest hygienic dairy standards.", "image_url": "https://images.unsplash.com/photo-1488477181946-6428a0291777?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 63, "sku": "BK-GRO-PNR-01", "title": "Paneer – 200 g", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 95.00, "original_price": 105.00, "stock": 40, "rating": 4.8, "rating_count": 410, "description": "Soft and succulent fresh malai paneer packed with high-grade dairy protein.", "image_url": "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 64, "sku": "BK-GRO-BTR-01", "title": "Amul Butter – 100 g", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 58.00, "original_price": 60.00, "stock": 60, "rating": 4.9, "rating_count": 890, "description": "Utterly butterly delicious classic pasteurised salted table butter.", "image_url": "https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 79, "sku": "BK-GRO-GHE-01", "title": "Amul Pure Ghee – 500 ml", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 310.00, "original_price": 330.00, "stock": 55, "rating": 4.9, "rating_count": 760, "description": "Pure aromatic cow ghee prepared with traditional methods for cooking and sweets.", "image_url": "https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 80, "sku": "BK-GRO-CHS-01", "title": "Cheese – 200 g", "brand": "Amul", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 135.00, "original_price": 145.00, "stock": 45, "rating": 4.8, "rating_count": 520, "description": "Classic 100% vegetarian processed cheese block, perfect for grating and melting.", "image_url": "https://images.unsplash.com/photo-1618060932014-4deda4932554?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 83, "sku": "BK-GRO-BRD-01", "title": "Britannia Bread – 400 g", "brand": "Britannia", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 40.00, "original_price": 45.00, "stock": 50, "rating": 4.6, "rating_count": 310, "description": "Daily fresh, soft sandwich bread baked to golden perfection.", "image_url": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 84, "sku": "BK-GRO-EGG-01", "title": "Farm Fresh Eggs (6 Pack)", "brand": "Farm Fresh", "category": "Daily Essentials & Groceries", "sub_category": "Dairy & Breakfast", "price": 55.00, "original_price": 65.00, "stock": 60, "rating": 4.8, "rating_count": 420, "description": "High-protein, cleaned and sanitised farm fresh white eggs.", "image_url": "https://images.unsplash.com/photo-1506976785307-8732e854ad03?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+
+    # 2. Rice & Grains (Requested Essentials)
+    {"id": 65, "sku": "BK-GRO-RIC-01", "title": "Basmati Rice – 1 kg", "brand": "India Gate", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 110.00, "original_price": 125.00, "stock": 45, "rating": 4.6, "rating_count": 640, "description": "Aged aromatic basmati rice with slender grains, ideal for everyday dining.", "image_url": "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 66, "sku": "BK-GRO-RIC-02", "title": "Regular Rice – 5 kg", "brand": "Fortune", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 340.00, "original_price": 380.00, "stock": 35, "rating": 4.5, "rating_count": 280, "description": "Lightweight, aromatic medium-grain rice perfect for daily curries and dal.", "image_url": "https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 67, "sku": "BK-GRO-BSN-01", "title": "Tata Sampann 100% Chana Dal Besan 1kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 115.00, "original_price": 130.00, "stock": 30, "rating": 4.7, "rating_count": 220, "description": "Made from unpolished chickpeas, naturally rich in dietary protein and fiber.", "image_url": "https://images.unsplash.com/photo-1627485937980-221c88ac04f9?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 68, "sku": "BK-GRO-DAL-01", "title": "Toor Dal – 1 kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 175.00, "original_price": 195.00, "stock": 50, "rating": 4.7, "rating_count": 510, "description": "Unpolished toor dal retaining natural dietary nutrients and taste.", "image_url": "https://images.unsplash.com/photo-1585994192701-f1a505c817ea?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 69, "sku": "BK-GRO-DAL-02", "title": "Moong Dal – 1 kg", "brand": "Organic Tattva", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 165.00, "original_price": 185.00, "stock": 40, "rating": 4.6, "rating_count": 340, "description": "Certified organic yellow moong dal, easy to digest and rich in vitamins.", "image_url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 70, "sku": "BK-GRO-DAL-03", "title": "Tata Sampann Unpolished Chana Dal 1kg", "brand": "Tata Sampann", "category": "Daily Essentials & Groceries", "sub_category": "Rice & Grains", "price": 120.00, "original_price": 135.00, "stock": 35, "rating": 4.5, "rating_count": 190, "description": "Unpolished, healthy chana dal sourced directly from select Indian farms.", "image_url": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+
+    # 3. Cooking Essentials (Requested Essentials)
+    {"id": 81, "sku": "BK-GRO-OIL-01", "title": "Sunflower Oil – 1 L", "brand": "Fortune", "category": "Daily Essentials & Groceries", "sub_category": "Cooking Essentials", "price": 145.00, "original_price": 160.00, "stock": 75, "rating": 4.6, "rating_count": 390, "description": "Refined light sunflower cooking oil with Vitamin A & D for daily healthy meals.", "image_url": "https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 71, "sku": "BK-GRO-SGR-01", "title": "Sugar – 1 kg", "brand": "Madhur", "category": "Daily Essentials & Groceries", "sub_category": "Cooking Essentials", "price": 54.00, "original_price": 60.00, "stock": 80, "rating": 4.8, "rating_count": 720, "description": "Sulphur-free sparkling white refined sugar untouched by hand.", "image_url": "https://images.unsplash.com/photo-1581441363689-1f3c3c414635?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 82, "sku": "BK-GRO-SLT-01", "title": "Salt – 1 kg", "brand": "Tata Salt", "category": "Daily Essentials & Groceries", "sub_category": "Cooking Essentials", "price": 28.00, "original_price": 30.00, "stock": 90, "rating": 4.9, "rating_count": 910, "description": "Vacuum evaporated iodised edible table salt - Desh ka namak.", "image_url": "https://images.unsplash.com/photo-1518843875459-f738682238a6?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+
+    # 4. Fresh Farm Produce
+    {"id": 72, "sku": "BK-GRO-POT-01", "title": "Fresh Farm Select New Crop Potato 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "sub_category": "Fresh Produce", "price": 38.00, "original_price": 45.00, "stock": 120, "rating": 4.4, "rating_count": 430, "description": "Cleaned, mud-free fresh farm potatoes ideal for boiling and curries.", "image_url": "https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 73, "sku": "BK-GRO-ONN-01", "title": "Fresh Farm Nasik Red Onion 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "sub_category": "Fresh Produce", "price": 42.00, "original_price": 50.00, "stock": 100, "rating": 4.5, "rating_count": 610, "description": "Crisp and pungent premium Nasik red onions.", "image_url": "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 74, "sku": "BK-GRO-TOM-01", "title": "Fresh Farm Ripe Hybrid Tomato 1kg", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "sub_category": "Fresh Produce", "price": 35.00, "original_price": 42.00, "stock": 90, "rating": 4.6, "rating_count": 520, "description": "Plump and juicy vine-ripened red hybrid tomatoes.", "image_url": "https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]},
+    {"id": 75, "sku": "BK-GRO-BAN-01", "title": "Fresh Robusta Bananas 1 Dozen (approx 1.2kg)", "brand": "Fresh Farm", "category": "Daily Essentials & Groceries", "sub_category": "Fresh Produce", "price": 65.00, "original_price": 75.00, "stock": 70, "rating": 4.7, "rating_count": 390, "description": "Sweet, naturally ripened golden yellow Robusta bananas.", "image_url": "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=500&auto=format&fit=crop&q=80", "cities": ["Mumbai", "Bengaluru", "Delhi NCR"]}
 ]
 
 SAMPLE_STORE_INVENTORY = [
-    # Store 1: BharatStore Bengaluru Tech Store
+    # Store 1: BharatStore Bengaluru Tech Store (All essentials available)
     {"store_id": 1, "product_id": 61, "selling_price": 60.00, "original_price": 64.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 1, "product_id": 76, "selling_price": 33.00, "original_price": 35.00, "stock_quantity": 15, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 1, "product_id": 77, "selling_price": 66.00, "original_price": 68.00, "stock_quantity": 18, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 1, "product_id": 62, "selling_price": 35.00, "original_price": 38.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 1, "product_id": 78, "selling_price": 35.00, "original_price": 38.00, "stock_quantity": 14, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 1, "product_id": 63, "selling_price": 95.00, "original_price": 105.00, "stock_quantity": 15, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 1, "product_id": 64, "selling_price": 58.00, "original_price": 60.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 1, "product_id": 79, "selling_price": 310.00, "original_price": 330.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 1, "product_id": 80, "selling_price": 135.00, "original_price": 145.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 1, "product_id": 83, "selling_price": 40.00, "original_price": 45.00, "stock_quantity": 20, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 1, "product_id": 84, "selling_price": 55.00, "original_price": 65.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 1, "product_id": 65, "selling_price": 110.00, "original_price": 125.00, "stock_quantity": 15, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 1, "product_id": 66, "selling_price": 330.00, "original_price": 380.00, "stock_quantity": 8, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 1, "product_id": 18, "selling_price": 260.00, "original_price": 315.00, "stock_quantity": 5, "low_stock_threshold": 2, "is_available": True},
-    {"store_id": 1, "product_id": 17, "selling_price": 740.00, "original_price": 799.00, "stock_quantity": 12, "low_stock_threshold": 4, "is_available": True},
-    {"store_id": 1, "product_id": 21, "selling_price": 380.00, "original_price": 389.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 1, "product_id": 68, "selling_price": 170.00, "original_price": 195.00, "stock_quantity": 18, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 1, "product_id": 69, "selling_price": 160.00, "original_price": 185.00, "stock_quantity": 15, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 1, "product_id": 70, "selling_price": 115.00, "original_price": 135.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 1, "product_id": 67, "selling_price": 110.00, "original_price": 130.00, "stock_quantity": 14, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 1, "product_id": 81, "selling_price": 145.00, "original_price": 160.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 1, "product_id": 17, "selling_price": 740.00, "original_price": 799.00, "stock_quantity": 12, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 1, "product_id": 21, "selling_price": 380.00, "original_price": 389.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 1, "product_id": 71, "selling_price": 52.00, "original_price": 60.00, "stock_quantity": 30, "low_stock_threshold": 8, "is_available": True},
+    {"store_id": 1, "product_id": 82, "selling_price": 28.00, "original_price": 30.00, "stock_quantity": 40, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 1, "product_id": 52, "selling_price": 145.00, "original_price": 149.00, "stock_quantity": 40, "low_stock_threshold": 10, "is_available": True},
     {"store_id": 1, "product_id": 72, "selling_price": 36.00, "original_price": 45.00, "stock_quantity": 50, "low_stock_threshold": 10, "is_available": True},
     {"store_id": 1, "product_id": 73, "selling_price": 40.00, "original_price": 50.00, "stock_quantity": 40, "low_stock_threshold": 10, "is_available": True},
     {"store_id": 1, "product_id": 74, "selling_price": 32.00, "original_price": 42.00, "stock_quantity": 35, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 1, "product_id": 75, "selling_price": 60.00, "original_price": 75.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
 
-    # Store 2: Fresh Mart Bengaluru (Notice: Curd 62 & Salt 52 are Out of Stock; Prices differ from Store 1!)
+    # Store 2: Fresh Mart Bengaluru (Notice: Curd 62, Pure Ghee 79, Salt 82 & Salt 52 are Out of Stock; Prices differ from Store 1!)
     {"store_id": 2, "product_id": 61, "selling_price": 62.00, "original_price": 64.00, "stock_quantity": 8, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 2, "product_id": 76, "selling_price": 34.00, "original_price": 35.00, "stock_quantity": 10, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 2, "product_id": 77, "selling_price": 67.00, "original_price": 68.00, "stock_quantity": 6, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 2, "product_id": 62, "selling_price": 38.00, "original_price": 38.00, "stock_quantity": 0, "low_stock_threshold": 3, "is_available": False},
+    {"store_id": 2, "product_id": 78, "selling_price": 36.00, "original_price": 38.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 2, "product_id": 63, "selling_price": 98.00, "original_price": 105.00, "stock_quantity": 6, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 2, "product_id": 64, "selling_price": 59.00, "original_price": 60.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 2, "product_id": 79, "selling_price": 320.00, "original_price": 330.00, "stock_quantity": 0, "low_stock_threshold": 2, "is_available": False},
+    {"store_id": 2, "product_id": 80, "selling_price": 138.00, "original_price": 145.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 2, "product_id": 83, "selling_price": 42.00, "original_price": 45.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 2, "product_id": 84, "selling_price": 58.00, "original_price": 65.00, "stock_quantity": 15, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 2, "product_id": 65, "selling_price": 115.00, "original_price": 125.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 2, "product_id": 66, "selling_price": 345.00, "original_price": 380.00, "stock_quantity": 14, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 2, "product_id": 18, "selling_price": 250.00, "original_price": 315.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 2, "product_id": 17, "selling_price": 755.00, "original_price": 799.00, "stock_quantity": 6, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 2, "product_id": 68, "selling_price": 175.00, "original_price": 195.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 2, "product_id": 69, "selling_price": 165.00, "original_price": 185.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 2, "product_id": 81, "selling_price": 148.00, "original_price": 160.00, "stock_quantity": 15, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 2, "product_id": 71, "selling_price": 55.00, "original_price": 60.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 2, "product_id": 82, "selling_price": 30.00, "original_price": 30.00, "stock_quantity": 0, "low_stock_threshold": 5, "is_available": False},
     {"store_id": 2, "product_id": 52, "selling_price": 150.00, "original_price": 155.00, "stock_quantity": 0, "low_stock_threshold": 5, "is_available": False},
     {"store_id": 2, "product_id": 72, "selling_price": 38.00, "original_price": 45.00, "stock_quantity": 30, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 2, "product_id": 73, "selling_price": 44.00, "original_price": 50.00, "stock_quantity": 25, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 2, "product_id": 74, "selling_price": 36.00, "original_price": 42.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 2, "product_id": 75, "selling_price": 65.00, "original_price": 75.00, "stock_quantity": 15, "low_stock_threshold": 4, "is_available": True},
 
-    # Store 3: BharatStore Mumbai Bandra
+    # Store 3: BharatStore Mumbai Bandra (All essentials in stock with Mumbai store pricing)
     {"store_id": 3, "product_id": 61, "selling_price": 61.00, "original_price": 64.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 3, "product_id": 76, "selling_price": 33.00, "original_price": 35.00, "stock_quantity": 20, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 3, "product_id": 77, "selling_price": 66.00, "original_price": 68.00, "stock_quantity": 15, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 3, "product_id": 62, "selling_price": 36.00, "original_price": 38.00, "stock_quantity": 18, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 3, "product_id": 78, "selling_price": 35.00, "original_price": 38.00, "stock_quantity": 16, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 3, "product_id": 63, "selling_price": 96.00, "original_price": 105.00, "stock_quantity": 20, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 3, "product_id": 64, "selling_price": 58.00, "original_price": 60.00, "stock_quantity": 30, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 3, "product_id": 79, "selling_price": 312.00, "original_price": 330.00, "stock_quantity": 16, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 3, "product_id": 80, "selling_price": 135.00, "original_price": 145.00, "stock_quantity": 14, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 3, "product_id": 83, "selling_price": 40.00, "original_price": 45.00, "stock_quantity": 22, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 3, "product_id": 84, "selling_price": 56.00, "original_price": 65.00, "stock_quantity": 28, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 3, "product_id": 65, "selling_price": 112.00, "original_price": 125.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 3, "product_id": 66, "selling_price": 335.00, "original_price": 380.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 3, "product_id": 18, "selling_price": 258.00, "original_price": 315.00, "stock_quantity": 15, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 3, "product_id": 17, "selling_price": 745.00, "original_price": 799.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 3, "product_id": 21, "selling_price": 385.00, "original_price": 389.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 3, "product_id": 68, "selling_price": 172.00, "original_price": 195.00, "stock_quantity": 16, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 3, "product_id": 69, "selling_price": 162.00, "original_price": 185.00, "stock_quantity": 14, "low_stock_threshold": 4, "is_available": True},
+    {"store_id": 3, "product_id": 81, "selling_price": 146.00, "original_price": 160.00, "stock_quantity": 22, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 3, "product_id": 71, "selling_price": 53.00, "original_price": 60.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
+    {"store_id": 3, "product_id": 82, "selling_price": 28.00, "original_price": 30.00, "stock_quantity": 35, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 3, "product_id": 52, "selling_price": 148.00, "original_price": 149.00, "stock_quantity": 25, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 3, "product_id": 72, "selling_price": 35.00, "original_price": 45.00, "stock_quantity": 45, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 3, "product_id": 73, "selling_price": 39.00, "original_price": 50.00, "stock_quantity": 50, "low_stock_threshold": 10, "is_available": True},
     {"store_id": 3, "product_id": 74, "selling_price": 34.00, "original_price": 42.00, "stock_quantity": 40, "low_stock_threshold": 8, "is_available": True},
     {"store_id": 3, "product_id": 75, "selling_price": 62.00, "original_price": 75.00, "stock_quantity": 30, "low_stock_threshold": 5, "is_available": True},
 
-    # Store 4: QuickMart Mumbai (Notice: Paneer 63 is Out of Stock!)
+    # Store 4: QuickMart Mumbai (Notice: Paneer 63 and Gold Milk 76 are Out of Stock!)
     {"store_id": 4, "product_id": 61, "selling_price": 63.00, "original_price": 64.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 76, "selling_price": 34.00, "original_price": 35.00, "stock_quantity": 0, "low_stock_threshold": 2, "is_available": False},
+    {"store_id": 4, "product_id": 77, "selling_price": 67.00, "original_price": 68.00, "stock_quantity": 10, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 4, "product_id": 62, "selling_price": 37.00, "original_price": 38.00, "stock_quantity": 14, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 78, "selling_price": 36.00, "original_price": 38.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 4, "product_id": 63, "selling_price": 99.00, "original_price": 105.00, "stock_quantity": 0, "low_stock_threshold": 3, "is_available": False},
     {"store_id": 4, "product_id": 64, "selling_price": 60.00, "original_price": 60.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 4, "product_id": 79, "selling_price": 315.00, "original_price": 330.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 4, "product_id": 80, "selling_price": 140.00, "original_price": 145.00, "stock_quantity": 6, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 4, "product_id": 83, "selling_price": 42.00, "original_price": 45.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 4, "product_id": 84, "selling_price": 58.00, "original_price": 65.00, "stock_quantity": 10, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 4, "product_id": 65, "selling_price": 118.00, "original_price": 125.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 66, "selling_price": 350.00, "original_price": 380.00, "stock_quantity": 6, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 4, "product_id": 18, "selling_price": 262.00, "original_price": 315.00, "stock_quantity": 8, "low_stock_threshold": 2, "is_available": True},
     {"store_id": 4, "product_id": 17, "selling_price": 760.00, "original_price": 799.00, "stock_quantity": 5, "low_stock_threshold": 2, "is_available": True},
+    {"store_id": 4, "product_id": 68, "selling_price": 178.00, "original_price": 195.00, "stock_quantity": 12, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 69, "selling_price": 168.00, "original_price": 185.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 81, "selling_price": 150.00, "original_price": 160.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True},
     {"store_id": 4, "product_id": 71, "selling_price": 56.00, "original_price": 60.00, "stock_quantity": 15, "low_stock_threshold": 3, "is_available": True},
+    {"store_id": 4, "product_id": 82, "selling_price": 29.00, "original_price": 30.00, "stock_quantity": 20, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 4, "product_id": 72, "selling_price": 40.00, "original_price": 45.00, "stock_quantity": 20, "low_stock_threshold": 5, "is_available": True},
     {"store_id": 4, "product_id": 73, "selling_price": 45.00, "original_price": 50.00, "stock_quantity": 15, "low_stock_threshold": 4, "is_available": True},
     {"store_id": 4, "product_id": 74, "selling_price": 38.00, "original_price": 42.00, "stock_quantity": 10, "low_stock_threshold": 3, "is_available": True}
@@ -1158,6 +1218,7 @@ def run_migrations(conn, is_postgres: bool = False):
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS min_threshold INT DEFAULT 5;",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id INT REFERENCES sellers(id) ON DELETE SET NULL;",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE SET NULL;",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS sub_category VARCHAR(100);",
             "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 6);",
             "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 6);"
         ]
@@ -1177,6 +1238,7 @@ def run_migrations(conn, is_postgres: bool = False):
             ("inventory", "min_threshold", "INTEGER DEFAULT 5"),
             ("products", "seller_id", "INTEGER REFERENCES sellers(id)"),
             ("products", "category_id", "INTEGER REFERENCES categories(id)"),
+            ("products", "sub_category", "TEXT"),
             ("addresses", "latitude", "REAL"),
             ("addresses", "longitude", "REAL")
         ]
@@ -1259,12 +1321,20 @@ def run_migrations(conn, is_postgres: bool = False):
 
     # Step 8: Ensure extra grocery products exist in products & global inventory (Phase 4)
     for p in EXTRA_GROCERY_PRODUCTS:
+        subcat = p.get("sub_category", "Daily Essentials & Groceries")
         if is_postgres:
             cur.execute("""
-            INSERT INTO products (id, sku, title, brand, category, price, original_price, image_url, rating, rating_count, description, cities_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO NOTHING;
-            """, (p["id"], p["sku"], p["title"], p["brand"], p["category"], p["price"], p["original_price"], p["image_url"], p["rating"], p["rating_count"], p["description"], json.dumps(p["cities"])))
+            INSERT INTO products (id, sku, title, brand, category, sub_category, price, original_price, image_url, rating, rating_count, description, cities_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                title = EXCLUDED.title,
+                brand = EXCLUDED.brand,
+                sub_category = EXCLUDED.sub_category,
+                price = EXCLUDED.price,
+                original_price = EXCLUDED.original_price,
+                image_url = EXCLUDED.image_url,
+                description = EXCLUDED.description;
+            """, (p["id"], p["sku"], p["title"], p["brand"], p["category"], subcat, p["price"], p["original_price"], p["image_url"], p["rating"], p["rating_count"], p["description"], json.dumps(p["cities"])))
             cur.execute("""
             INSERT INTO inventory (product_id, stock_quantity, reserved_quantity)
             VALUES (%s, %s, 0)
@@ -1272,13 +1342,34 @@ def run_migrations(conn, is_postgres: bool = False):
             """, (p["id"], p["stock"]))
         else:
             cur.execute("""
-            INSERT OR IGNORE INTO products (id, sku, title, brand, category, price, original_price, image_url, rating, rating_count, description, cities_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """, (p["id"], p["sku"], p["title"], p["brand"], p["category"], p["price"], p["original_price"], p["image_url"], p["rating"], p["rating_count"], p["description"], json.dumps(p["cities"])))
+            INSERT INTO products (id, sku, title, brand, category, sub_category, price, original_price, image_url, rating, rating_count, description, cities_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                title = excluded.title,
+                brand = excluded.brand,
+                sub_category = excluded.sub_category,
+                price = excluded.price,
+                original_price = excluded.original_price,
+                image_url = excluded.image_url,
+                description = excluded.description;
+            """, (p["id"], p["sku"], p["title"], p["brand"], p["category"], subcat, p["price"], p["original_price"], p["image_url"], p["rating"], p["rating_count"], p["description"], json.dumps(p["cities"])))
             cur.execute("""
             INSERT OR IGNORE INTO inventory (product_id, stock_quantity, reserved_quantity)
             VALUES (?, ?, 0);
             """, (p["id"], p["stock"]))
+
+    # Synchronize staple product names & sub_categories
+    staples_sync = [
+        (18, "Wheat Atta – 5 kg", "Rice & Grains"),
+        (21, "Mustard Oil – 1 L", "Cooking Essentials"),
+        (17, "Sunflower Oil – 5 L", "Cooking Essentials"),
+        (52, "Pink Rock Salt – 1 kg", "Cooking Essentials"),
+    ]
+    for s_id, s_title, s_sub in staples_sync:
+        if is_postgres:
+            cur.execute("UPDATE products SET title = %s, sub_category = %s WHERE id = %s;", (s_title, s_sub, s_id))
+        else:
+            cur.execute("UPDATE products SET title = ?, sub_category = ? WHERE id = ?;", (s_title, s_sub, s_id))
 
     # Step 9: Seed physical stores if empty (Phase 4)
     cur.execute("SELECT COUNT(*) FROM stores;")
@@ -1297,22 +1388,30 @@ def run_migrations(conn, is_postgres: bool = False):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """, (s["id"], s["store_name"], s["store_slug"], s["store_description"], s["store_logo"], s["store_banner"], s["owner_name"], s["contact_phone"], s["email"], s["full_address"], s["city"], s["area"], s["pincode"], s["latitude"], s["longitude"], s["opening_time"], s["closing_time"], 1 if s["is_active"] else 0, 1 if s["accepts_delivery"] else 0, 1 if s["accepts_pickup"] else 0))
 
-    # Step 10: Seed store inventory if empty (Phase 4)
-    cur.execute("SELECT COUNT(*) FROM store_inventory;")
-    inv_count = cur.fetchone()[0]
-    if inv_count == 0:
-        for item in SAMPLE_STORE_INVENTORY:
-            if is_postgres:
-                cur.execute("""
-                INSERT INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
-                VALUES (%s, %s, %s, %s, %s, 0, %s, %s)
-                ON CONFLICT (store_id, product_id) DO NOTHING;
-                """, (item["store_id"], item["product_id"], item["selling_price"], item.get("original_price"), item["stock_quantity"], item.get("low_stock_threshold", 5), item.get("is_available", True)))
-            else:
-                cur.execute("""
-                INSERT OR IGNORE INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
-                VALUES (?, ?, ?, ?, ?, 0, ?, ?);
-                """, (item["store_id"], item["product_id"], item["selling_price"], item.get("original_price"), item["stock_quantity"], item.get("low_stock_threshold", 5), 1 if item.get("is_available", True) else 0))
+    # Step 10: Seed / synchronize store inventory with complete essential items (Phase 4)
+    for item in SAMPLE_STORE_INVENTORY:
+        if is_postgres:
+            cur.execute("""
+            INSERT INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
+            VALUES (%s, %s, %s, %s, %s, 0, %s, %s)
+            ON CONFLICT (store_id, product_id) DO UPDATE SET
+                selling_price = EXCLUDED.selling_price,
+                original_price = EXCLUDED.original_price,
+                stock_quantity = EXCLUDED.stock_quantity,
+                is_available = EXCLUDED.is_available,
+                low_stock_threshold = EXCLUDED.low_stock_threshold;
+            """, (item["store_id"], item["product_id"], item["selling_price"], item.get("original_price"), item["stock_quantity"], item.get("low_stock_threshold", 5), item.get("is_available", True)))
+        else:
+            cur.execute("""
+            INSERT INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            ON CONFLICT (store_id, product_id) DO UPDATE SET
+                selling_price = excluded.selling_price,
+                original_price = excluded.original_price,
+                stock_quantity = excluded.stock_quantity,
+                is_available = excluded.is_available,
+                low_stock_threshold = excluded.low_stock_threshold;
+            """, (item["store_id"], item["product_id"], item["selling_price"], item.get("original_price"), item["stock_quantity"], item.get("low_stock_threshold", 5), 1 if item.get("is_available", True) else 0))
 
     conn.commit()
     logger.info(f"Database schema migrations successfully verified on {'PostgreSQL' if is_postgres else 'SQLite'}.")

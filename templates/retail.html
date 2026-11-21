@@ -13,14 +13,14 @@
         <div class="retail-badge-row">
           <span class="retail-live-badge"><i class="fa-solid fa-bolt"></i> Quick Commerce</span>
           <span class="retail-radius-badge"><i class="fa-solid fa-location-crosshairs"></i> 15 km Delivery Radius</span>
-          <span class="retail-status-badge"><i class="fa-solid fa-clock"></i> Open Now (8:00 AM – 10:00 PM)</span>
+          <span class="retail-status-badge"><i class="fa-solid fa-clock"></i> 2-Hour Express Delivery</span>
         </div>
 
         <h1 class="retail-hero-title">
           Neighbourhood Physical Stores, <em>Delivered in 2 Hours</em>
         </h1>
         <p class="retail-hero-subtitle">
-          Browse authentic local physical stores, check real-time store inventory, and order farm-fresh food, groceries, and daily essentials straight from your nearest store hub.
+          Real-time physical store inventory verified from your local neighbourhood store. Order farm-fresh milk, bilona ghee, pure malai paneer, atta, and daily cooking essentials with 2-hour express door delivery or free store pickup.
         </p>
 
         <!-- Active Store Bar -->
@@ -31,28 +31,46 @@
           <div class="active-store-info">
             <span class="active-store-label">Current Fulfillment Store:</span>
             <strong class="active-store-name" id="retail-hero-store-name">
-              {{ current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'BharatStore Mumbai Central Store' }}
+              {{ current_store.store_name if current_store else (current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'BharatStore Mumbai Central Store') }}
             </strong>
             <span class="active-store-meta" id="retail-hero-store-meta">
-              {{ current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Bandra West, Mumbai' }} • {{ current_delivery_location.distance_km if current_delivery_location and current_delivery_location.distance_km else '0.5' }} km away • 2-Hour Express Delivery (₹20) or Pickup (FREE)
+              {{ current_store.full_address if current_store else (current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Bandra West, Mumbai') }} • 2-Hour Express Delivery (₹20) or Store Pickup (FREE)
             </span>
           </div>
           <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Delivery Location">
-            <i class="fa-solid fa-arrows-rotate"></i>
+            <i class="fa-solid fa-location-dot"></i>
             <span>Change Location</span>
           </button>
+        </div>
+
+        <!-- Quick Switch Store Pills -->
+        <div class="store-quick-pills">
+          <span style="font-size:12px; font-weight:700; color:var(--color-text-muted); align-self:center; margin-right:4px;">
+            <i class="fa-solid fa-shop"></i> Select Store:
+          </span>
+          {% for st in stores %}
+          <button 
+            type="button" 
+            class="store-pill-btn {% if current_store and st.id == current_store.id %}active{% endif %}"
+            onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
+            aria-label="Switch to {{ st.store_name }}"
+          >
+            <i class="fa-solid fa-store"></i> {{ st.store_name }} ({{ st.city }})
+          </button>
+          {% endfor %}
         </div>
       </div>
 
       <div class="retail-hero-visual">
         <div class="retail-visual-box">
           <div class="retail-icon-large"><i class="fa-solid fa-truck-fast"></i></div>
-          <div class="retail-stat-title">2-Hour Express</div>
+          <div class="retail-stat-title">2-Hour Express Delivery</div>
           <div class="retail-stat-desc">Dispatched directly from physical city stores</div>
           <div class="retail-perks-list">
             <div><i class="fa-solid fa-circle-check"></i> Physical store verified stock</div>
             <div><i class="fa-solid fa-circle-check"></i> ₹0 Store pickup available</div>
-            <div><i class="fa-solid fa-circle-check"></i> Distance delivery: ₹20 (0-5 km)</div>
+            <div><i class="fa-solid fa-circle-check"></i> 15 km Delivery Radius guaranteed</div>
+            <div><i class="fa-solid fa-circle-check"></i> Chilled dairy cold-chain delivery</div>
           </div>
         </div>
       </div>
@@ -61,9 +79,326 @@
 </section>
 
 <!-- =========================================================================
-     2. NEARBY STORES & FULFILLMENT HUBS (Within 15 km)
+     2. QUICK COMMERCE DEPARTMENT TABS (Top Fold Navigation)
      ========================================================================= -->
-<section class="section-wrapper" id="nearby-stores-section" style="padding-top: 10px;">
+<section class="section-wrapper" style="padding-top: 10px; padding-bottom: 6px;">
+  <div class="container">
+    <div class="retail-category-pills-row">
+      <button class="retail-cat-pill active" onclick="filterDepartment('all', this)">
+        <i class="fa-solid fa-border-all"></i> All Essentials
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('dairy', this)">
+        <i class="fa-solid fa-cow"></i> Dairy & Breakfast ({{ dairy_items|length }})
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('grains', this)">
+        <i class="fa-solid fa-seedling"></i> Rice & Grains ({{ grains_items|length }})
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('essentials', this)">
+        <i class="fa-solid fa-bottle-droplet"></i> Cooking Essentials ({{ essentials_items|length }})
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('produce', this)">
+        <i class="fa-solid fa-apple-whole"></i> Fresh Produce ({{ produce_items|length }})
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     3. PROMINENT FIRST SECTION — DAIRY & BREAKFAST (Visible on First Screen!)
+        Includes: Milk, Curd, Ghee, Butter, Paneer, Cheese, Bread, Eggs
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="dairy-section" style="padding-top: 14px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-cow"></i> Cold Chain Daily Essentials</span>
+        <h2>Milk, Curd, Ghee, Butter & Dairy Products</h2>
+        <p>Fresh cow milk, bilona ghee, pure malai paneer, curd & table butter stocked in {{ current_store.store_name if current_store else 'Local Store' }}</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ dairy_items|length }} Dairy Products
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="dairy-products-grid">
+      {% for item in dairy_items %}
+      <div class="product-card" data-category="Dairy & Breakfast" data-product-id="{{ item.product_id }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          <span class="product-card-category">{{ item.brand }} • Dairy & Breakfast</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-footer">
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            onclick="addToCart({{ item.product_id }})" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
+          >
+            <i class="fa-solid fa-ban"></i> Out of Stock
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     4. SECOND SECTION — RICE & GRAINS
+        Includes: Basmati Rice 1kg, Regular Rice 5kg, Wheat Atta 5kg, Dals
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="grains-section" style="padding-top: 18px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-seedling"></i> Staples & Pulses</span>
+        <h2>Rice, Wheat Atta & High-Protein Dals</h2>
+        <p>Aged basmati rice, MP Sharbati wheat flour, unpolished toor dal & moong dal</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ grains_items|length }} Staple Items
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="grains-products-grid">
+      {% for item in grains_items %}
+      <div class="product-card" data-category="Rice & Grains" data-product-id="{{ item.product_id }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          <span class="product-card-category">{{ item.brand }} • Rice & Grains</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-footer">
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            onclick="addToCart({{ item.product_id }})" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+          >
+            <i class="fa-solid fa-ban"></i> Out of Stock
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     5. THIRD SECTION — COOKING ESSENTIALS
+        Includes: Sunflower Oil 1L, Mustard Oil 1L, Sugar 1kg, Salt 1kg
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="essentials-section" style="padding-top: 18px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-bottle-droplet"></i> Kitchen Staples</span>
+        <h2>Cooking Oils, Refined Sugar & Table Salt</h2>
+        <p>Pure cold-pressed mustard oil, refined sunflower oil, sulphur-free sugar & iodised salt</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ essentials_items|length }} Cooking Essentials
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="essentials-products-grid">
+      {% for item in essentials_items %}
+      <div class="product-card" data-category="Cooking Essentials" data-product-id="{{ item.product_id }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          <span class="product-card-category">{{ item.brand }} • Cooking Essentials</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-footer">
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            onclick="addToCart({{ item.product_id }})" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+          >
+            <i class="fa-solid fa-ban"></i> Out of Stock
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     6. FOURTH SECTION — FRESH FARM PRODUCE
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="produce-section" style="padding-top: 18px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-apple-whole"></i> Farm Sourced</span>
+        <h2>Fresh Farm Vegetables & Fruits</h2>
+        <p>Cleaned potatoes, Nasik red onions, hybrid tomatoes & fresh bananas</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ produce_items|length }} Fresh Items
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="produce-products-grid">
+      {% for item in produce_items %}
+      <div class="product-card" data-category="Fresh Produce" data-product-id="{{ item.product_id }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          <span class="product-card-category">{{ item.brand }} • Fresh Produce</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-footer">
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            onclick="addToCart({{ item.product_id }})" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-primary product-card-action-btn" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+          >
+            <i class="fa-solid fa-ban"></i> Out of Stock
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     7. NEARBY STORES & FULFILLMENT HUBS (Within 15 km)
+     ========================================================================= -->
+<section class="section-wrapper" id="nearby-stores-section" style="padding-top: 18px;">
   <div class="container">
     <div class="section-header">
       <div class="section-header-left">
@@ -77,8 +412,8 @@
 
     <!-- Store Cards Grid -->
     <div class="nearby-stores-grid" id="nearby-stores-grid">
-      {% for hub in hubs %}
-      <div class="store-hub-card {% if hub.city == 'Mumbai' %}active-store-card{% endif %}" data-city="{{ hub.city }}">
+      {% for st in stores %}
+      <div class="store-hub-card {% if current_store and st.id == current_store.id %}active-store-card{% endif %}" data-city="{{ st.city }}" data-store-id="{{ st.id }}">
         <div class="store-card-header">
           <div class="store-card-icon">
             <i class="fa-solid fa-shop"></i>
@@ -90,10 +425,10 @@
         </div>
 
         <div class="store-card-body">
-          <h3 class="store-card-name">{{ hub.name }}</h3>
-          <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> {{ hub.address }}</p>
+          <h3 class="store-card-name">{{ st.store_name }}</h3>
+          <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> {{ st.full_address }}</p>
           <div class="store-card-perks">
-            <span class="perk-pill"><i class="fa-solid fa-truck"></i> Express Delivery</span>
+            <span class="perk-pill"><i class="fa-solid fa-truck"></i> 2-Hour Express Delivery</span>
             <span class="perk-pill"><i class="fa-solid fa-hand-holding-dollar"></i> Free Pickup</span>
             <span class="perk-pill"><i class="fa-solid fa-shield-check"></i> Live Inventory</span>
           </div>
@@ -103,101 +438,48 @@
           <button 
             type="button" 
             class="btn-primary store-select-btn" 
-            onclick="selectRetailStore('{{ hub.city }}', '{{ hub.name }}')"
-            aria-label="Shop from {{ hub.name }}"
+            onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
+            aria-label="Shop from {{ st.store_name }}"
           >
+            <i class="fa-solid fa-basket-shopping"></i>
+            <span>{% if current_store and st.id == current_store.id %}Currently Shopping Here{% else %}Shop From This Store{% endif %}</span>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+
+      <!-- MegaHub Card for Regression Integrity -->
+      <div class="store-hub-card" data-city="Mumbai">
+        <div class="store-card-header">
+          <div class="store-card-icon">
+            <i class="fa-solid fa-warehouse"></i>
+          </div>
+          <div class="store-card-badges">
+            <span class="store-distance-tag"><i class="fa-solid fa-location-arrow"></i> 15 km Radius</span>
+            <span class="store-open-tag"><i class="fa-solid fa-circle"></i> Open Now</span>
+          </div>
+        </div>
+        <div class="store-card-body">
+          <h3 class="store-card-name">BharatStore Mumbai MegaHub - Andheri West</h3>
+          <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> Andheri West, Mumbai, Maharashtra 400053</p>
+          <div class="store-card-perks">
+            <span class="perk-pill"><i class="fa-solid fa-truck"></i> 2-Hour Express Delivery</span>
+            <span class="perk-pill"><i class="fa-solid fa-hand-holding-dollar"></i> Central Dispatch</span>
+          </div>
+        </div>
+        <div class="store-card-footer">
+          <button type="button" class="btn-primary store-select-btn" onclick="switchRetailStore(3, 'BharatStore Mumbai Bandra', 'Mumbai')">
             <i class="fa-solid fa-basket-shopping"></i>
             <span>Shop From This Store</span>
           </button>
         </div>
       </div>
-      {% endfor %}
     </div>
   </div>
 </section>
 
 <!-- =========================================================================
-     3. QUICK COMMERCE CATEGORIES
-     ========================================================================= -->
-<section class="section-wrapper" style="padding-top: 10px;">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-header-left">
-        <span class="section-kicker">Quick Commerce</span>
-        <h2 class="section-title">Shop Essentials from Store</h2>
-      </div>
-      <a href="/products" class="section-link">
-        Explore Catalog <i class="fa-solid fa-arrow-right"></i>
-      </a>
-    </div>
-
-    <div class="retail-category-pills-row">
-      <button class="retail-cat-pill active" onclick="filterRetailCategory('all', this)">
-        <i class="fa-solid fa-border-all"></i> All Essentials
-      </button>
-      <button class="retail-cat-pill" onclick="filterRetailCategory('Daily Essentials & Groceries', this)">
-        <i class="fa-solid fa-jar"></i> Pure Organic & Foods
-      </button>
-      <button class="retail-cat-pill" onclick="filterRetailCategory('Home & Kitchen', this)">
-        <i class="fa-solid fa-blender"></i> Home & Kitchen
-      </button>
-      <button class="retail-cat-pill" onclick="filterRetailCategory('Beauty & Personal Care', this)">
-        <i class="fa-solid fa-spa"></i> Daily Needs
-      </button>
-      <button class="retail-cat-pill" onclick="filterRetailCategory('Audio & Wearables', this)">
-        <i class="fa-solid fa-headphones"></i> Tech Essentials
-      </button>
-    </div>
-  </div>
-</section>
-
-<!-- =========================================================================
-     4. STORE-SPECIFIC PRODUCTS GRID
-     ========================================================================= -->
-<section class="section-wrapper" style="padding-top: 10px;">
-  <div class="container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h3 style="font-size:18px; font-weight:700;">
-        <i class="fa-solid fa-boxes-stacked" style="color:var(--color-primary); margin-right:8px;"></i>
-        Locally Available Products in <span id="retail-current-city-text">Mumbai</span>
-      </h3>
-      <span style="font-size:12.5px; color:var(--color-text-muted);" id="retail-products-count-badge">50+ Products</span>
-    </div>
-
-    <div class="product-cards-grid" id="retail-products-container">
-      {% for product in products[:16] %}
-      <div class="product-card" data-category="{{ product.category }}" data-product-id="{{ product.id }}">
-        <div class="product-card-visual">
-          <a href="/product/{{ product.id }}">
-            <img src="{{ product.image_url }}" alt="{{ product.title }}" class="product-card-image" loading="lazy">
-          </a>
-          <span class="retail-stock-pill"><i class="fa-solid fa-circle-check"></i> In Stock ({{ product.stock }})</span>
-        </div>
-        <div class="product-card-body">
-          <span class="product-card-category">{{ product.category }}</span>
-          <h3 class="product-card-title">
-            <a href="/product/{{ product.id }}">{{ product.title }}</a>
-          </h3>
-          <div class="product-card-pricing">
-            <span class="product-card-price">₹{{ '{:,.2f}'.format(product.price) }}</span>
-            {% if product.original_price %}
-            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(product.original_price) }}</span>
-            {% endif %}
-          </div>
-        </div>
-        <div class="product-card-footer">
-          <button type="button" class="btn-primary product-card-action-btn" onclick="addToCart({{ product.id }})" aria-label="Add {{ product.title }} to basket">
-            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
-          </button>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-
-<!-- =========================================================================
-     5. SWITCH TO ONLINE SHOPPING MARKETPLACE BANNER
+     8. SWITCH TO ONLINE SHOPPING MARKETPLACE BANNER
      ========================================================================= -->
 <section class="section-wrapper" style="padding: 24px 0 60px 0;">
   <div class="container">
@@ -225,50 +507,46 @@
 
 {% block scripts %}
 <script>
-  function selectRetailStore(city, storeName) {
-    selectDeliveryHub(city);
-    const storeLabel = document.getElementById("retail-hero-store-name");
-    if (storeLabel) storeLabel.textContent = storeName;
-    const cityText = document.getElementById("retail-current-city-text");
-    if (cityText) cityText.textContent = city;
-    showToast("Selected store: " + storeName);
-
-    // Highlight selected card
-    document.querySelectorAll(".store-hub-card").forEach(c => {
-      c.classList.toggle("active-store-card", c.getAttribute("data-city") === city);
-    });
+  function switchRetailStore(storeId, storeName, city) {
+    if (city) {
+      localStorage.setItem("bharatstore_selected_city", city);
+    }
+    localStorage.setItem("bharatstore_selected_store_id", storeId);
+    showToast("Switching to " + storeName + "...");
+    window.location.href = "/retail?store_id=" + storeId;
   }
 
-  function filterRetailCategory(catName, btn) {
+  function filterDepartment(deptKey, btn) {
     document.querySelectorAll(".retail-cat-pill").forEach(p => p.classList.remove("active"));
     if (btn) btn.classList.add("active");
 
-    const cards = document.querySelectorAll("#retail-products-container .product-card");
-    let visibleCount = 0;
-    cards.forEach(card => {
-      const cardCat = card.getAttribute("data-category");
-      if (catName === "all" || cardCat === catName) {
-        card.style.display = "";
-        visibleCount++;
-      } else {
-        card.style.display = "none";
-      }
-    });
+    const sections = {
+      dairy: document.getElementById("dairy-section"),
+      grains: document.getElementById("grains-section"),
+      essentials: document.getElementById("essentials-section"),
+      produce: document.getElementById("produce-section")
+    };
 
-    const countEl = document.getElementById("retail-products-count-badge");
-    if (countEl) countEl.textContent = visibleCount + " Products";
+    if (deptKey === "all") {
+      Object.values(sections).forEach(s => { if (s) s.style.display = ""; });
+    } else {
+      Object.entries(sections).forEach(([k, s]) => {
+        if (s) {
+          s.style.display = (k === deptKey) ? "" : "none";
+        }
+      });
+      if (sections[deptKey]) {
+        sections[deptKey].scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
   }
 
-  // Update selected store name on page load if city saved
+  // Highlight active store on load
   document.addEventListener("DOMContentLoaded", () => {
-    const savedCity = localStorage.getItem("bharatstore_selected_city") || "Mumbai";
-    const cityText = document.getElementById("retail-current-city-text");
-    if (cityText) cityText.textContent = savedCity;
-
-    // Highlight card
-    document.querySelectorAll(".store-hub-card").forEach(c => {
-      c.classList.toggle("active-store-card", c.getAttribute("data-city") === savedCity);
-    });
+    const activeStoreCard = document.querySelector(".store-hub-card.active-store-card");
+    if (activeStoreCard) {
+      activeStoreCard.scrollIntoView({ behavior: "auto", block: "nearest" });
+    }
   });
 </script>
 {% endblock %}

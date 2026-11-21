@@ -541,11 +541,24 @@ Dynamic individual store front displaying the physical store's verified grocery 
 - `PUT /api/stores/<store_id>/inventory/<product_id>`: Updates price, stock quantity, or threshold. Automatically appends audit record to `inventory_movements`.
 - `DELETE /api/stores/<store_id>/inventory/<product_id>`: Removes product from the physical store inventory.
 
+### Phase 9: Mode-Aware OpenSearch & Multi-Store Checkout Endpoints
+
+#### Mode-Aware Search APIs
+- `GET /api/search`: Central search endpoint powered by OpenSearch with fuzzy typo tolerance (Levenshtein distance).
+  - Mode Isolation:
+    - In `ONLINE` Mode: Searches across the entire marketplace catalog with category, brand, city, price range filters, sorting (`price_asc`, `price_desc`, `rating_desc`, `newest`), faceted aggregation, and pagination.
+    - In `RETAIL_NEAR_ME` Mode: Strictly searches allowed grocery categories. When `store_id` is supplied, enriches results with store-specific selling prices (`selling_price`), real-time stock levels (`stock_quantity`), store availability, and stock status text ("In Stock", "Out of Stock", "Only X left!"). Non-grocery categories (`Mobiles & Tablets`, `Laptops & Computers`, etc.) return 0 hits.
+  - Query Parameters: `q`, `category`, `brand`, `city`, `min_price`, `max_price`, `mode`, `store_id`, `sort`, `page`, `per_page`, `in_stock`.
+- `GET /api/search/suggestions`: Dynamic autocomplete and "Did You Mean" suggestions for the live search input.
+  - In `RETAIL_NEAR_ME` Mode: Returns strictly grocery suggestions with store-specific prices.
+  - In `ONLINE` Mode: Returns catalog-wide marketplace suggestions across all departments.
+  - Query Parameters: `q`, `mode`, `store_id`, `limit`.
+
 ---
 
 ## 14. Automated Testing & Verification
 
-All 169 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Retail 5-Shop Price Comparison, and Grocery Catalog are executed and verified:
+All 182 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Phase 9, Retail 5-Shop Price Comparison, and Grocery Catalog are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -555,10 +568,19 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 169 tests in 10.303s
+Ran 182 tests in 10.177s
 
 OK (100% Passed)
 ```
+
+- **Phase 9 Mode-Aware OpenSearch & Critical Bug Fixes Suite (`tests/test_phase9_mode_aware_search.py`):** 13 / 13 PASS
+  - **Checkout Multi-Store Recalculation (No ₹0 Bug):** Multi-store cart items (e.g. Daily Needs: Milk ₹34, Green Basket: Butter ₹58 -> Subtotal ₹92) are authoritatively loaded from the backend, correctly rendering shop-wise summaries, delivery fees, and grand totals upon checkout navigation.
+  - **₹NaN Price Comparison Elimination:** End-to-end data flow (PostgreSQL -> DatabaseService -> REST API -> Client JS -> UI DOM) strictly verifies numeric parsing, savings calculations, lowest-price highlighting on in-stock shops only, and graceful out-of-stock handling.
+  - **Retail Grocery-Only Catalog Isolation:** Zero non-grocery products returned in Retail Near Me search, catalog, or suggestions. Online Shopping marketplace catalog preserved with national availability.
+  - **Mode-Aware OpenSearch Engine:** Online search executes full-text typo-tolerant queries across all departments with faceted filters and sorting; Retail search enforces physical store inventory pricing and availability.
+  - **Store-Specific Inventory Search:** Store 1 returns ₹33.00 for Amul Gold Milk, Store 2 returns ₹34.00, and Store 4 accurately displays 0 stock and "Out of Stock".
+  - **Live Inventory Synchronization:** Immediate cache update in OpenSearch upon admin store inventory mutations.
+  - **Cart UI & Drawer Layout:** Removed center navbar duplicate links; drawer items scroll independently with custom scrollbar, fixed header and footer, text wrapping, and body background scroll locking.
 
 - **Phase 8 Store-Specific Inventory & Retail Bug Fixes Suite (`tests/test_phase8_store_inventory.py`):** 18 / 18 PASS
   - Price comparison for Product 76 (Amul Gold Milk – 500 ml) verified returning valid numeric prices across all 5 shops (no ₹NaN, no null, no Infinity).

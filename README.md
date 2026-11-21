@@ -9,7 +9,7 @@
 
 **BharatStore** (`bharatstore.`) is a cloud-native, event-driven enterprise e-commerce platform and omni-channel marketplace. It represents the digital expansion of an established Indian physical retail store chain, seamlessly connecting regional mega-stores and fulfillment hubs across **Mumbai, Bengaluru, Delhi NCR, Hyderabad, Chennai, and Kolkata** directly to shoppers nationwide.
 
-The platform combines the warm, artisanal visual identity of **[Rosier Foods](https://www.rosierfoods.com/)** (natural earth brown, linen cream, royal deep navy, and sage) with the marketplace navigation, discovery patterns, and shopping features inspired by **Amazon.in** and **Flipkart**.
+The platform combines the warm, artisanal visual identity  with the marketplace navigation, discovery patterns, and shopping features inspired by **Amazon.in** and **Flipkart**.
 
 ---
 

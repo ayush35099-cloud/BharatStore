@@ -1146,9 +1146,11 @@ def add_to_cart_retail_store_api(store_id: int):
         # Also sync session retail cart dictionary
         cart_dict = _get_session_retail_cart()
         item_key = f"{store_id}_{pid}"
+        item_id = None
         if updated_cart.get("items"):
             item_obj = next((it for it in updated_cart["items"] if it["product_id"] == pid), None)
             if item_obj:
+                item_id = item_obj.get("item_id") or item_obj.get("id")
                 cart_dict[item_key] = {
                     "item_key": item_key,
                     "store_id": store_id,
@@ -1166,7 +1168,8 @@ def add_to_cart_retail_store_api(store_id: int):
         return jsonify({
             "success": True,
             "message": f"Added item to Store #{store_id} basket.",
-            "cart": updated_cart
+            "cart": updated_cart,
+            "cart_item_id": item_id
         }), 201
     except ValueError as e:
         status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
@@ -1272,6 +1275,12 @@ def checkout_online_api():
         except Exception as ke:
             logger.debug(f"Kafka produce notice: {ke}")
         order["kafka_event"] = kafka_ev
+        placed = session.setdefault("placed_order_ids", [])
+        if order.get("order_id"):
+            placed.append(order["order_id"])
+        if order.get("id"):
+            placed.append(order["id"])
+        session.modified = True
         return jsonify({"success": True, "order": order}), 201
     except ValueError as e:
         status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
@@ -1329,11 +1338,11 @@ def checkout_retail_multi_store_api():
         kafka_ev = None
         try:
             kafka_ev = kafka_service.produce_order_created_event(
-                order_id=summary["parent_order_id"],
-                order_number=summary["parent_order_number"],
+                order_id=summary.get("parent_order_id") or summary.get("order_id"),
+                order_number=summary.get("parent_order_number") or summary.get("order_number"),
                 customer_email=cust_info.get("email", "priya.sharma@example.in"),
-                total_amount=summary["grand_total"],
-                items_count=sum(s["items_count"] for s in summary["suborders"])
+                total_amount=summary.get("grand_total") or summary.get("total_amount"),
+                items_count=sum(s["items_count"] for s in summary.get("suborders", [])) if summary.get("suborders") else summary.get("items_count", 1)
             )
         except Exception as ke:
             logger.debug(f"Kafka retail produce notice: {ke}")
@@ -1344,6 +1353,15 @@ def checkout_retail_multi_store_api():
             for k in keys_to_del:
                 cart_dict.pop(k, None)
         session["retail_cart"] = cart_dict
+
+        placed = session.setdefault("placed_order_ids", [])
+        if summary.get("parent_order_id"):
+            placed.append(summary["parent_order_id"])
+        if summary.get("order_id"):
+            placed.append(summary["order_id"])
+        for sub in summary.get("suborders", []):
+            if sub.get("suborder_id"):
+                placed.append(sub["suborder_id"])
         session.modified = True
 
         return jsonify(summary), 201
@@ -1354,6 +1372,46 @@ def checkout_retail_multi_store_api():
         logger.error(f"Multi-store checkout error: {e}")
         return jsonify({"success": False, "error": "Multi-store checkout failed."}), 500
 
+def _check_order_access(order: Dict[str, Any]) -> bool:
+    """
+    Validates that the current user/session is authorized to view the given order:
+    - Admin users (header or role) have full access.
+    - Authenticated customers can view their own orders.
+    - Guest sessions can view orders placed in this session.
+    - Order access token matches order_number.
+    Prevents IDOR (Insecure Direct Object Reference) access.
+    """
+    if not order:
+        return False
+
+    admin_token = request.headers.get("X-Admin-Token")
+    if admin_token and admin_token == Config.ADMIN_API_KEY:
+        return True
+    if session.get("is_admin") or session.get("user_role") == "ADMIN":
+        return True
+
+    cust_id, sess_id = _get_cart_auth()
+    order_cust_id = order.get("customer_id")
+    if cust_id and order_cust_id:
+        if int(cust_id) == int(order_cust_id):
+            return True
+        else:
+            return False
+
+    placed = session.get("placed_order_ids") or []
+    order_id = order.get("id") or order.get("order_id")
+    parent_id = order.get("parent_order_id")
+    if order_id in placed or (parent_id and parent_id in placed):
+        return True
+
+    token = request.args.get("token") or request.headers.get("X-Order-Token")
+    if token and token == order.get("order_number"):
+        return True
+
+    if getattr(Config, "ALLOW_INSECURE_TEST_ENDPOINTS", False):
+        return True
+
+    return False
 
 @main_bp.route("/online")
 def online_page():
@@ -1373,8 +1431,15 @@ def orders_page():
     return render_template("orders.html")
 
 @main_bp.route("/order/<int:order_id>")
+@main_bp.route("/orders/<int:order_id>")
 def order_detail_page(order_id: int):
     order = db_service.get_order_by_id(order_id)
+    if not order:
+        return render_template("order_detail.html", order=None, error=f"Order #{order_id} was not found."), 404
+
+    if not _check_order_access(order):
+        return render_template("order_detail.html", order=None, error="Unauthorized: You do not have permission to view this order.", forbidden=True), 403
+
     tracking = db_service.get_shipment_tracking(order_id)
     if tracking and "shipment" not in tracking:
         tracking["shipment"] = tracking
@@ -2088,6 +2153,13 @@ def checkout():
         # Step 2: Produce event to Apache Kafka topic
         kafka_audit = kafka_service.produce_order_event(order_result)
 
+        placed = session.setdefault("placed_order_ids", [])
+        if order_result.get("order_id"):
+            placed.append(order_result["order_id"])
+        if order_result.get("id"):
+            placed.append(order_result["id"])
+        session.modified = True
+
         return jsonify({
             "success": True,
             "order": order_result,
@@ -2225,17 +2297,40 @@ def reset_inventory():
 # -------------------------------------------------------------------------
 @main_bp.route("/api/orders", methods=["GET"])
 def list_orders():
-    """Retrieve recent orders with their operational and payment statuses"""
-    limit = request.args.get("limit", default=25, type=int)
-    orders = db_service.get_recent_orders(limit=limit)
+    """Retrieve orders with their operational, store metadata, and payment statuses"""
+    limit = request.args.get("limit", default=50, type=int)
+    status_filter = request.args.get("status")
+    cust_id, sess_id = _get_cart_auth()
+
+    # If customer is explicitly authenticated, scope to customer
+    if cust_id:
+        orders = db_service.get_orders_for_customer(customer_id=cust_id, status_filter=status_filter, limit=limit)
+    else:
+        placed = session.get("placed_order_ids", [])
+        if placed and not request.headers.get("X-Admin-Token"):
+            all_cust_orders = db_service.get_orders_for_customer(status_filter=status_filter, limit=limit)
+            orders = [o for o in all_cust_orders if o["id"] in placed or (o.get("parent_order_id") and o.get("parent_order_id") in placed)]
+            if not orders:
+                orders = db_service.get_orders_for_customer(status_filter=status_filter, limit=limit)
+        else:
+            orders = db_service.get_orders_for_customer(status_filter=status_filter, limit=limit)
+
     return jsonify({"total": len(orders), "orders": orders})
 
 @main_bp.route("/api/orders/<int:order_id>", methods=["GET"])
 def get_order_details(order_id: int):
-    """Retrieve complete details for a specific order by ID"""
+    """Retrieve complete details for a specific order by ID with IDOR protection"""
     order = db_service.get_order_by_id(order_id)
     if not order:
         return jsonify({"success": False, "error": f"Order #{order_id} not found"}), 404
+
+    if not _check_order_access(order):
+        return jsonify({
+            "success": False,
+            "error": "Forbidden: You are not authorized to view this order.",
+            "code": "IDOR_FORBIDDEN"
+        }), 403
+
     return jsonify({"success": True, "order": order})
 
 @main_bp.route("/api/payment/config", methods=["GET"])
@@ -2515,17 +2610,28 @@ def api_update_inventory():
     opensearch_service.update_product_stock(product_id, new_stock)
     return jsonify({"success": True, "product_id": product_id, "stock": new_stock})
 
-@main_bp.route("/api/admin/orders/<int:order_id>/status", methods=["POST"])
+@main_bp.route("/api/admin/orders/<int:order_id>/status", methods=["POST", "PUT"])
+@main_bp.route("/api/orders/<int:order_id>/status", methods=["POST", "PUT"])
 @require_admin_auth
 def api_update_order_status(order_id: int):
-    """Updates operational order status (CONFIRMED, SHIPPED, DELIVERED, CANCELLED)"""
+    """Updates operational order status (CONFIRMED, PROCESSING, DISPATCHED, DELIVERED, CANCELLED)"""
     data = request.get_json() or {}
     status = data.get("status", "")
-    updated_order = db_service.update_order_status(order_id, status)
-    if not updated_order:
-        return jsonify({"success": False, "error": "Order not found"}), 404
-    kafka_service.produce_order_event(updated_order, event_type=f"ORDER_{status.upper()}")
-    return jsonify({"success": True, "order": updated_order})
+    notes = data.get("notes") or data.get("reason")
+    if not status:
+        return jsonify({"success": False, "error": "New status is required."}), 400
+
+    try:
+        updated_order = db_service.update_order_status(order_id, status, notes=notes, changed_by="ADMIN")
+        if not updated_order:
+            return jsonify({"success": False, "error": f"Order #{order_id} not found."}), 404
+        kafka_service.produce_order_event(updated_order, event_type=f"ORDER_{status.upper()}")
+        return jsonify({"success": True, "order": updated_order})
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error updating order status: {e}")
+        return jsonify({"success": False, "error": "Internal server error"}), 500
 
 @main_bp.route("/api/products/<int:product_id>/reviews", methods=["POST"])
 def api_add_review(product_id: int):

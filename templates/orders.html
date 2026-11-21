@@ -17,11 +17,14 @@
     </div>
   </div>
 
-  <!-- Orders Filter Tabs -->
-  <div style="display:flex; gap:10px; margin-bottom:24px; overflow-x:auto; padding-bottom:4px;">
+  <!-- Orders Filter Tabs (Phase 13 Lifecycle States) -->
+  <div style="display:flex; gap:10px; margin-bottom:24px; overflow-x:auto; padding-bottom:4px;" class="orders-filter-bar">
     <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px; border-color:var(--color-primary); color:var(--color-primary); background:var(--color-primary-light);" onclick="filterOrdersTab('all', this)">All Orders</button>
-    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('PENDING_PAYMENT', this)">Pending Payment</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('PENDING', this)">Pending</button>
     <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('CONFIRMED', this)">Confirmed</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('PROCESSING', this)">Processing</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('DISPATCHED', this)">Dispatched</button>
+    <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('DELIVERED', this)">Delivered</button>
     <button class="btn-secondary" style="font-size:12.5px; padding:6px 16px;" onclick="filterOrdersTab('CANCELLED', this)">Cancelled</button>
   </div>
 

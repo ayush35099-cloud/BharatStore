@@ -227,7 +227,7 @@ def get_pg_schema_ddl() -> List[str]:
             total_amount NUMERIC(10, 2) NOT NULL CHECK (total_amount >= 0),
             discount_amount NUMERIC(10, 2) DEFAULT 0.0,
             shipping_fee NUMERIC(10, 2) DEFAULT 0.0,
-            status VARCHAR(50) DEFAULT 'PENDING_PAYMENT' CHECK (status IN ('PENDING_PAYMENT', 'PAID', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED')),
+            status VARCHAR(50) DEFAULT 'PENDING_PAYMENT' CHECK (status IN ('PENDING', 'PENDING_PAYMENT', 'PAID', 'CONFIRMED', 'PROCESSING', 'DISPATCHED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'REFUNDED')),
             payment_method VARCHAR(50) DEFAULT 'UPI',
             payment_id VARCHAR(100),
             payment_status VARCHAR(50) DEFAULT 'PENDING' CHECK (payment_status IN ('PENDING', 'AUTHORIZED', 'PAID', 'FAILED', 'REFUNDED')),
@@ -407,6 +407,19 @@ def get_pg_schema_ddl() -> List[str]:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (store_id, product_id)
+        );
+        """,
+
+        # 26. Order Status History (Phase 13 Lifecycle Audit Trail)
+        """
+        CREATE TABLE IF NOT EXISTS order_status_history (
+            id SERIAL PRIMARY KEY,
+            order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+            from_status VARCHAR(50),
+            to_status VARCHAR(50) NOT NULL,
+            notes TEXT,
+            changed_by VARCHAR(100) DEFAULT 'SYSTEM',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """
     ]
@@ -622,7 +635,7 @@ def get_sqlite_schema_ddl() -> List[str]:
             total_amount REAL NOT NULL CHECK (total_amount >= 0),
             discount_amount REAL DEFAULT 0.0,
             shipping_fee REAL DEFAULT 0.0,
-            status TEXT DEFAULT 'PENDING_PAYMENT' CHECK (status IN ('PENDING_PAYMENT', 'PAID', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED')),
+            status TEXT DEFAULT 'PENDING_PAYMENT' CHECK (status IN ('PENDING', 'PENDING_PAYMENT', 'PAID', 'CONFIRMED', 'PROCESSING', 'DISPATCHED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'REFUNDED')),
             payment_method TEXT DEFAULT 'UPI',
             payment_id TEXT,
             payment_status TEXT DEFAULT 'PENDING' CHECK (payment_status IN ('PENDING', 'AUTHORIZED', 'PAID', 'FAILED', 'REFUNDED')),
@@ -803,6 +816,19 @@ def get_sqlite_schema_ddl() -> List[str]:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (store_id, product_id)
         );
+        """,
+
+        # 26. Order Status History (Phase 13 Lifecycle Audit Trail)
+        """
+        CREATE TABLE IF NOT EXISTS order_status_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+            from_status TEXT,
+            to_status TEXT NOT NULL,
+            notes TEXT,
+            changed_by TEXT DEFAULT 'SYSTEM',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
         """
     ]
 
@@ -811,6 +837,8 @@ def get_sqlite_schema_ddl() -> List[str]:
 # -----------------------------------------------------------------------------
 
 INDEXES_DDL = [
+    # Orders Lifecycle & Status History
+    "CREATE INDEX IF NOT EXISTS idx_order_status_history_order_id ON order_status_history(order_id);",
     # Products & Catalog
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);",
     "CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);",

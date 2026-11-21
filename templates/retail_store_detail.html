@@ -671,6 +671,9 @@
       }
       showToast(`Added to basket from ${storeName}!`);
       closePriceComparisonModal();
+      if (window.appState && window.appState.selectedRetailStores) {
+        window.appState.selectedRetailStores.add(Number(storeId));
+      }
       if (window.fetchAndSyncRetailCart) {
         await window.fetchAndSyncRetailCart();
       }

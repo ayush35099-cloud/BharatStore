@@ -6,6 +6,7 @@ and seamless ACID-compliant fallback with concurrency locks.
 
 import os
 import re
+import math
 import json
 import uuid
 import time
@@ -2752,4 +2753,239 @@ class DatabaseService:
             "total_stores_count": len(stores_comparison),
             "in_stock_stores_count": len(in_stock_prices)
         }
+
+    # -------------------------------------------------------------------------
+    # Phase 5: Nearby Store Discovery & Haversine Distance (Max 15 km)
+    # -------------------------------------------------------------------------
+
+    def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Alias for calculate_haversine_distance on the DatabaseService instance."""
+        return calculate_haversine_distance(lat1, lon1, lat2, lon2)
+
+    def _is_store_open_now(self, opening_time: Optional[str], closing_time: Optional[str]) -> bool:
+        """
+        Determines if a store is currently open based on opening and closing time strings.
+        Supports standard Indian store formats like '06:30 AM', '11:30 PM', '07:00 AM', etc.
+        """
+        if not opening_time or not closing_time:
+            return True
+
+        def _to_mins(t_str: str) -> Optional[int]:
+            try:
+                m = re.match(r"^(\d{1,2}):(\d{2})\s*(AM|PM)?$", t_str.strip().upper())
+                if not m:
+                    return None
+                hr = int(m.group(1))
+                mn = int(m.group(2))
+                meridiem = m.group(3)
+                if meridiem == "PM" and hr < 12:
+                    hr += 12
+                elif meridiem == "AM" and hr == 12:
+                    hr = 0
+                return hr * 60 + mn
+            except Exception:
+                return None
+
+        open_m = _to_mins(opening_time)
+        close_m = _to_mins(closing_time)
+        if open_m is None or close_m is None:
+            return True
+
+        # Current time in local minutes
+        now = time.localtime()
+        now_m = now.tm_hour * 60 + now.tm_min
+
+        if open_m <= close_m:
+            return open_m <= now_m <= close_m
+        else:
+            # Crosses midnight (e.g. 18:00 to 02:00)
+            return now_m >= open_m or now_m <= close_m
+
+    def get_nearby_stores(
+        self,
+        lat: float,
+        lng: float,
+        max_radius_km: float = 15.0,
+        sort_by: str = "nearest",
+        category_filter: Optional[str] = None,
+        open_only: bool = False,
+        delivery_only: bool = False,
+        pickup_only: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves active physical stores within max_radius_km (strictly capped at 15 km)
+        from user geographic coordinates using the Haversine formula.
+        Excludes inactive stores and stores without valid coordinates.
+        Enriches results with distance, real grocery product counts, and open status.
+        """
+        try:
+            user_lat = float(lat)
+            user_lng = float(lng)
+            radius = float(max_radius_km)
+        except (ValueError, TypeError):
+            raise ValueError("Latitude, longitude, and radius must be valid numbers.")
+
+        if not (-90.0 <= user_lat <= 90.0):
+            raise ValueError("Latitude must be between -90 and 90 degrees.")
+        if not (-180.0 <= user_lng <= 180.0):
+            raise ValueError("Longitude must be between -180 and 180 degrees.")
+        if radius <= 0 or radius > 15.0:
+            raise ValueError("Radius must be greater than 0 and cannot exceed 15 km.")
+
+        all_stores = self.get_all_stores(active_only=True)
+        nearby_stores = []
+
+        for st in all_stores:
+            s_lat = st.get("latitude")
+            s_lng = st.get("longitude")
+            if s_lat is None or s_lng is None:
+                continue
+
+            try:
+                dist = calculate_haversine_distance(user_lat, user_lng, float(s_lat), float(s_lng))
+            except Exception:
+                continue
+
+            # Strict 15 km maximum radius check
+            if dist > radius:
+                continue
+
+            enriched = self._enrich_store_metadata(dict(st))
+            enriched["distance_km"] = dist
+            enriched["distance_text"] = f"{dist:.1f} km (approx. straight-line)"
+
+            # Delivery & Pickup settings from store record
+            enriched["delivery_available"] = bool(st.get("accepts_delivery", True))
+            enriched["pickup_available"] = bool(st.get("accepts_pickup", True))
+            enriched["delivery_fee"] = float(st.get("delivery_fee", 20.0))
+
+            # Operating hours / open status
+            enriched["is_open"] = self._is_store_open_now(st.get("opening_time"), st.get("closing_time"))
+            enriched["status_badge"] = "Open Now" if enriched["is_open"] else "Closed"
+
+            # Query real grocery product count in store inventory
+            inv = self.get_store_inventory(st["id"])
+            grocery_items = [p for p in inv if p.get("category") == "Daily Essentials & Groceries" and p.get("is_available") and p.get("stock_quantity", 0) > 0]
+            enriched["grocery_product_count"] = len(grocery_items)
+
+            # Filtering
+            if open_only and not enriched["is_open"]:
+                continue
+            if delivery_only and not enriched["delivery_available"]:
+                continue
+            if pickup_only and not enriched["pickup_available"]:
+                continue
+
+            if category_filter and category_filter.strip() and category_filter.strip().lower() != "all":
+                cat_lower = category_filter.strip().lower()
+                has_cat = any(cat_lower in (p.get("sub_category", "").lower() + " " + p.get("title", "").lower()) for p in grocery_items)
+                desc_match = cat_lower in (st.get("store_description", "").lower() + " " + st.get("store_name", "").lower())
+                if not (has_cat or desc_match):
+                    continue
+
+            nearby_stores.append(enriched)
+
+        # Sorting: Default nearest first
+        if sort_by == "farthest":
+            nearby_stores.sort(key=lambda s: s["distance_km"], reverse=True)
+        elif sort_by == "name_asc":
+            nearby_stores.sort(key=lambda s: s["store_name"].lower())
+        elif sort_by == "fee_asc":
+            nearby_stores.sort(key=lambda s: s["delivery_fee"])
+        else: # 'nearest' is default
+            nearby_stores.sort(key=lambda s: s["distance_km"])
+
+        return nearby_stores
+
+    def get_store_detail_with_catalog(self, store_id: int, user_lat: Optional[float] = None, user_lng: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves store details along with categorized grocery catalog and
+        calculates distance to customer location if provided.
+        """
+        store = self.get_store_by_id(store_id)
+        if not store:
+            return None
+
+        enriched = self._enrich_store_metadata(dict(store))
+        if user_lat is not None and user_lng is not None and store.get("latitude") and store.get("longitude"):
+            try:
+                d = calculate_haversine_distance(float(user_lat), float(user_lng), float(store["latitude"]), float(store["longitude"]))
+                enriched["distance_km"] = d
+                enriched["distance_text"] = f"{d:.1f} km (approx. straight-line)"
+            except Exception:
+                enriched["distance_km"] = None
+                enriched["distance_text"] = None
+        else:
+            enriched["distance_km"] = None
+            enriched["distance_text"] = None
+
+        enriched["is_open"] = self._is_store_open_now(store.get("opening_time"), store.get("closing_time"))
+        enriched["status_badge"] = "Open Now" if enriched["is_open"] else "Closed"
+
+        inv = self.get_store_inventory(store_id)
+        grocery_items = [p for p in inv if p.get("category") == "Daily Essentials & Groceries"]
+
+        dairy_items = []
+        grains_items = []
+        essentials_items = []
+        produce_items = []
+        household_items = []
+
+        for item in grocery_items:
+            sub = item.get("sub_category", "")
+            t = (item.get("title") or "").lower()
+            if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+                dairy_items.append(item)
+            elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "chana", "poha"]):
+                grains_items.append(item)
+            elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice", "tea", "coffee"]):
+                essentials_items.append(item)
+            elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "capsicum", "vegetable"]):
+                produce_items.append(item)
+            elif sub == "Household Essentials" or any(k in t for k in ["surf", "vim", "lizol", "dettol", "harpic", "cleaner"]):
+                household_items.append(item)
+            else:
+                essentials_items.append(item)
+
+        return {
+            "store": enriched,
+            "dairy_items": dairy_items,
+            "grains_items": grains_items,
+            "essentials_items": essentials_items,
+            "produce_items": produce_items,
+            "household_items": household_items,
+            "all_products": grocery_items,
+            "total_products_count": len([p for p in grocery_items if p.get("is_available") and p.get("stock_quantity", 0) > 0])
+        }
+
+
+def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculates the approximate straight-line great-circle distance between two geographic coordinates
+    using the Haversine formula. Earth radius R = 6371.0 km.
+    """
+    try:
+        lat1_f = float(lat1)
+        lon1_f = float(lon1)
+        lat2_f = float(lat2)
+        lon2_f = float(lon2)
+    except (ValueError, TypeError):
+        raise ValueError("Invalid coordinates format: must be numeric.")
+
+    if not (-90.0 <= lat1_f <= 90.0 and -90.0 <= lat2_f <= 90.0):
+        raise ValueError("Latitude must be between -90 and 90 degrees.")
+    if not (-180.0 <= lon1_f <= 180.0 and -180.0 <= lon2_f <= 180.0):
+        raise ValueError("Longitude must be between -180 and 180 degrees.")
+
+    R = 6371.0
+    phi1 = math.radians(lat1_f)
+    phi2 = math.radians(lat2_f)
+    delta_phi = math.radians(lat2_f - lat1_f)
+    delta_lambda = math.radians(lon2_f - lon1_f)
+
+    a = math.sin(delta_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * (math.sin(delta_lambda / 2.0) ** 2)
+    a = min(1.0, max(0.0, a))
+    c = 2.0 * math.asin(math.sqrt(a))
+    return round(R * c, 2)
+
 

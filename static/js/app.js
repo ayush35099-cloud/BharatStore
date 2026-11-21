@@ -670,7 +670,7 @@ function handleNearbyStoresNav() {
   if (nearbyEl) {
     nearbyEl.scrollIntoView({ behavior: "smooth" });
   } else {
-    window.location.href = "/retail#nearby-stores-section";
+    window.location.href = "/retail/stores";
   }
 }
 

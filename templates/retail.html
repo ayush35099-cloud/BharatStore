@@ -45,13 +45,13 @@
 
         <!-- 5-Shop Showcase Grid -->
         <div class="retail-stores-showcase-wrapper">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
             <span style="font-size:12.5px; font-weight:700; color:var(--color-text-main);">
               <i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> Select from 5 Bengaluru Neighbourhood Shops:
             </span>
-            <span style="font-size:11.5px; color:var(--color-text-muted);">
-              Prices & stock vary by shop
-            </span>
+            <a href="/retail/stores" style="font-size:12px; font-weight:700; color:var(--color-primary); text-decoration:none;">
+              <i class="fa-solid fa-compass"></i> View 15 km Directory & Filters <i class="fa-solid fa-arrow-right"></i>
+            </a>
           </div>
           <div class="retail-stores-grid-5">
             {% for st in stores[:5] %}
@@ -673,9 +673,14 @@
         <span class="section-kicker"><i class="fa-solid fa-location-dot"></i> Local Discovery</span>
         <h2 class="section-title">Nearby Stores within 15 km</h2>
       </div>
-      <button class="section-link" onclick="openHubSwitchModal()" style="background:none; border:none; cursor:pointer;">
-        View All Metro Stores <i class="fa-solid fa-arrow-right"></i>
-      </button>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <a href="/retail/stores" class="section-link" style="text-decoration:none; font-weight:700;">
+          <i class="fa-solid fa-compass"></i> View All Stores within 15 km <i class="fa-solid fa-arrow-right"></i>
+        </a>
+        <button class="section-link" onclick="openHubSwitchModal()" style="background:none; border:none; cursor:pointer;">
+          Metro Hubs <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </div>
     </div>
 
     <!-- Store Cards Grid -->
@@ -873,11 +878,13 @@
     }
   }
 
-  // Highlight active store on load
-  document.addEventListener("DOMContentLoaded", () => {
-    const activeStoreCard = document.querySelector(".store-hub-card.active-store-card");
-    if (activeStoreCard) {
-      activeStoreCard.scrollIntoView({ behavior: "auto", block: "nearest" });
+  // Ensure page starts at the top upon refresh without jumping down
+  if ('scrollRestoration' in history) {
+    history.scrollRestoration = 'manual';
+  }
+  window.addEventListener('load', () => {
+    if (!window.location.hash) {
+      window.scrollTo(0, 0);
     }
   });
 

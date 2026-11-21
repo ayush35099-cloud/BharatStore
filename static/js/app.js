@@ -981,15 +981,33 @@ function closeCartDrawer(e) {
   }
 }
 
+function toggleCartDrawerShopSelection(storeId, isChecked) {
+  if (!appState.selectedRetailStores) {
+    appState.selectedRetailStores = new Set();
+  }
+  const sId = Number(storeId);
+  if (isChecked) {
+    appState.selectedRetailStores.add(sId);
+  } else {
+    appState.selectedRetailStores.delete(sId);
+  }
+  renderCartDrawer();
+}
+
 function proceedToCheckoutFromDrawer() {
   closeCartDrawer();
   const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
   if (isRetail) {
-    const storeIds = (appState.retailCarts || [])
-      .filter(s => (s.items || []).length > 0)
-      .map(s => s.store_id);
-    if (storeIds.length > 0) {
-      window.location.href = `/checkout?mode=retail&stores=${storeIds.join(",")}`;
+    let selectedIds = [];
+    if (appState.selectedRetailStores && appState.selectedRetailStores.size > 0) {
+      selectedIds = Array.from(appState.selectedRetailStores);
+    } else {
+      selectedIds = (appState.retailCarts || [])
+        .filter(s => (s.items || []).length > 0)
+        .map(s => s.store_id);
+    }
+    if (selectedIds.length > 0) {
+      window.location.href = `/checkout?mode=retail&stores=${selectedIds.join(",")}`;
     } else {
       window.location.href = "/checkout?mode=retail";
     }
@@ -1001,6 +1019,7 @@ function proceedToCheckoutFromDrawer() {
 function renderCartDrawer() {
   const container = document.getElementById("cart-drawer-items-container");
   const totalEl = document.getElementById("drawer-cart-total");
+  const checkoutBtn = document.getElementById("drawer-checkout-btn");
   if (!container) return;
 
   const items = Object.values(appState.cart);
@@ -1013,6 +1032,11 @@ function renderCartDrawer() {
       </div>
     `;
     if (totalEl) totalEl.textContent = "₹0";
+    if (checkoutBtn) {
+      checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Proceed to Checkout`;
+      checkoutBtn.style.pointerEvents = "auto";
+      checkoutBtn.style.opacity = "1";
+    }
     return;
   }
 
@@ -1024,32 +1048,57 @@ function renderCartDrawer() {
     items.forEach(item => {
       const p = item.product;
       const sName = item.store_name || "Bharat Fresh Mart";
+      const sId = Number(item.store_id || 1);
       if (!shopGroups[sName]) {
         shopGroups[sName] = {
           name: sName,
-          store_id: item.store_id || 1,
+          store_id: sId,
           fulfillment: item.fulfillment || 'delivery',
           items: [],
           subtotal: 0
         };
       }
       shopGroups[sName].items.push(item);
-      shopGroups[sName].subtotal += p.price * item.qty;
-      subtotal += p.price * item.qty;
+      const itemSub = p.price * item.qty;
+      shopGroups[sName].subtotal += itemSub;
     });
 
-    container.innerHTML = Object.values(shopGroups).map(group => `
-      <div class="shop-cart-group">
+    if (!appState.selectedRetailStores) {
+      appState.selectedRetailStores = new Set(Object.values(shopGroups).map(g => g.store_id));
+    }
+
+    let selectedShopCount = 0;
+    Object.values(shopGroups).forEach(group => {
+      if (appState.selectedRetailStores.has(group.store_id)) {
+        subtotal += group.subtotal;
+        selectedShopCount++;
+      }
+    });
+
+    container.innerHTML = Object.values(shopGroups).map(group => {
+      const isSelected = appState.selectedRetailStores.has(group.store_id);
+      return `
+      <div class="shop-cart-group" style="${isSelected ? '' : 'opacity:0.65; border-color:var(--color-border);'}">
         <div class="shop-cart-group-header">
-          <span class="shop-cart-group-title"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${group.name}</span>
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+            <input 
+              type="checkbox" 
+              class="shop-cart-checkbox" 
+              data-store-id="${group.store_id}" 
+              ${isSelected ? 'checked' : ''} 
+              onchange="toggleCartDrawerShopSelection(${group.store_id}, this.checked)"
+              style="width:16px; height:16px; accent-color:var(--color-primary); cursor:pointer;"
+            >
+            <span class="shop-cart-group-title"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${escapeHtml(group.name)}</span>
+          </label>
           <span style="font-size:12px; font-weight:700; color:var(--color-primary);">₹${group.subtotal.toLocaleString('en-IN')}</span>
         </div>
 
         <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px;">
           <span style="font-weight:600; color:var(--color-text-muted);"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
           <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer;">
-            <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>2-Hour Delivery (₹20)</option>
-            <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup (FREE)</option>
+            <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>Standard Delivery (₹20)</option>
+            <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup</option>
           </select>
         </div>
 
@@ -1058,9 +1107,9 @@ function renderCartDrawer() {
             const p = item.product;
             return `
               <div class="drawer-item" style="padding:8px 0; border-bottom:1px solid var(--color-border-subtle);">
-                <img src="${p.image_url}" alt="${p.title}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
+                <img src="${p.image_url}" alt="${escapeHtml(p.title)}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
                 <div style="flex:1;">
-                  <div class="drawer-item-title" style="font-size:12.5px;">${p.title}</div>
+                  <div class="drawer-item-title" style="font-size:12.5px;">${escapeHtml(p.title)}</div>
                   <div class="drawer-item-price" style="font-size:13px;">₹${p.price.toLocaleString('en-IN')}</div>
                   <div class="drawer-qty-control" style="margin-top:4px;">
                     <button onclick="updateCartItemQty('${item.id || item.key}', -1)">-</button>
@@ -1081,7 +1130,20 @@ function renderCartDrawer() {
           <span>Shop Subtotal: ₹${group.subtotal.toLocaleString('en-IN')}</span>
         </div>
       </div>
-    `).join("");
+    `;
+    }).join("");
+
+    if (checkoutBtn) {
+      if (selectedShopCount > 0) {
+        checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Proceed to Checkout (${selectedShopCount} ${selectedShopCount === 1 ? 'shop' : 'shops'})`;
+        checkoutBtn.style.pointerEvents = "auto";
+        checkoutBtn.style.opacity = "1";
+      } else {
+        checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Select a shop to checkout`;
+        checkoutBtn.style.pointerEvents = "none";
+        checkoutBtn.style.opacity = "0.5";
+      }
+    }
   } else {
     // Online Shopping Mode standard rendering
     container.innerHTML = items.map(item => {
@@ -1090,9 +1152,9 @@ function renderCartDrawer() {
       subtotal += itemTotal;
       return `
         <div class="drawer-item">
-          <img src="${p.image_url}" alt="${p.title}">
+          <img src="${p.image_url}" alt="${escapeHtml(p.title)}">
           <div>
-            <div class="drawer-item-title">${p.title}</div>
+            <div class="drawer-item-title">${escapeHtml(p.title)}</div>
             <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
             <div class="drawer-qty-control">
               <button onclick="updateCartItemQty('${item.id || item.key || p.id}', -1)">-</button>
@@ -1106,6 +1168,12 @@ function renderCartDrawer() {
         </div>
       `;
     }).join("");
+
+    if (checkoutBtn) {
+      checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Proceed to Checkout`;
+      checkoutBtn.style.pointerEvents = "auto";
+      checkoutBtn.style.opacity = "1";
+    }
   }
 
   if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
@@ -1604,9 +1672,61 @@ function renderCatalogGrid() {
   }
 }
 
+let catalogBaseProductsCache = null;
+
+async function applyStoreFilter(storeId) {
+  const isRetail = (appState.shoppingMode === "RETAIL_NEAR_ME" || window.CURRENT_SHOPPING_MODE === "RETAIL_NEAR_ME");
+  if (!isRetail) return;
+
+  if (!catalogBaseProductsCache && appState.products && appState.products.length > 0) {
+    catalogBaseProductsCache = [...appState.products];
+  }
+
+  if (!storeId) {
+    if (catalogBaseProductsCache) {
+      appState.products = [...catalogBaseProductsCache];
+    }
+    applyFilters();
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/stores/${storeId}/inventory`);
+    const data = await res.json();
+    if (data.inventory && Array.isArray(data.inventory)) {
+      appState.products = data.inventory.map(item => ({
+        id: item.product_id,
+        title: item.title,
+        brand: item.brand,
+        category: item.category,
+        sub_category: item.sub_category,
+        price: item.selling_price !== undefined ? item.selling_price : item.price,
+        original_price: item.original_price,
+        stock: item.stock_quantity !== undefined ? item.stock_quantity : item.stock,
+        is_available: item.is_available,
+        image_url: item.image_url,
+        rating: item.rating || 4.7,
+        rating_count: item.rating_count || 120,
+        description: item.description,
+        sku: item.sku,
+        store_id: item.store_id,
+        store_name: data.store_name
+      }));
+      applyFilters();
+    }
+  } catch (err) {
+    console.error("Store filter error:", err);
+  }
+}
+
 function resetCatalogFilters() {
   const allCat = document.querySelector('input[name="cat_filter"][value=""]');
   if (allCat) allCat.checked = true;
+  const allStore = document.querySelector('input[name="store_filter"][value=""]');
+  if (allStore) allStore.checked = true;
+  if (catalogBaseProductsCache) {
+    appState.products = [...catalogBaseProductsCache];
+  }
   const allPrice = document.querySelector('input[name="price_filter"][value="all"]');
   if (allPrice) allPrice.checked = true;
   if (document.getElementById("filter-rating-4")) document.getElementById("filter-rating-4").checked = false;
@@ -2626,46 +2746,105 @@ function renderOrdersList(list) {
   const container = document.getElementById("orders-page-list-container");
   if (!container) return;
 
+  if (!list || list.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:56px 20px; background:var(--color-bg-surface); border-radius:var(--radius-xl); border:1px solid var(--color-border); max-width:600px; margin:auto;">
+        <i class="fa-solid fa-box-open" style="font-size:48px; color:var(--color-border-strong); margin-bottom:14px;"></i>
+        <h4 style="font-size:16px; margin-bottom:6px;">No Orders in this Status</h4>
+        <p style="color:var(--color-text-muted); font-size:13px; margin:0 0 18px 0;">There are no active orders matching the selected lifecycle filter.</p>
+        <button class="btn-secondary" onclick="filterOrdersTab('all')" style="font-size:12.5px;">View All Orders</button>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = list.map(o => {
     let statusClass = "badge-pending";
-    if (o.status === "CONFIRMED") statusClass = "badge-confirmed";
-    if (o.status === "CANCELLED") statusClass = "badge-cancelled";
+    const st = (o.status || "PENDING").toUpperCase();
+    if (st === "CONFIRMED") statusClass = "badge-confirmed";
+    else if (st === "PROCESSING") statusClass = "badge-confirmed";
+    else if (st === "DISPATCHED" || st === "SHIPPED" || st === "OUT_FOR_DELIVERY") statusClass = "badge-confirmed";
+    else if (st === "DELIVERED") statusClass = "badge-confirmed";
+    else if (st === "CANCELLED") statusClass = "badge-cancelled";
+
+    const isRetail = (o.shopping_mode === "RETAIL_NEAR_ME");
+    const modeBadge = isRetail
+      ? `<span style="background:#ECFDF5; color:#059669; border:1px solid #A7F3D0; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:4px;"><i class="fa-solid fa-store"></i> RETAIL NEAR ME</span>`
+      : `<span style="background:#EFF6FF; color:#2563EB; border:1px solid #BFDBFE; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:4px;"><i class="fa-solid fa-globe"></i> ONLINE MARKETPLACE</span>`;
+
+    // Multi-store or store badges
+    let storesHtml = "";
+    if (o.suborders && o.suborders.length > 0) {
+      storesHtml = `
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
+          ${o.suborders.map(s => `
+            <span style="font-size:11px; background:var(--color-bg-subtle); border:1px solid var(--color-border); padding:2px 8px; border-radius:4px; color:var(--color-text-main);">
+              <i class="fa-solid fa-shop" style="color:var(--color-primary);"></i> ${escapeHtml(s.store_name || ('Store #' + s.store_id))}
+            </span>
+          `).join("")}
+        </div>
+      `;
+    } else if (o.store_name) {
+      storesHtml = `
+        <div style="margin-top:6px;">
+          <span style="font-size:11px; background:var(--color-bg-subtle); border:1px solid var(--color-border); padding:2px 8px; border-radius:4px; color:var(--color-text-main);">
+            <i class="fa-solid fa-shop" style="color:var(--color-primary);"></i> ${escapeHtml(o.store_name)}
+          </span>
+        </div>
+      `;
+    }
+
+    // Items preview
+    let itemsPreview = "";
+    if (o.items && o.items.length > 0) {
+      itemsPreview = `
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
+          ${o.items.slice(0, 4).map(i => `
+            <span style="font-size:11.5px; background:var(--color-bg-subtle); border:1px solid var(--color-border-subtle); padding:2px 8px; border-radius:4px; color:var(--color-text-body);">
+              ${escapeHtml(i.title || i.product_title || 'Item')} <strong style="color:var(--color-text-main);">× ${i.quantity}</strong>
+            </span>
+          `).join("")}
+          ${o.items.length > 4 ? `<span style="font-size:11px; color:var(--color-text-muted); align-self:center;">+${o.items.length - 4} more</span>` : ''}
+        </div>
+      `;
+    }
 
     return `
       <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-xl); overflow:hidden; box-shadow:var(--shadow-sm);">
-        <div style="background:var(--color-bg-subtle); padding:16px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--color-border); font-size:12.5px;">
-          <div style="display:flex; gap:24px;">
+        <div style="background:var(--color-bg-subtle); padding:16px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--color-border); font-size:12.5px; flex-wrap:wrap; gap:12px;">
+          <div style="display:flex; gap:24px; flex-wrap:wrap;">
             <div>
               <span style="color:var(--color-text-muted); display:block; font-size:11px; text-transform:uppercase;">ORDER PLACED</span>
-              <strong>${o.created_at}</strong>
+              <strong>${o.created_at || 'Just now'}</strong>
             </div>
             <div>
               <span style="color:var(--color-text-muted); display:block; font-size:11px; text-transform:uppercase;">TOTAL AMOUNT</span>
-              <strong style="color:var(--color-primary);">₹${Number(o.total_amount).toLocaleString('en-IN')}</strong>
+              <strong style="color:var(--color-primary); font-size:14px;">₹${Number(o.total_amount).toLocaleString('en-IN')}</strong>
             </div>
             <div>
-              <span style="color:var(--color-text-muted); display:block; font-size:11px; text-transform:uppercase;">DISPATCH HUB</span>
-              <strong>${o.shipping_city} Hub</strong>
+              <span style="color:var(--color-text-muted); display:block; font-size:11px; text-transform:uppercase;">FULFILLMENT MODE</span>
+              <div style="margin-top:2px;">${modeBadge}</div>
             </div>
           </div>
           <div>
-            <span style="color:var(--color-text-muted); font-size:11px;">ORDER # ${o.order_number}</span>
+            <span style="color:var(--color-text-muted); font-size:11px;">ORDER # <strong>${o.order_number}</strong></span>
           </div>
         </div>
 
-        <div style="padding:20px 24px; display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-              <span class="badge-status ${statusClass}">${o.status}</span>
-              <span style="font-size:12px; color:var(--color-text-muted);">Payment: <strong>${o.payment_status} (${o.payment_method})</strong></span>
+        <div style="padding:20px 24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;">
+          <div style="flex:1; min-width:280px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
+              <span class="badge-status ${statusClass}" style="font-weight:700;">${o.status}</span>
+              <span style="font-size:12px; color:var(--color-text-muted);">
+                Payment: <strong style="color:var(--color-text-main);">${o.payment_status || 'PENDING'}</strong> (${o.payment_method || 'UPI'})
+              </span>
             </div>
-            <p style="font-size:13px; color:var(--color-text-body);">
-              Shipping to <strong>${o.customer_name}</strong> &bull; BlueDart 2-Hour Metro Delivery
-            </p>
+            ${storesHtml}
+            ${itemsPreview}
           </div>
           <div style="display:flex; gap:10px;">
-            <a href="/order/${o.id}" class="btn-primary" style="font-size:13px; padding:8px 16px;">
-              <i class="fa-solid fa-truck-fast"></i> Track Package
+            <a href="/order/${o.id}" class="btn-primary" style="font-size:13px; padding:9px 18px; text-decoration:none;">
+              <i class="fa-solid fa-receipt"></i> View Order Details
             </a>
           </div>
         </div>
@@ -2679,15 +2858,30 @@ function filterOrdersTab(status, btnElement) {
     btnElement.parentElement.querySelectorAll("button").forEach(b => {
       b.style.backgroundColor = "transparent";
       b.style.color = "var(--color-text-main)";
+      b.style.borderColor = "var(--color-border)";
     });
     btnElement.style.backgroundColor = "var(--color-primary-light)";
     btnElement.style.color = "var(--color-primary)";
+    btnElement.style.borderColor = "var(--color-primary)";
   }
 
-  if (status === "all") {
+  const s = (status || "").toUpperCase();
+  if (s === "ALL") {
     renderOrdersList(allLoadedOrders);
+  } else if (s === "PENDING") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "PENDING" || o.status === "PENDING_PAYMENT"));
+  } else if (s === "CONFIRMED") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "CONFIRMED"));
+  } else if (s === "PROCESSING") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "PROCESSING"));
+  } else if (s === "DISPATCHED") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "DISPATCHED" || o.status === "SHIPPED" || o.status === "OUT_FOR_DELIVERY"));
+  } else if (s === "DELIVERED") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "DELIVERED"));
+  } else if (s === "CANCELLED") {
+    renderOrdersList(allLoadedOrders.filter(o => o.status === "CANCELLED"));
   } else {
-    renderOrdersList(allLoadedOrders.filter(o => o.status === status));
+    renderOrdersList(allLoadedOrders.filter(o => o.status === s));
   }
 }
 

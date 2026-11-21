@@ -96,6 +96,35 @@
         </div>
       </div>
 
+      {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+      <!-- Retail Store Filter (Phase 13) -->
+      <div class="filter-group">
+        <div class="filter-group-title">
+          <span>Fulfillment Store</span>
+        </div>
+        <div id="filter-stores-list">
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="" checked onchange="applyStoreFilter(this.value)"> All Stores
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="1" onchange="applyStoreFilter(this.value)"> Bharat Fresh Mart
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="2" onchange="applyStoreFilter(this.value)"> Daily Needs Supermarket
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="3" onchange="applyStoreFilter(this.value)"> Green Basket Grocery
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="4" onchange="applyStoreFilter(this.value)"> Sri Lakshmi Stores
+          </label>
+          <label class="filter-checkbox-label">
+            <input type="radio" name="store_filter" value="5" onchange="applyStoreFilter(this.value)"> Smart Choice Supermarket
+          </label>
+        </div>
+      </div>
+      {% endif %}
+
       <!-- Price Range Filter -->
       <div class="filter-group">
         <div class="filter-group-title">

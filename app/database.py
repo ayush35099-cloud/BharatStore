@@ -773,6 +773,11 @@ class DatabaseService:
                 conn.commit()
                 logger.info(f"[PostgreSQL] Successfully COMMITTED order #{order_number} (Status: {order_status}, Payment: {payment_status})")
 
+                try:
+                    self.record_order_status_transition(order_id, None, order_status, notes="Order placed via checkout", changed_by="CUSTOMER")
+                except Exception as e:
+                    logger.warning(f"Status history record notice: {e}")
+
                 return {
                     "success": True,
                     "order_id": order_id,
@@ -948,6 +953,11 @@ class DatabaseService:
                 conn.commit()
                 conn.close()
 
+                try:
+                    self.record_order_status_transition(order_id, None, order_status, notes="Order placed via checkout", changed_by="CUSTOMER")
+                except Exception as e:
+                    logger.warning(f"Status history record notice: {e}")
+
                 return {
                     "success": True,
                     "order_id": order_id,
@@ -1002,6 +1012,205 @@ class DatabaseService:
     # -------------------------------------------------------------------------
     # Order Status Lifecycle & Compensating Transactions
     # -------------------------------------------------------------------------
+    ALLOWED_ORDER_TRANSITIONS = {
+        "PENDING": ["CONFIRMED", "CANCELLED"],
+        "PENDING_PAYMENT": ["CONFIRMED", "PAID", "PROCESSING", "CANCELLED"],
+        "PAID": ["CONFIRMED", "PROCESSING", "CANCELLED"],
+        "CONFIRMED": ["PROCESSING", "DISPATCHED", "SHIPPED", "CANCELLED"],
+        "PROCESSING": ["DISPATCHED", "SHIPPED", "OUT_FOR_DELIVERY", "CANCELLED"],
+        "DISPATCHED": ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
+        "SHIPPED": ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
+        "OUT_FOR_DELIVERY": ["DELIVERED", "CANCELLED"],
+        "DELIVERED": [],
+        "CANCELLED": []
+    }
+
+    def _get_suborder_items(self, sub_order_id: int) -> List[Dict[str, Any]]:
+        """Fetch line items for a suborder."""
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                SELECT oi.*, p.title as product_title, p.sku, p.image_url
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                WHERE oi.order_id = %s;
+                """, (sub_order_id,))
+                items = []
+                for r in cur.fetchall():
+                    item = dict(r)
+                    item["title"] = item.get("product_title", "")
+                    item["unit_price"] = float(item["unit_price"])
+                    item["subtotal"] = float(item["subtotal"])
+                    items.append(item)
+            conn.close()
+            return items
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT oi.*, p.title as product_title, p.sku, p.image_url
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = ?;
+            """, (sub_order_id,))
+            items = []
+            for r in cur.fetchall():
+                item = dict(r)
+                item["title"] = item.get("product_title", "")
+                item["unit_price"] = float(item["unit_price"])
+                item["subtotal"] = float(item["subtotal"])
+                items.append(item)
+            conn.close()
+            return items
+
+    def record_order_status_transition(self, order_id: int, from_status: Optional[str], to_status: str, notes: Optional[str] = None, changed_by: str = "SYSTEM") -> Dict[str, Any]:
+        """Records an immutable audit trail entry for an order status transition."""
+        to_status = str(to_status).upper().strip()
+        from_status = str(from_status).upper().strip() if from_status else None
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO order_status_history (order_id, from_status, to_status, notes, changed_by)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id, created_at;
+                """, (order_id, from_status, to_status, notes, changed_by))
+                row = cur.fetchone()
+                conn.commit()
+                hist_id = row["id"] if isinstance(row, dict) else row[0]
+                created_at = str(row["created_at"]) if isinstance(row, dict) else str(row[1])
+            conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO order_status_history (order_id, from_status, to_status, notes, changed_by)
+                VALUES (?, ?, ?, ?, ?);
+            """, (order_id, from_status, to_status, notes, changed_by))
+            hist_id = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT created_at FROM order_status_history WHERE id = ?;", (hist_id,))
+            r = cur.fetchone()
+            created_at = str(r[0]) if r else datetime.now().isoformat()
+            conn.close()
+        return {
+            "id": hist_id,
+            "order_id": order_id,
+            "from_status": from_status,
+            "to_status": to_status,
+            "notes": notes,
+            "changed_by": changed_by,
+            "created_at": created_at
+        }
+
+    def get_order_status_history(self, order_id: int) -> List[Dict[str, Any]]:
+        """Retrieves chronological lifecycle transition history for an order."""
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, order_id, from_status, to_status, notes, changed_by, created_at
+                    FROM order_status_history
+                    WHERE order_id = %s
+                    ORDER BY id ASC;
+                """, (order_id,))
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, order_id, from_status, to_status, notes, changed_by, created_at
+                FROM order_status_history
+                WHERE order_id = ?
+                ORDER BY id ASC;
+            """, (order_id,))
+            cols = [c[0] for c in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+            return rows
+
+    def _build_order_timeline(self, order: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Constructs an authoritative visual order progress timeline based on database audit records."""
+        status = (order.get("status") or "PENDING").upper().strip()
+        history = order.get("status_history") or []
+        created_at = str(order.get("created_at") or "")
+
+        hist_map = {}
+        for h in history:
+            to_s = h.get("to_status", "").upper()
+            if to_s not in hist_map:
+                hist_map[to_s] = h
+
+        is_cancelled = (status == "CANCELLED")
+
+        stages_def = [
+            ("CONFIRMED", "Order Confirmed", "fa-check", "Order placed and inventory reserved"),
+            ("PROCESSING", "Processing", "fa-box", "Items packed and prepared for pickup / dispatch"),
+            ("DISPATCHED", "Dispatched", "fa-truck", "Order handed over for local delivery"),
+            ("DELIVERED", "Delivered", "fa-house-circle-check", "Order delivered to destination")
+        ]
+
+        order_ranks = {
+            "PENDING": 0,
+            "PENDING_PAYMENT": 0,
+            "PAID": 1,
+            "CONFIRMED": 1,
+            "PROCESSING": 2,
+            "SHIPPED": 3,
+            "DISPATCHED": 3,
+            "OUT_FOR_DELIVERY": 3,
+            "DELIVERED": 4,
+            "CANCELLED": -1
+        }
+        current_rank = order_ranks.get(status, 1)
+
+        timeline = []
+        for stage_key, label, icon, desc in stages_def:
+            stage_rank = order_ranks.get(stage_key, 0)
+            h_entry = hist_map.get(stage_key)
+            if not h_entry and stage_key == "DISPATCHED":
+                h_entry = hist_map.get("SHIPPED") or hist_map.get("OUT_FOR_DELIVERY")
+
+            if is_cancelled:
+                completed = False
+                is_curr = False
+                ts = h_entry.get("created_at") if h_entry else None
+            else:
+                completed = (current_rank >= stage_rank)
+                is_curr = (current_rank == stage_rank)
+                ts = h_entry.get("created_at") if h_entry else (created_at if stage_key == "CONFIRMED" and completed else None)
+
+            timeline.append({
+                "stage": stage_key,
+                "label": label,
+                "icon": icon,
+                "description": desc,
+                "completed": completed,
+                "current": is_curr,
+                "timestamp": ts,
+                "notes": h_entry.get("notes") if h_entry else None
+            })
+
+        if is_cancelled:
+            cancel_entry = hist_map.get("CANCELLED")
+            timeline.append({
+                "stage": "CANCELLED",
+                "label": "Cancelled",
+                "icon": "fa-ban",
+                "description": cancel_entry.get("notes") if cancel_entry else "Order cancelled and inventory restored",
+                "completed": True,
+                "current": True,
+                "timestamp": cancel_entry.get("created_at") if cancel_entry else None,
+                "notes": cancel_entry.get("notes") if cancel_entry else None
+            })
+
+        return timeline
+
     def get_order_by_id(self, order_id: int) -> Optional[Dict[str, Any]]:
         """Fetch order details and line items by order ID"""
         if self.is_live_postgres:
@@ -1045,7 +1254,6 @@ class DatabaseService:
                     elif "PROCESSING" in statuses or "SHIPPED" in statuses:
                         order["status"] = "PROCESSING"
             conn.close()
-            return order
         else:
             conn = self._get_sqlite_connection()
             cur = conn.cursor()
@@ -1087,7 +1295,42 @@ class DatabaseService:
                 elif "PROCESSING" in statuses or "SHIPPED" in statuses:
                     order["status"] = "PROCESSING"
             conn.close()
-            return order
+
+        # Enrich order with store details, suborder items, audit history, and timeline
+        if order.get("store_id"):
+            try:
+                st = self.get_store_by_id(order["store_id"])
+                if st:
+                    order["store_name"] = st.get("store_name", "")
+                    order["store_area"] = st.get("area", "")
+                    order["store_address"] = st.get("full_address", "")
+            except Exception:
+                pass
+
+        if order.get("suborders"):
+            for sub in order["suborders"]:
+                if sub.get("store_id"):
+                    try:
+                        st = self.get_store_by_id(sub["store_id"])
+                        if st:
+                            sub["store_name"] = st.get("store_name", "")
+                            sub["store_area"] = st.get("area", "")
+                    except Exception:
+                        pass
+                try:
+                    sub["items"] = self._get_suborder_items(sub["id"])
+                except Exception:
+                    sub["items"] = []
+
+        try:
+            order["status_history"] = self.get_order_status_history(order_id)
+            order["timeline"] = self._build_order_timeline(order)
+        except Exception as e:
+            logger.warning(f"Order timeline build note: {e}")
+            order["status_history"] = []
+            order["timeline"] = []
+
+        return order
 
     def get_recent_orders(self, limit: int = 25) -> List[Dict[str, Any]]:
         """Fetch latest orders across all customers"""
@@ -1126,6 +1369,75 @@ class DatabaseService:
                 orders.append(o)
             conn.close()
             return orders
+
+    def get_orders_for_customer(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, status_filter: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves consolidated customer orders (standalone and parent orders) with store names,
+        suborders, items summary, and optional status filtering.
+        """
+        where_clauses = ["o.parent_order_id IS NULL"]
+        params = []
+
+        if customer_id:
+            where_clauses.append("o.customer_id = %s" if self.is_live_postgres else "o.customer_id = ?")
+            params.append(customer_id)
+
+        if status_filter and status_filter.upper() != "ALL":
+            s_filt = status_filter.upper().strip()
+            if s_filt in ("DISPATCHED", "SHIPPED"):
+                where_clauses.append("o.status IN ('DISPATCHED', 'SHIPPED', 'OUT_FOR_DELIVERY')")
+            elif s_filt in ("PENDING", "PENDING_PAYMENT"):
+                where_clauses.append("o.status IN ('PENDING', 'PENDING_PAYMENT')")
+            else:
+                where_clauses.append("o.status = %s" if self.is_live_postgres else "o.status = ?")
+                params.append(s_filt)
+
+        where_sql = " AND ".join(where_clauses)
+        limit_param = "%s" if self.is_live_postgres else "?"
+        params.append(limit)
+
+        query = f"""
+            SELECT o.*, c.name as customer_name, c.email as customer_email
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            WHERE {where_sql}
+            ORDER BY o.id DESC
+            LIMIT {limit_param};
+        """
+
+        orders = []
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, tuple(params))
+                raw_orders = [dict(r) for r in cur.fetchall()]
+            conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute(query, tuple(params))
+            cols = [c[0] for c in cur.description]
+            raw_orders = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+
+        for o in raw_orders:
+            o["order_id"] = o["id"]
+            o["total_amount"] = float(o["total_amount"])
+            try:
+                full_order = self.get_order_by_id(o["id"])
+                if full_order:
+                    o["items"] = full_order.get("items", [])
+                    o["suborders"] = full_order.get("suborders", [])
+                    o["store_name"] = full_order.get("store_name")
+                    o["timeline"] = full_order.get("timeline", [])
+                    o["status_history"] = full_order.get("status_history", [])
+            except Exception:
+                o["items"] = []
+                o["suborders"] = []
+            orders.append(o)
+
+        return orders
 
     def update_order_payment_status(self, order_id: int, payment_status: str, payment_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -1271,6 +1583,10 @@ class DatabaseService:
                 conn.close()
 
         logger.info(f"Order #{order_id} cancelled. Restored stock for {len(restored_stock)} items. Reason: {reason}")
+        try:
+            self.record_order_status_transition(order_id, from_status=order.get("status"), to_status="CANCELLED", notes=reason, changed_by="CUSTOMER")
+        except Exception as e:
+            logger.warning(f"Status history record notice on cancel: {e}")
         res = self.get_order_by_id(order_id)
         res["restored_stock"] = restored_stock
         res["cancel_reason"] = reason
@@ -1682,21 +1998,62 @@ class DatabaseService:
             conn.close()
         return True
 
-    def update_order_status(self, order_id: int, new_status: str) -> Optional[Dict[str, Any]]:
-        """Transitions order status (e.g. PENDING_PAYMENT, CONFIRMED, SHIPPED, DELIVERED, CANCELLED)"""
+    def update_order_status(self, order_id: int, new_status: str, notes: Optional[str] = None, changed_by: str = "ADMIN") -> Optional[Dict[str, Any]]:
+        """
+        Transitions order status following valid lifecycle rules:
+        Pending -> Confirmed -> Processing -> Dispatched -> Out for Delivery -> Delivered (or Cancelled)
+        Records transition in order_status_history and cascades to parent/child orders.
+        """
         new_status = new_status.upper().strip()
+        order = self.get_order_by_id(order_id)
+        if not order:
+            return None
+
+        current_status = order["status"].upper().strip()
+        if current_status == new_status:
+            return order
+
+        # Terminal state protection
+        if current_status in ("DELIVERED", "CANCELLED"):
+            raise ValueError(f"Cannot transition order #{order_id} from terminal status '{current_status}' to '{new_status}'.")
+
+        allowed = self.ALLOWED_ORDER_TRANSITIONS.get(current_status, [])
+        if new_status not in allowed:
+            raise ValueError(f"Invalid status transition from '{current_status}' to '{new_status}'. Allowed transitions: {allowed}")
+
         if self.is_live_postgres:
             conn = self._get_pg_connection()
             with conn.cursor() as cur:
                 cur.execute("UPDATE orders SET status = %s WHERE id = %s;", (new_status, order_id))
+                # If parent order, cascade to child suborders that are not terminal
+                cur.execute("UPDATE orders SET status = %s WHERE parent_order_id = %s AND status NOT IN ('DELIVERED', 'CANCELLED');", (new_status, order_id))
                 conn.commit()
             conn.close()
         else:
             conn = self._get_sqlite_connection()
             cur = conn.cursor()
             cur.execute("UPDATE orders SET status = ? WHERE id = ?;", (new_status, order_id))
+            cur.execute("UPDATE orders SET status = ? WHERE parent_order_id = ? AND status NOT IN ('DELIVERED', 'CANCELLED');", (new_status, order_id))
             conn.commit()
             conn.close()
+
+        # Record audit trail
+        try:
+            self.record_order_status_transition(order_id, from_status=current_status, to_status=new_status, notes=notes, changed_by=changed_by)
+        except Exception as e:
+            logger.warning(f"Failed to record status transition for order #{order_id}: {e}")
+
+        # If suborder, check if sibling suborders are all completed to synchronize parent
+        if order.get("parent_order_id"):
+            parent_id = order["parent_order_id"]
+            parent = self.get_order_by_id(parent_id)
+            if parent and parent.get("suborders"):
+                sub_statuses = set(s["status"] for s in parent["suborders"])
+                if len(sub_statuses) == 1 and list(sub_statuses)[0] in ("DELIVERED", "CANCELLED"):
+                    target_p_status = list(sub_statuses)[0]
+                    if parent["status"] != target_p_status:
+                        self.update_order_status(parent_id, target_p_status, notes=f"Cascaded from suborders reaching {target_p_status}", changed_by="SYSTEM")
+
         return self.get_order_by_id(order_id)
 
     def get_admin_metrics(self) -> Dict[str, Any]:
@@ -4079,6 +4436,25 @@ class DatabaseService:
             except Exception:
                 conn.rollback()
                 raise
+
+        # Record initial status transitions in audit ledger
+        if parent_id:
+            try:
+                self.record_order_status_transition(parent_id, None, "CONFIRMED", notes="Multi-store order placed", changed_by="CUSTOMER")
+            except Exception as e:
+                logger.warning(f"Status history record notice: {e}")
+
+        for sub in suborders:
+            try:
+                self.record_order_status_transition(sub["suborder_id"], None, "CONFIRMED", notes=f"Suborder placed for {sub['store_name']}", changed_by="CUSTOMER")
+            except Exception as e:
+                logger.warning(f"Status history record notice: {e}")
+
+        if is_single_store and single_order_id:
+            try:
+                self.record_order_status_transition(single_order_id, None, "CONFIRMED", notes=f"Retail order placed for {store_baskets[0]['store_name']}", changed_by="CUSTOMER")
+            except Exception as e:
+                logger.warning(f"Status history record notice: {e}")
 
         if is_single_store:
             b0 = store_baskets[0]

@@ -526,6 +526,20 @@ Dynamic individual store front displaying the physical store's verified grocery 
 - `POST /api/checkout/retail/multi-store`: Executes multi-store retail checkout. Creates single retail order (if 1 store) or parent master order (`BK-RET-P-`) with suborders (`BK-RET-S{id}-`) per store. Atomically decrements store inventory; converts checked-out store baskets while leaving unselected store baskets active.
   - Body: `{"selected_store_ids": [1, 2], "payment_method": "UPI", "delivery_address": {"latitude": 12.9784, "longitude": 77.6408, "city": "Bengaluru", "address": "Indiranagar"}}`
 
+#### Phase 13: Order Management, Multi-Store Tracking & Lifecycle Endpoints
+
+- `GET /api/orders`: Retrieves customer order history with optional status filtering.
+  - Query Parameters: `status` (`All`, `Pending`, `Confirmed`, `Processing`, `Dispatched`, `Delivered`, `Cancelled`), `limit`.
+  - IDOR Protection: Strictly filtered to authenticated customer ID or session order IDs.
+- `GET /api/orders/<order_id>`: Retrieves full order details including line items, store details, suborder breakdown (for multi-store orders), audit history, and timeline. Returns `403 Forbidden` for unauthorized users.
+- `POST /api/orders/<order_id>/cancel`: Cancels an active order in `PENDING`, `CONFIRMED`, or `PROCESSING` state and atomically restores reserved physical inventory back to store inventory.
+  - Body: `{"reason": "Customer cancellation request"}`
+- `PUT /api/admin/orders/<order_id>/status` & `POST /api/orders/<order_id>/status`: Admin lifecycle transition endpoint adhering to strict transition state machine (`ALLOWED_ORDER_TRANSITIONS`). Appends immutable audit record to `order_status_history` table.
+  - Body: `{"status": "DISPATCHED", "notes": "Order packed and dispatched from store"}`
+- `GET /api/orders/<order_id>/timeline`: Returns the 6-stage authoritative lifecycle timeline (`PENDING` -> `CONFIRMED` -> `PROCESSING` -> `DISPATCHED` -> `OUT_FOR_DELIVERY` -> `DELIVERED`, or `CANCELLED`).
+- `GET /orders`: Responsive customer order history web page with tabbed status filters and order summary cards.
+- `GET /order/<order_id>` & `GET /orders/<order_id>`: Interactive order tracking web page with visual lifecycle progress stepper, store-specific suborder breakdowns, and cancellation controls.
+
 #### Authentication & Session APIs
 - `POST /api/auth/login`: Logs in a customer, migrates guest cart items to the customer account, and updates session.
 - `POST /api/auth/logout`: Logs out the user and clears server session. Instructs client to wipe `localStorage`.
@@ -558,7 +572,7 @@ Dynamic individual store front displaying the physical store's verified grocery 
 
 ## 14. Automated Testing & Verification
 
-All 182 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Phase 9, Retail 5-Shop Price Comparison, and Grocery Catalog are executed and verified:
+All 198 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Phase 9, Phase 13, Retail 5-Shop Price Comparison, and Grocery Catalog are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -568,10 +582,25 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 182 tests in 10.177s
+Ran 198 tests in 12.380s
 
 OK (100% Passed)
 ```
+
+- **Phase 13 Order Management, Multi-Store Tracking & Bug Fixes Suite (`tests/test_phase13_order_management.py`):** 16 / 16 PASS
+  - **Multi-Store Parent & Suborders Architecture:** Verified that multi-store checkouts create a master parent order (`BK-RET-P-`) alongside isolated shop suborders (`BK-RET-S{id}-`) with independent subtotals and line items.
+  - **Five-Shop Cart Isolation & Partial Checkout:** Simultaneous active baskets maintained across all 5 physical stores. Checking out selected shops (e.g. Stores 1 & 2) converts only those baskets; unselected shops (Stores 3, 4, 5) remain saved and active.
+  - **Physical Stock Consistency:** Zero stock deducted during cart browsing, additions, quantity updates, or removals. Physical store stock decrements strictly upon checkout completion with atomic row locks.
+  - **Double-Entry Stock Movement Ledger:** Decrements logged as `'SOLD'` in `inventory_movements` with store ID and customer reference.
+  - **Order Cancellation & Stock Restoration:** Cancelling active orders via `/api/orders/<id>/cancel` automatically restores inventory to store stock.
+  - **Authoritative 6-Stage Lifecycle State Machine:** Strict progression (`PENDING` -> `CONFIRMED` -> `PROCESSING` -> `DISPATCHED` -> `OUT_FOR_DELIVERY` -> `DELIVERED`, or `CANCELLED`).
+  - **Invalid Transition Rejection:** Regressions and invalid jumps (e.g. `DELIVERED -> PENDING` or transitions from terminal `CANCELLED` status) are blocked with `ValueError` (HTTP 400).
+  - **Immutable Audit Logging (`order_status_history`):** Chronological transitions recorded with timestamp, old status, new status, transition notes, and actor.
+  - **IDOR Security Enforcement:** Unauthorized access to order details or history strictly denied with HTTP 403 Forbidden.
+  - **Authoritative Tracking Progress Stepper:** 6-milestone progress stepper dynamically rendered from database state (no fake GPS or simulated external carrier APIs).
+  - **Customer Order History Portal:** Multi-filter tab navigation across `All`, `Pending`, `Confirmed`, `Processing`, `Dispatched`, `Delivered`, `Cancelled`.
+  - **Fulfillment Store Filter:** In Retail Near Me catalog (`/products`), users can filter grocery listings by `All Stores` or any of the 5 individual physical stores.
+  - **Permanent ₹NaN & ₹0 Regression Prevention:** Comprehensive verification across price comparisons, drawer additions, and checkout recalculations.
 
 - **Phase 9 Mode-Aware OpenSearch & Critical Bug Fixes Suite (`tests/test_phase9_mode_aware_search.py`):** 13 / 13 PASS
   - **Checkout Multi-Store Recalculation (No ₹0 Bug):** Multi-store cart items (e.g. Daily Needs: Milk ₹34, Green Basket: Butter ₹58 -> Subtotal ₹92) are authoritatively loaded from the backend, correctly rendering shop-wise summaries, delivery fees, and grand totals upon checkout navigation.
@@ -674,6 +703,7 @@ OK (100% Passed)
 - [x] **Phase 6: Retail Storefronts & Five-Shop Price Comparison** (Dynamic storefronts `/retail/store/<id>`, 5 grocery departments, real-time comparison modal, shop-aware multi-store cart, delivery/pickup toggle).
 - [x] **Phase 7: Advanced Multi-Store Cart & Checkout System** (3 independent cart scopes, permanent fix for stale cart preview bug, distance-based tiered delivery fees, atomic ACID row-locking multi-store checkout, 38/38 automated tests).
 - [x] **Phase 8: Store-Specific Inventory & Stock Management & Retail Grocery Isolation** (Strict 8-category grocery isolation, fix ₹NaN 5-shop price comparison bug, independent store stock management, stock movement ledger, live out-of-stock and low-stock endpoints, admin auth protection, atomic stock sales).
+- [x] **Phase 13: Order Management, Multi-Store Orders & Tracking** (Parent order `BK-RET-P-` & suborders `BK-RET-S{id}-` architecture, 6-stage lifecycle state machine, chronological audit logging table `order_status_history`, IDOR security protection, customer order history & tracking UI, fulfillment store catalog filter, 198/198 automated regression tests).
 
 ---
 
@@ -681,9 +711,10 @@ OK (100% Passed)
 
 1. **Timing-Safe HMAC Authentication:** Administrative API endpoints verify credentials using `hmac.compare_digest` to prevent side-channel timing attacks.
 2. **ACID Concurrency & Row Locking:** Store stock reservations use atomic decrements and row-level locks (`FOR UPDATE` on PostgreSQL; immediate transactions on SQLite) to prevent overselling under high concurrency.
-3. **Insecure Direct Object Reference (IDOR) Protection:** Address operations verify `customer_id` ownership, returning `404 Not Found` for unauthorized tampering attempts.
-4. **Injection Defenses:** Parameterized queries (`?` on SQLite, `%s` on PostgreSQL) ensure immunity against SQL injection attacks.
-5. **Zero-Secret Public Codebase:** `.env` is strictly git-ignored; sample configuration uses placeholders only.
+3. **Insecure Direct Object Reference (IDOR) Protection:** Order and address operations strictly verify `customer_id` and session ownership, returning `403 Forbidden` for unauthorized tampering attempts.
+4. **Order Lifecycle Transition Integrity:** Enforced by the `ALLOWED_ORDER_TRANSITIONS` state machine to prevent unauthorized status regression or tampering; terminal status (`CANCELLED`) is strictly immutable.
+5. **Injection Defenses:** Parameterized queries (`?` on SQLite, `%s` on PostgreSQL) ensure immunity against SQL injection attacks.
+6. **Zero-Secret Public Codebase:** `.env` is strictly git-ignored; sample configuration uses placeholders only.
 
 ---
 
@@ -697,6 +728,14 @@ OK (100% Passed)
 ## 18. License
 
 This project is licensed under the terms of the [MIT License](LICENSE).
+
+---
+
+## 19. Payment Gateway Architectural Scope & Status
+
+> [!NOTE]
+> **Payment Gateway Integration Deferred to Project Owner**
+> Live Razorpay and external gateway settlement flows remain explicitly deferred to the project owner. The current architecture provides full database-backed order creation, multi-store suborder accounting, payment status tracking (`PENDING_PAYMENT`, `PAID`, `REFUNDED`), and mock checkout transactions for rapid end-to-end verification without requiring live merchant credentials.
 
 ---
 

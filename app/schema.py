@@ -95,7 +95,35 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 6. Sellers
+        # 6. Physical Stores (Phase 4)
+        """
+        CREATE TABLE IF NOT EXISTS stores (
+            id SERIAL PRIMARY KEY,
+            store_name VARCHAR(200) NOT NULL,
+            store_slug VARCHAR(200) UNIQUE NOT NULL,
+            store_description TEXT,
+            store_logo TEXT,
+            store_banner TEXT,
+            owner_name VARCHAR(150),
+            contact_phone VARCHAR(50),
+            email VARCHAR(180),
+            full_address TEXT NOT NULL,
+            city VARCHAR(100) NOT NULL,
+            area VARCHAR(100) NOT NULL,
+            pincode VARCHAR(20) NOT NULL,
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            opening_time VARCHAR(20) DEFAULT '07:00 AM',
+            closing_time VARCHAR(20) DEFAULT '11:00 PM',
+            is_active BOOLEAN DEFAULT TRUE,
+            accepts_delivery BOOLEAN DEFAULT TRUE,
+            accepts_pickup BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 7. Sellers
         """
         CREATE TABLE IF NOT EXISTS sellers (
             id SERIAL PRIMARY KEY,
@@ -187,7 +215,53 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 12. Carts
+        # 12. Inventory
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            id SERIAL PRIMARY KEY,
+            product_id INT UNIQUE NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL,
+            stock_quantity INT NOT NULL CHECK (stock_quantity >= 0),
+            reserved_quantity INT DEFAULT 0 CHECK (reserved_quantity >= 0),
+            min_threshold INT DEFAULT 5 CHECK (min_threshold >= 0),
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 13. Inventory Movements (Immutable Double-Entry Stock Ledger)
+        """
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+            id SERIAL PRIMARY KEY,
+            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            movement_type VARCHAR(50) NOT NULL CHECK (movement_type IN ('RESERVED', 'RELEASED', 'SOLD', 'RESTOCKED', 'CANCELLED_RETURN', 'ADJUSTED')),
+            quantity INT NOT NULL,
+            balance_after INT NOT NULL,
+            reference_type VARCHAR(50) NOT NULL,
+            reference_id VARCHAR(100) NOT NULL,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 14. Store Inventory (Phase 4 Multi-Store Inventory & Pricing)
+        """
+        CREATE TABLE IF NOT EXISTS store_inventory (
+            id SERIAL PRIMARY KEY,
+            store_id INT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            selling_price NUMERIC(10, 2) NOT NULL CHECK (selling_price >= 0),
+            original_price NUMERIC(10, 2) CHECK (original_price >= selling_price OR original_price IS NULL),
+            stock_quantity INT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+            reserved_quantity INT DEFAULT 0 CHECK (reserved_quantity >= 0),
+            low_stock_threshold INT DEFAULT 5 CHECK (low_stock_threshold >= 0),
+            is_available BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (store_id, product_id)
+        );
+        """,
+
+        # 16. Carts
         """
         CREATE TABLE IF NOT EXISTS carts (
             id SERIAL PRIMARY KEY,
@@ -201,7 +275,7 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 13. Cart Items
+        # 17. Cart Items
         """
         CREATE TABLE IF NOT EXISTS cart_items (
             id SERIAL PRIMARY KEY,
@@ -218,7 +292,7 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 14. Orders
+        # 18. Orders
         """
         CREATE TABLE IF NOT EXISTS orders (
             id SERIAL PRIMARY KEY,
@@ -234,6 +308,10 @@ def get_pg_schema_ddl() -> List[str]:
             shipping_city VARCHAR(100) NOT NULL,
             shipping_address TEXT,
             hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL,
+            shopping_mode VARCHAR(50) DEFAULT 'ONLINE',
+            store_id INT REFERENCES stores(id),
+            parent_order_id INT REFERENCES orders(id),
+            fulfillment_type VARCHAR(20) DEFAULT 'delivery',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -268,7 +346,7 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 17. Refunds
+        # 20. Refunds
         """
         CREATE TABLE IF NOT EXISTS refunds (
             id SERIAL PRIMARY KEY,
@@ -282,35 +360,7 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 18. Inventory
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id SERIAL PRIMARY KEY,
-            product_id INT UNIQUE NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL,
-            stock_quantity INT NOT NULL CHECK (stock_quantity >= 0),
-            reserved_quantity INT DEFAULT 0 CHECK (reserved_quantity >= 0),
-            min_threshold INT DEFAULT 5 CHECK (min_threshold >= 0),
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 19. Inventory Movements (Immutable Double-Entry Stock Ledger)
-        """
-        CREATE TABLE IF NOT EXISTS inventory_movements (
-            id SERIAL PRIMARY KEY,
-            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            movement_type VARCHAR(50) NOT NULL CHECK (movement_type IN ('RESERVED', 'RELEASED', 'SOLD', 'RESTOCKED', 'CANCELLED_RETURN', 'ADJUSTED')),
-            quantity INT NOT NULL,
-            balance_after INT NOT NULL,
-            reference_type VARCHAR(50) NOT NULL,
-            reference_id VARCHAR(100) NOT NULL,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 20. Shipments
+        # 21. Shipments
         """
         CREATE TABLE IF NOT EXISTS shipments (
             id SERIAL PRIMARY KEY,
@@ -353,7 +403,7 @@ def get_pg_schema_ddl() -> List[str]:
         );
         """,
 
-        # 23. Review Votes
+        # 25. Review Votes
         """
         CREATE TABLE IF NOT EXISTS review_votes (
             id SERIAL PRIMARY KEY,
@@ -361,52 +411,6 @@ def get_pg_schema_ddl() -> List[str]:
             customer_id INT REFERENCES customers(id) ON DELETE CASCADE,
             vote_type VARCHAR(20) CHECK (vote_type IN ('HELPFUL', 'UNHELPFUL')),
             UNIQUE (review_id, customer_id)
-        );
-        """,
-
-        # 24. Physical Stores (Phase 4)
-        """
-        CREATE TABLE IF NOT EXISTS stores (
-            id SERIAL PRIMARY KEY,
-            store_name VARCHAR(200) NOT NULL,
-            store_slug VARCHAR(200) UNIQUE NOT NULL,
-            store_description TEXT,
-            store_logo TEXT,
-            store_banner TEXT,
-            owner_name VARCHAR(150),
-            contact_phone VARCHAR(50),
-            email VARCHAR(180),
-            full_address TEXT NOT NULL,
-            city VARCHAR(100) NOT NULL,
-            area VARCHAR(100) NOT NULL,
-            pincode VARCHAR(20) NOT NULL,
-            latitude DOUBLE PRECISION,
-            longitude DOUBLE PRECISION,
-            opening_time VARCHAR(20) DEFAULT '07:00 AM',
-            closing_time VARCHAR(20) DEFAULT '11:00 PM',
-            is_active BOOLEAN DEFAULT TRUE,
-            accepts_delivery BOOLEAN DEFAULT TRUE,
-            accepts_pickup BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 25. Store Inventory (Phase 4 Multi-Store Inventory & Pricing)
-        """
-        CREATE TABLE IF NOT EXISTS store_inventory (
-            id SERIAL PRIMARY KEY,
-            store_id INT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
-            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            selling_price NUMERIC(10, 2) NOT NULL CHECK (selling_price >= 0),
-            original_price NUMERIC(10, 2) CHECK (original_price >= selling_price OR original_price IS NULL),
-            stock_quantity INT NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
-            reserved_quantity INT DEFAULT 0 CHECK (reserved_quantity >= 0),
-            low_stock_threshold INT DEFAULT 5 CHECK (low_stock_threshold >= 0),
-            is_available BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (store_id, product_id)
         );
         """,
 
@@ -503,7 +507,35 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 6. Sellers
+        # 6. Physical Stores (Phase 4)
+        """
+        CREATE TABLE IF NOT EXISTS stores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_name TEXT NOT NULL,
+            store_slug TEXT UNIQUE NOT NULL,
+            store_description TEXT,
+            store_logo TEXT,
+            store_banner TEXT,
+            owner_name TEXT,
+            contact_phone TEXT,
+            email TEXT,
+            full_address TEXT NOT NULL,
+            city TEXT NOT NULL,
+            area TEXT NOT NULL,
+            pincode TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
+            opening_time TEXT DEFAULT '07:00 AM',
+            closing_time TEXT DEFAULT '11:00 PM',
+            is_active INTEGER DEFAULT 1,
+            accepts_delivery INTEGER DEFAULT 1,
+            accepts_pickup INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 7. Sellers
         """
         CREATE TABLE IF NOT EXISTS sellers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -595,7 +627,53 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 12. Carts
+        # 12. Inventory
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER UNIQUE NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            hub_id INTEGER REFERENCES store_hubs(id) ON DELETE SET NULL,
+            stock_quantity INTEGER NOT NULL CHECK (stock_quantity >= 0),
+            reserved_quantity INTEGER DEFAULT 0 CHECK (reserved_quantity >= 0),
+            min_threshold INTEGER DEFAULT 5 CHECK (min_threshold >= 0),
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 13. Inventory Movements
+        """
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            movement_type TEXT NOT NULL CHECK (movement_type IN ('RESERVED', 'RELEASED', 'SOLD', 'RESTOCKED', 'CANCELLED_RETURN', 'ADJUSTED')),
+            quantity INTEGER NOT NULL,
+            balance_after INTEGER NOT NULL,
+            reference_type TEXT NOT NULL,
+            reference_id TEXT NOT NULL,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+
+        # 14. Store Inventory (Phase 4 Multi-Store Inventory & Pricing)
+        """
+        CREATE TABLE IF NOT EXISTS store_inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            selling_price REAL NOT NULL CHECK (selling_price >= 0),
+            original_price REAL CHECK (original_price >= selling_price OR original_price IS NULL),
+            stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+            reserved_quantity INTEGER DEFAULT 0 CHECK (reserved_quantity >= 0),
+            low_stock_threshold INTEGER DEFAULT 5 CHECK (low_stock_threshold >= 0),
+            is_available INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (store_id, product_id)
+        );
+        """,
+
+        # 15. Carts
         """
         CREATE TABLE IF NOT EXISTS carts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -609,7 +687,7 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 13. Cart Items
+        # 16. Cart Items
         """
         CREATE TABLE IF NOT EXISTS cart_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -626,7 +704,7 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 14. Orders
+        # 17. Orders
         """
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -642,12 +720,16 @@ def get_sqlite_schema_ddl() -> List[str]:
             shipping_city TEXT NOT NULL,
             shipping_address TEXT,
             hub_id INTEGER REFERENCES store_hubs(id) ON DELETE SET NULL,
+            shopping_mode TEXT DEFAULT 'ONLINE',
+            store_id INTEGER REFERENCES stores(id),
+            parent_order_id INTEGER REFERENCES orders(id),
+            fulfillment_type TEXT DEFAULT 'delivery',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         """,
 
-        # 15. Order Items
+        # 18. Order Items
         """
         CREATE TABLE IF NOT EXISTS order_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -676,7 +758,7 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 17. Refunds
+        # 20. Refunds
         """
         CREATE TABLE IF NOT EXISTS refunds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -690,35 +772,7 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 18. Inventory
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER UNIQUE NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            hub_id INTEGER REFERENCES store_hubs(id) ON DELETE SET NULL,
-            stock_quantity INTEGER NOT NULL CHECK (stock_quantity >= 0),
-            reserved_quantity INTEGER DEFAULT 0 CHECK (reserved_quantity >= 0),
-            min_threshold INTEGER DEFAULT 5 CHECK (min_threshold >= 0),
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 19. Inventory Movements
-        """
-        CREATE TABLE IF NOT EXISTS inventory_movements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            movement_type TEXT NOT NULL CHECK (movement_type IN ('RESERVED', 'RELEASED', 'SOLD', 'RESTOCKED', 'CANCELLED_RETURN', 'ADJUSTED')),
-            quantity INTEGER NOT NULL,
-            balance_after INTEGER NOT NULL,
-            reference_type TEXT NOT NULL,
-            reference_id TEXT NOT NULL,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 20. Shipments
+        # 21. Shipments
         """
         CREATE TABLE IF NOT EXISTS shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -761,7 +815,7 @@ def get_sqlite_schema_ddl() -> List[str]:
         );
         """,
 
-        # 23. Review Votes
+        # 25. Review Votes
         """
         CREATE TABLE IF NOT EXISTS review_votes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -769,52 +823,6 @@ def get_sqlite_schema_ddl() -> List[str]:
             customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
             vote_type TEXT CHECK (vote_type IN ('HELPFUL', 'UNHELPFUL')),
             UNIQUE (review_id, customer_id)
-        );
-        """,
-
-        # 24. Physical Stores (Phase 4)
-        """
-        CREATE TABLE IF NOT EXISTS stores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            store_name TEXT NOT NULL,
-            store_slug TEXT UNIQUE NOT NULL,
-            store_description TEXT,
-            store_logo TEXT,
-            store_banner TEXT,
-            owner_name TEXT,
-            contact_phone TEXT,
-            email TEXT,
-            full_address TEXT NOT NULL,
-            city TEXT NOT NULL,
-            area TEXT NOT NULL,
-            pincode TEXT NOT NULL,
-            latitude REAL,
-            longitude REAL,
-            opening_time TEXT DEFAULT '07:00 AM',
-            closing_time TEXT DEFAULT '11:00 PM',
-            is_active INTEGER DEFAULT 1,
-            accepts_delivery INTEGER DEFAULT 1,
-            accepts_pickup INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-
-        # 25. Store Inventory (Phase 4 Multi-Store Inventory & Pricing)
-        """
-        CREATE TABLE IF NOT EXISTS store_inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
-            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-            selling_price REAL NOT NULL CHECK (selling_price >= 0),
-            original_price REAL CHECK (original_price >= selling_price OR original_price IS NULL),
-            stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
-            reserved_quantity INTEGER DEFAULT 0 CHECK (reserved_quantity >= 0),
-            low_stock_threshold INTEGER DEFAULT 5 CHECK (low_stock_threshold >= 0),
-            is_available INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (store_id, product_id)
         );
         """,
 
@@ -1842,6 +1850,13 @@ def run_migrations(conn, is_postgres: bool = False):
     3. Non-destructively migrates existing tables with ALTER statements
     4. Seeds extended hub, category, and seller reference records
     """
+    orig_autocommit = getattr(conn, "autocommit", False)
+    if is_postgres:
+        try:
+            conn.autocommit = True
+        except Exception:
+            pass
+
     cur = conn.cursor()
 
     # Step 1: Execute Table DDLs
@@ -1956,6 +1971,13 @@ def run_migrations(conn, is_postgres: bool = False):
             cur.execute(idx_sql)
         except Exception as e:
             logger.debug(f"Index creation notice: {e}")
+
+    # Switch to transaction mode for data seeding
+    if is_postgres:
+        try:
+            conn.autocommit = False
+        except Exception:
+            pass
 
     # Step 4: Seed reference hubs if empty
     cur.execute("SELECT COUNT(*) FROM store_hubs;")
@@ -2151,7 +2173,21 @@ def run_migrations(conn, is_postgres: bool = False):
                 low_stock_threshold = excluded.low_stock_threshold;
             """, (item["store_id"], item["product_id"], item["selling_price"], item.get("original_price"), item["stock_quantity"], item.get("low_stock_threshold", 5), 1 if item.get("is_available", True) else 0))
 
+    if is_postgres:
+        # Step 11: Synchronize PostgreSQL SERIAL Sequences for seeded tables
+        seq_tables = ["products", "stores", "categories", "sellers", "customers", "orders", "store_hubs"]
+        for tbl in seq_tables:
+            try:
+                cur.execute(f"SELECT setval(pg_get_serial_sequence('{tbl}', 'id'), COALESCE((SELECT MAX(id) FROM {tbl}), 1));")
+            except Exception as e:
+                logger.debug(f"Sequence sync notice for {tbl}: {e}")
+
     conn.commit()
+    if is_postgres:
+        try:
+            conn.autocommit = orig_autocommit
+        except Exception:
+            pass
     logger.info(f"Database schema migrations successfully verified on {'PostgreSQL' if is_postgres else 'SQLite'}.")
 
 # -----------------------------------------------------------------------------

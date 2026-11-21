@@ -147,6 +147,21 @@ class TestRenderDeployment(unittest.TestCase):
             self.assertEqual(r.status_code, expected_status, f"Route {path} returned {r.status_code}")
         print(" [PASSED] 8. All core frontend views, static assets, and APIs verified HTTP 200")
 
+    def test_09_python_version_pinned_for_render(self):
+        """Spec 9: .python-version is present in repo root to pin Python version on Render builds."""
+        pyver_path = os.path.join(os.path.dirname(__file__), "..", ".python-version")
+        self.assertTrue(os.path.exists(pyver_path), ".python-version must exist in repository root")
+        with open(pyver_path, "r", encoding="utf-8") as f:
+            version = f.read().strip()
+        self.assertEqual(version, "3.10.12")
+
+        runtime_path = os.path.join(os.path.dirname(__file__), "..", "runtime.txt")
+        self.assertTrue(os.path.exists(runtime_path), "runtime.txt must exist")
+        with open(runtime_path, "r", encoding="utf-8") as f:
+            runtime = f.read().strip()
+        self.assertEqual(runtime, "python-3.10.12")
+        print(" [PASSED] 9. Python 3.10.12 successfully pinned via .python-version and runtime.txt for Render")
+
 
 if __name__ == "__main__":
     unittest.main()

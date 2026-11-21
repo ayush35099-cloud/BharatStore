@@ -32,4 +32,4 @@ if __name__ == "__main__":
     ========================================================================
     """
     print(banner)
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True, use_reloader=False)

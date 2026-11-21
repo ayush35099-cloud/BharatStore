@@ -5,7 +5,7 @@
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-blue)](https://aiven.io/postgresql)
 [![Streaming](https://img.shields.io/badge/streaming-Apache%20Kafka-red)](https://aiven.io/kafka)
 [![Search](https://img.shields.io/badge/search-OpenSearch%202.x-teal)](https://aiven.io/opensearch)
-[![Tests](https://img.shields.io/badge/tests-103%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
+[![Tests](https://img.shields.io/badge/tests-113%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **BharatStore** is a modern, location-aware, dual-mode e-commerce and quick-commerce platform designed for India's retail ecosystem. It bridges physical neighborhood grocery stores and supermarkets with an enterprise-scale online marketplace. Customers experience the hyper-local speed of quick commerce (Zepto / Swiggy Instamart / Blinkit) alongside the nationwide selection of a full marketplace (Amazon / Flipkart) — unified within a single Flask-driven platform.
@@ -433,7 +433,7 @@ Dynamic individual store front displaying the physical store's verified grocery 
 
 ## 12. Automated Testing & Verification
 
-All 103 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, and Retail Price Comparison are executed and verified:
+All 113 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, and Retail Price Comparison are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -443,11 +443,22 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 103 tests in 9.640s
+Ran 113 tests in 10.579s
 
 OK (100% Passed)
 ```
 
+- **Phase 6 Retail Storefronts & Five-Shop Price Comparison Suite (`tests/test_phase6_retail_storefronts.py`):** 10 / 10 PASS
+  - Dynamic individual physical storefronts (`/retail/store/<id>`) for all 5 Bengaluru stores.
+  - Storefront department categorization (Dairy, Grains, Cooking Essentials, Fresh Produce, Household).
+  - Per-store independent pricing and out-of-stock badge isolation on physical storefronts.
+  - Five-shop real-time price comparison API on both endpoints (`/api/retail/products/<id>/compare` & `/api/retail/compare/<id>`).
+  - Identification of lowest price and calculation of maximum customer savings across 5 shops.
+  - Store-aware retail cart additions with explicit store attribution (`store_id`, `store_name`).
+  - Rejection of out-of-stock items when adding to retail cart (HTTP 400).
+  - Multi-shop retail cart grouping, shop-wise subtotals, and fulfillment mode toggle (`delivery` vs `pickup`).
+  - Retail stores directory view (`/retail/stores`) within 15 km with distance badges and action links.
+  - Online Shopping marketplace catalog integrity and isolation confirmed without regression.
 - **Phase 5 Nearby Store Discovery Suite (`tests/test_phase5_nearby_stores.py`):** 13 / 13 PASS
   - Haversine spherical distance formula mathematically verified ($R = 6371\text{ km}$).
   - Coordinate range bounds ($\text{lat} \in [-90, 90]$, $\text{lng} \in [-180, 180]$) & radius bounds ($0 < r \le 15$) strictly validated.
@@ -497,7 +508,8 @@ OK (100% Passed)
 - [x] **Phase 4: Store Database & Multi-Store Inventory** (Physical store models, independent pricing, overselling protection).
 - [x] **Retail Near Me 5-Shop Price Comparison Marketplace** (5 Bengaluru shops, 50+ groceries, 5-shop compare modal, shop-aware cart).
 - [x] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Engine** (Haversine math, 15 km cap, directory `/retail/stores`, dynamic storefronts `/retail/store/<id>`, automatic scroll bug fix).
-- [ ] **Phase 6: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
+- [x] **Phase 6: Retail Storefronts & Five-Shop Price Comparison** (Dynamic storefronts `/retail/store/<id>`, 5 grocery departments, real-time comparison modal, shop-aware multi-store cart, delivery/pickup toggle).
+- [ ] **Phase 7: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
 
 ---
 

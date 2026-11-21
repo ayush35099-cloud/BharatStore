@@ -650,6 +650,7 @@ def get_retail_catalog_api():
     })
 
 @main_bp.route("/api/retail/products/<int:product_id>/compare", methods=["GET"])
+@main_bp.route("/api/retail/compare/<int:product_id>", methods=["GET"])
 def get_retail_product_compare_api(product_id: int):
     """Returns real-time 5-shop price comparison and stock status for a grocery product."""
     city = request.args.get("city", "Bengaluru")
@@ -728,6 +729,7 @@ def _calculate_retail_cart_summary(cart_dict: Dict[str, Any]) -> Dict[str, Any]:
                 "items": [],
                 "subtotal": 0.0,
                 "delivery_fee": del_fee,
+                "fulfillment": item.get("fulfillment", "delivery"),
                 "fulfillment_type": item.get("fulfillment", "delivery")
             }
 
@@ -851,18 +853,25 @@ def update_retail_cart_api():
     quantity = data.get("quantity")
     fulfillment = data.get("fulfillment")
 
-    if not product_id or not store_id or quantity is None:
-        return jsonify({"success": False, "error": "product_id, store_id and quantity are required."}), 400
+    if not product_id or not store_id:
+        return jsonify({"success": False, "error": "product_id and store_id are required."}), 400
 
     try:
         pid = int(product_id)
         sid = int(store_id)
-        qty = int(quantity)
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "Invalid parameters."}), 400
 
     cart_dict = _get_session_retail_cart()
     item_key = f"{sid}_{pid}"
+
+    if quantity is None:
+        qty = cart_dict.get(item_key, {}).get("quantity", 1)
+    else:
+        try:
+            qty = int(quantity)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Invalid quantity."}), 400
 
     if qty <= 0:
         cart_dict.pop(item_key, None)

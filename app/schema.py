@@ -192,7 +192,9 @@ def get_pg_schema_ddl() -> List[str]:
         CREATE TABLE IF NOT EXISTS carts (
             id SERIAL PRIMARY KEY,
             customer_id INT REFERENCES customers(id) ON DELETE CASCADE,
-            session_id VARCHAR(100) UNIQUE,
+            session_id VARCHAR(100),
+            shopping_mode VARCHAR(50) DEFAULT 'ONLINE' CHECK (shopping_mode IN ('ONLINE', 'RETAIL_NEAR_ME')),
+            store_id INT REFERENCES stores(id) ON DELETE CASCADE,
             status VARCHAR(50) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'ABANDONED', 'CONVERTED')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -205,10 +207,13 @@ def get_pg_schema_ddl() -> List[str]:
             id SERIAL PRIMARY KEY,
             cart_id INT NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
             product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            store_id INT REFERENCES stores(id) ON DELETE CASCADE,
             quantity INT NOT NULL CHECK (quantity > 0),
             unit_price NUMERIC(10, 2) NOT NULL,
+            fulfillment VARCHAR(20) DEFAULT 'delivery' CHECK (fulfillment IN ('delivery', 'pickup')),
             reserved_until TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (cart_id, product_id)
         );
         """,
@@ -582,7 +587,9 @@ def get_sqlite_schema_ddl() -> List[str]:
         CREATE TABLE IF NOT EXISTS carts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
-            session_id TEXT UNIQUE,
+            session_id TEXT,
+            shopping_mode TEXT DEFAULT 'ONLINE' CHECK (shopping_mode IN ('ONLINE', 'RETAIL_NEAR_ME')),
+            store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
             status TEXT DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'ABANDONED', 'CONVERTED')),
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -595,10 +602,13 @@ def get_sqlite_schema_ddl() -> List[str]:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             cart_id INTEGER NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
             product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
             quantity INTEGER NOT NULL CHECK (quantity > 0),
             unit_price REAL NOT NULL,
+            fulfillment TEXT DEFAULT 'delivery' CHECK (fulfillment IN ('delivery', 'pickup')),
             reserved_until DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (cart_id, product_id)
         );
         """,
@@ -828,8 +838,11 @@ INDEXES_DDL = [
     # Carts
     "CREATE INDEX IF NOT EXISTS idx_carts_customer ON carts(customer_id);",
     "CREATE INDEX IF NOT EXISTS idx_carts_session ON carts(session_id);",
+    "CREATE INDEX IF NOT EXISTS idx_carts_mode_status ON carts(shopping_mode, status);",
+    "CREATE INDEX IF NOT EXISTS idx_carts_store ON carts(store_id);",
     "CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON cart_items(cart_id);",
     "CREATE INDEX IF NOT EXISTS idx_cart_items_product ON cart_items(product_id);",
+    "CREATE INDEX IF NOT EXISTS idx_cart_items_store ON cart_items(store_id);",
 
     # Payments & Refunds
     "CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id);",
@@ -1572,10 +1585,16 @@ def run_migrations(conn, is_postgres: bool = False):
     # Step 2: Non-destructive column alterations for existing tables
     if is_postgres:
         alter_queries = [
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_fee NUMERIC(10, 2) DEFAULT 0.0;",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(10, 2) DEFAULT 0.0;",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'UPI';",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_id VARCHAR(100);",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'PAID';",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL;",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS shopping_mode VARCHAR(50) DEFAULT 'ONLINE';",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id INT REFERENCES stores(id);",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS parent_order_id INT REFERENCES orders(id);",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_type VARCHAR(20) DEFAULT 'delivery';",
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS reserved_quantity INT DEFAULT 0;",
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL;",
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS min_threshold INT DEFAULT 5;",
@@ -1583,7 +1602,13 @@ def run_migrations(conn, is_postgres: bool = False):
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE SET NULL;",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sub_category VARCHAR(100);",
             "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 6);",
-            "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 6);"
+            "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 6);",
+            "ALTER TABLE carts ADD COLUMN IF NOT EXISTS shopping_mode VARCHAR(50) DEFAULT 'ONLINE';",
+            "ALTER TABLE carts ADD COLUMN IF NOT EXISTS store_id INT REFERENCES stores(id) ON DELETE CASCADE;",
+            "ALTER TABLE carts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+            "ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS store_id INT REFERENCES stores(id) ON DELETE CASCADE;",
+            "ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS fulfillment VARCHAR(20) DEFAULT 'delivery';",
+            "ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"
         ]
         for q in alter_queries:
             try:
@@ -1592,10 +1617,16 @@ def run_migrations(conn, is_postgres: bool = False):
                 logger.debug(f"PG Alter notice: {e}")
     else:
         sqlite_alters = [
+            ("orders", "shipping_fee", "REAL DEFAULT 0.0"),
+            ("orders", "discount_amount", "REAL DEFAULT 0.0"),
             ("orders", "payment_method", "TEXT DEFAULT 'UPI'"),
             ("orders", "payment_id", "TEXT"),
             ("orders", "payment_status", "TEXT DEFAULT 'PAID'"),
             ("orders", "hub_id", "INTEGER REFERENCES store_hubs(id)"),
+            ("orders", "shopping_mode", "TEXT DEFAULT 'ONLINE'"),
+            ("orders", "store_id", "INTEGER REFERENCES stores(id)"),
+            ("orders", "parent_order_id", "INTEGER REFERENCES orders(id)"),
+            ("orders", "fulfillment_type", "TEXT DEFAULT 'delivery'"),
             ("inventory", "reserved_quantity", "INTEGER DEFAULT 0"),
             ("inventory", "hub_id", "INTEGER REFERENCES store_hubs(id)"),
             ("inventory", "min_threshold", "INTEGER DEFAULT 5"),
@@ -1603,13 +1634,54 @@ def run_migrations(conn, is_postgres: bool = False):
             ("products", "category_id", "INTEGER REFERENCES categories(id)"),
             ("products", "sub_category", "TEXT"),
             ("addresses", "latitude", "REAL"),
-            ("addresses", "longitude", "REAL")
+            ("addresses", "longitude", "REAL"),
+            ("carts", "shopping_mode", "TEXT DEFAULT 'ONLINE'"),
+            ("carts", "store_id", "INTEGER REFERENCES stores(id)"),
+            ("carts", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+            ("cart_items", "store_id", "INTEGER REFERENCES stores(id)"),
+            ("cart_items", "fulfillment", "TEXT DEFAULT 'delivery'"),
+            ("cart_items", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP")
         ]
         for tbl, col, col_def in sqlite_alters:
             try:
                 cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_def};")
             except Exception:
                 pass # Already exists in SQLite
+
+        # Step 2b: Remove legacy UNIQUE constraint on carts.session_id in SQLite
+        try:
+            cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='carts';")
+            cart_sql_row = cur.fetchone()
+            if cart_sql_row and "session_id TEXT UNIQUE" in cart_sql_row[0]:
+                logger.info("Migrating SQLite carts table to remove legacy UNIQUE constraint on session_id")
+                cur.execute("PRAGMA foreign_keys=OFF;")
+                cur.execute("""
+                    CREATE TABLE carts_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+                        session_id TEXT,
+                        shopping_mode TEXT DEFAULT 'ONLINE' CHECK (shopping_mode IN ('ONLINE', 'RETAIL_NEAR_ME')),
+                        store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+                        status TEXT DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'ABANDONED', 'CONVERTED')),
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cur.execute("""
+                    INSERT INTO carts_new (id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at)
+                    SELECT id, customer_id, session_id,
+                           COALESCE(shopping_mode, 'ONLINE'),
+                           store_id,
+                           COALESCE(status, 'ACTIVE'),
+                           COALESCE(created_at, CURRENT_TIMESTAMP),
+                           COALESCE(updated_at, CURRENT_TIMESTAMP)
+                    FROM carts;
+                """)
+                cur.execute("DROP TABLE carts;")
+                cur.execute("ALTER TABLE carts_new RENAME TO carts;")
+                cur.execute("PRAGMA foreign_keys=ON;")
+        except Exception as e:
+            logger.warning(f"SQLite carts migration note: {e}")
 
     # Step 3: Apply Indexes
     for idx_sql in INDEXES_DDL:

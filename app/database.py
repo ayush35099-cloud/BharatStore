@@ -1014,6 +1014,16 @@ class DatabaseService:
                     item["unit_price"] = float(item["unit_price"])
                     item["subtotal"] = float(item["subtotal"])
                     order["items"].append(item)
+
+                cur.execute("SELECT * FROM orders WHERE parent_order_id = %s ORDER BY id ASC;", (order_id,))
+                sub_rows = cur.fetchall()
+                if sub_rows:
+                    order["suborders"] = [dict(s) for s in sub_rows]
+                    statuses = set(s["status"] for s in sub_rows)
+                    if len(statuses) == 1:
+                        order["status"] = list(statuses)[0]
+                    elif "PROCESSING" in statuses or "SHIPPED" in statuses:
+                        order["status"] = "PROCESSING"
             conn.close()
             return order
         else:
@@ -1045,6 +1055,17 @@ class DatabaseService:
                 item["unit_price"] = float(item["unit_price"])
                 item["subtotal"] = float(item["subtotal"])
                 order["items"].append(item)
+
+            cur.execute("SELECT * FROM orders WHERE parent_order_id = ? ORDER BY id ASC;", (order_id,))
+            cols = [c[0] for c in cur.description]
+            sub_rows = cur.fetchall()
+            if sub_rows:
+                order["suborders"] = [dict(zip(cols, s)) for s in sub_rows]
+                statuses = set(s["status"] for s in order["suborders"])
+                if len(statuses) == 1:
+                    order["status"] = list(statuses)[0]
+                elif "PROCESSING" in statuses or "SHIPPED" in statuses:
+                    order["status"] = "PROCESSING"
             conn.close()
             return order
 
@@ -2957,6 +2978,969 @@ class DatabaseService:
             "all_products": grocery_items,
             "total_products_count": len([p for p in grocery_items if p.get("is_available") and p.get("stock_quantity", 0) > 0])
         }
+
+    # =========================================================================
+    # Phase 7: Advanced Multi-Store Cart & Checkout Database Architecture
+    # =========================================================================
+
+    def calculate_retail_delivery_fee(self, store_id: int, customer_lat: Optional[float] = None, customer_lng: Optional[float] = None, fulfillment: str = "delivery") -> float:
+        """
+        Calculates store delivery fee according to Phase 7 specifications:
+        - In-store pickup: ₹0.0
+        - 0 to 5 km: ₹20.0
+        - Above 5 to 10 km: ₹40.0
+        - Above 10 to 15 km: ₹60.0
+        - Above 15 km: Delivery not eligible (raises ValueError)
+        - Fallback (no coordinates): Store base fee or ₹20.0
+        """
+        if fulfillment == "pickup":
+            return 0.0
+
+        store = self.get_store_by_id(store_id)
+        if not store:
+            return 20.0
+
+        if customer_lat is not None and customer_lng is not None and store.get("latitude") and store.get("longitude"):
+            d = calculate_haversine_distance(float(customer_lat), float(customer_lng), float(store["latitude"]), float(store["longitude"]))
+            if d <= 5.0:
+                return 20.0
+            elif d <= 10.0:
+                return 40.0
+            elif d <= 15.0:
+                return 60.0
+            else:
+                raise ValueError(f"Store #{store_id} ({store.get('store_name', '')}) is {d:.1f} km away, exceeding the 15 km retail delivery radius. Please choose in-store pickup.")
+
+        return float(store.get("delivery_fee") or 20.0)
+
+    def _get_cart_scope_key(self, customer_id: Optional[int], session_id: Optional[str], shopping_mode: str, store_id: Optional[int]) -> str:
+        mode = "RETAIL_NEAR_ME" if str(shopping_mode).upper() in ["RETAIL", "RETAIL_NEAR_ME"] else "ONLINE"
+        s_id = int(store_id) if (mode == "RETAIL_NEAR_ME" and store_id) else 0
+        user_part = f"c_{customer_id}" if customer_id else f"s_{session_id or 'anon'}"
+        return f"{user_part}:{mode}:{s_id}"
+
+    def get_or_create_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", store_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Finds or creates an active cart for the customer/session within the designated scope.
+        - Online: customer/session + shopping_mode='ONLINE' + store_id=NULL
+        - Retail: customer/session + shopping_mode='RETAIL_NEAR_ME' + store_id=<store_id>
+        """
+        mode = "RETAIL_NEAR_ME" if str(shopping_mode).upper() in ["RETAIL", "RETAIL_NEAR_ME"] else "ONLINE"
+        s_id = int(store_id) if (mode == "RETAIL_NEAR_ME" and store_id) else None
+        scope_key = self._get_cart_scope_key(customer_id, session_id, mode, s_id)
+
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if customer_id:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                        FROM carts
+                        WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        LIMIT 1;
+                    """, (customer_id, mode, s_id, s_id))
+                else:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                        FROM carts
+                        WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        LIMIT 1;
+                    """, (scope_key, session_id, mode, s_id, s_id))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+                cur.execute("""
+                    INSERT INTO carts (customer_id, session_id, shopping_mode, store_id, status)
+                    VALUES (%s, %s, %s, %s, 'ACTIVE')
+                    RETURNING id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at;
+                """, (customer_id, scope_key, mode, s_id))
+                new_row = cur.fetchone()
+                conn.commit()
+                return dict(new_row)
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if customer_id:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                    FROM carts
+                    WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
+                    LIMIT 1;
+                """, (customer_id, mode, s_id, s_id))
+            else:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                    FROM carts
+                    WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
+                    LIMIT 1;
+                """, (scope_key, session_id, mode, s_id, s_id))
+            row = cur.fetchone()
+            if row:
+                cols = [c[0] for c in cur.description]
+                return dict(zip(cols, row))
+
+            cur.execute("""
+                INSERT INTO carts (customer_id, session_id, shopping_mode, store_id, status)
+                VALUES (?, ?, ?, ?, 'ACTIVE');
+            """, (customer_id, scope_key, mode, s_id))
+            conn.commit()
+            new_id = cur.lastrowid
+            return {
+                "id": new_id,
+                "customer_id": customer_id,
+                "session_id": scope_key,
+                "shopping_mode": mode,
+                "store_id": s_id,
+                "status": "ACTIVE"
+            }
+
+    def get_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", store_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Retrieves a cart with live product prices, titles, images and availability.
+        """
+        mode = "RETAIL_NEAR_ME" if str(shopping_mode).upper() in ["RETAIL", "RETAIL_NEAR_ME"] else "ONLINE"
+        s_id = int(store_id) if (mode == "RETAIL_NEAR_ME" and store_id) else None
+        scope_key = self._get_cart_scope_key(customer_id, session_id, mode, s_id)
+
+        cart_record = None
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if customer_id:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                        FROM carts
+                        WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        LIMIT 1;
+                    """, (customer_id, mode, s_id, s_id))
+                else:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                        FROM carts
+                        WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        LIMIT 1;
+                    """, (scope_key, session_id, mode, s_id, s_id))
+                row = cur.fetchone()
+                if row:
+                    cart_record = dict(row)
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if customer_id:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                    FROM carts
+                    WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
+                    LIMIT 1;
+                """, (customer_id, mode, s_id, s_id))
+            else:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                    FROM carts
+                    WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
+                    LIMIT 1;
+                """, (scope_key, session_id, mode, s_id, s_id))
+            row = cur.fetchone()
+            if row:
+                cols = [c[0] for c in cur.description]
+                cart_record = dict(zip(cols, row))
+
+        if not cart_record:
+            return {
+                "cart_id": None,
+                "shopping_mode": mode,
+                "store_id": s_id,
+                "items": [],
+                "total_items": 0,
+                "subtotal": 0.0
+            }
+
+        cart_id = cart_record["id"]
+        items = []
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                           p.title, p.brand, p.image_url, p.category, p.sub_category, p.price as catalog_price,
+                           COALESCE(i.stock_quantity, 0) as catalog_stock
+                    FROM cart_items ci
+                    JOIN products p ON ci.product_id = p.id
+                    LEFT JOIN inventory i ON p.id = i.product_id
+                    WHERE ci.cart_id = %s
+                    ORDER BY ci.id ASC;
+                """, (cart_id,))
+                rows = cur.fetchall()
+                for r in rows:
+                    items.append(dict(r))
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                       p.title, p.brand, p.image_url, p.category, p.sub_category, p.price as catalog_price,
+                       COALESCE(i.stock_quantity, 0) as catalog_stock
+                FROM cart_items ci
+                JOIN products p ON ci.product_id = p.id
+                LEFT JOIN inventory i ON p.id = i.product_id
+                WHERE ci.cart_id = ?
+                ORDER BY ci.id ASC;
+            """, (cart_id,))
+            cols = [c[0] for c in cur.description]
+            for r in cur.fetchall():
+                items.append(dict(zip(cols, r)))
+
+        total_qty = 0
+        grand_subtotal = 0.0
+        enriched_items = []
+
+        store_name = None
+        if s_id:
+            store_obj = self.get_store_by_id(s_id)
+            if store_obj:
+                store_name = store_obj["store_name"]
+
+        for it in items:
+            pid = it["product_id"]
+            qty = it["quantity"]
+            if mode == "RETAIL_NEAR_ME" and s_id:
+                inv = self.get_store_product(s_id, pid)
+                live_price = float(inv["selling_price"]) if inv else float(it["unit_price"])
+                live_stock = int(inv["stock_quantity"]) if inv else 0
+                is_available = bool(inv and inv.get("is_available") and live_stock > 0)
+            else:
+                live_price = float(it["catalog_price"])
+                live_stock = int(it["catalog_stock"])
+                is_available = bool(live_stock > 0)
+
+            item_sub = round(live_price * qty, 2)
+            total_qty += qty
+            grand_subtotal = round(grand_subtotal + item_sub, 2)
+
+            enriched_items.append({
+                "item_id": it["id"],
+                "cart_id": cart_id,
+                "product_id": pid,
+                "store_id": s_id,
+                "store_name": store_name,
+                "title": it["title"],
+                "brand": it.get("brand", ""),
+                "image_url": it.get("image_url", ""),
+                "category": it.get("category", ""),
+                "sub_category": it.get("sub_category", ""),
+                "quantity": qty,
+                "unit_price": live_price,
+                "price": live_price,
+                "subtotal": item_sub,
+                "live_stock": live_stock,
+                "is_available": is_available,
+                "fulfillment": it.get("fulfillment") or "delivery"
+            })
+
+        res = {
+            "cart_id": cart_id,
+            "shopping_mode": mode,
+            "store_id": s_id,
+            "store_name": store_name,
+            "items": enriched_items,
+            "total_items": total_qty,
+            "subtotal": grand_subtotal
+        }
+        if s_id:
+            res["delivery_fee"] = self.calculate_retail_delivery_fee(s_id, fulfillment=enriched_items[0]["fulfillment"] if enriched_items else "delivery")
+        return res
+
+    def get_all_retail_carts(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, customer_lat: Optional[float] = None, customer_lng: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Returns all active retail store baskets for a customer/session, grouped by shop.
+        """
+        carts_list = []
+        user_sess_prefix = f"c_{customer_id}:RETAIL_NEAR_ME:%" if customer_id else f"s_{session_id or 'anon'}:RETAIL_NEAR_ME:%"
+
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if customer_id:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                        FROM carts
+                        WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        ORDER BY store_id ASC;
+                    """, (customer_id,))
+                else:
+                    cur.execute("""
+                        SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                        FROM carts
+                        WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        ORDER BY store_id ASC;
+                    """, (user_sess_prefix, session_id))
+                rows = cur.fetchall()
+                carts_list = [dict(r) for r in rows]
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if customer_id:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                    FROM carts
+                    WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                    ORDER BY store_id ASC;
+                """, (customer_id,))
+            else:
+                cur.execute("""
+                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                    FROM carts
+                    WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                    ORDER BY store_id ASC;
+                """, (user_sess_prefix, session_id))
+            cols = [c[0] for c in cur.description]
+            carts_list = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+        shops_breakdown = []
+        grand_total_items = 0
+        grand_product_subtotal = 0.0
+        total_delivery_fees = 0.0
+
+        for c in carts_list:
+            s_id = c.get("store_id")
+            if not s_id:
+                continue
+            cart_details = self.get_cart(customer_id, session_id, shopping_mode="RETAIL_NEAR_ME", store_id=s_id)
+            if not cart_details["items"]:
+                continue
+
+            store_obj = self.get_store_by_id(s_id) or {}
+            fulfillment = cart_details["items"][0].get("fulfillment", "delivery") if cart_details["items"] else "delivery"
+            del_fee = self.calculate_retail_delivery_fee(s_id, customer_lat=customer_lat, customer_lng=customer_lng, fulfillment=fulfillment)
+
+            shop_entry = {
+                "cart_id": cart_details["cart_id"],
+                "store_id": s_id,
+                "store_name": store_obj.get("store_name", f"Store #{s_id}"),
+                "area": store_obj.get("area", ""),
+                "city": store_obj.get("city", ""),
+                "full_address": store_obj.get("full_address", ""),
+                "contact_phone": store_obj.get("contact_phone", ""),
+                "opening_time": store_obj.get("opening_time", "06:30 AM"),
+                "closing_time": store_obj.get("closing_time", "11:00 PM"),
+                "is_open": self._is_store_open_now(store_obj.get("opening_time"), store_obj.get("closing_time")),
+                "items": cart_details["items"],
+                "total_items": cart_details["total_items"],
+                "subtotal": cart_details["subtotal"],
+                "fulfillment": fulfillment,
+                "fulfillment_type": fulfillment,
+                "delivery_fee": del_fee,
+                "min_order": float(store_obj.get("min_order_value") or 99.0),
+                "store_total": round(cart_details["subtotal"] + del_fee, 2)
+            }
+            shops_breakdown.append(shop_entry)
+            grand_total_items += cart_details["total_items"]
+            grand_product_subtotal = round(grand_product_subtotal + cart_details["subtotal"], 2)
+            total_delivery_fees = round(total_delivery_fees + del_fee, 2)
+
+        summary = {
+            "store_count": len(shops_breakdown),
+            "total_items": grand_total_items,
+            "product_subtotal": grand_product_subtotal,
+            "subtotal": grand_product_subtotal,
+            "total_delivery_fee": total_delivery_fees,
+            "grand_total": round(grand_product_subtotal + total_delivery_fees, 2)
+        }
+
+        return {
+            "success": True,
+            "shops": shops_breakdown,
+            "summary": summary,
+            "total_items": grand_total_items,
+            "subtotal": grand_product_subtotal,
+            "product_subtotal": grand_product_subtotal,
+            "total_delivery_fee": total_delivery_fees,
+            "grand_total": round(grand_product_subtotal + total_delivery_fees, 2)
+        }
+
+    def set_store_inventory_stock(self, store_id: int, product_id: int, stock: int) -> bool:
+        """Sets stock for a product at a physical store directly."""
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE store_inventory SET stock_quantity = %s, is_available = %s, updated_at = CURRENT_TIMESTAMP WHERE store_id = %s AND product_id = %s;", (stock, stock > 0, store_id, product_id))
+                conn.commit()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE store_inventory SET stock_quantity = ?, is_available = ?, updated_at = CURRENT_TIMESTAMP WHERE store_id = ? AND product_id = ?;", (stock, 1 if stock > 0 else 0, store_id, product_id))
+            conn.commit()
+        return True
+
+    def add_to_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", product_id: int = 0, quantity: int = 1, store_id: Optional[int] = None, fulfillment: str = "delivery") -> Dict[str, Any]:
+        """
+        Adds a product to the appropriate cart (Online or Store-Specific Retail).
+        Strictly enforces category mode isolation and real live inventory bounds.
+        """
+        if quantity <= 0:
+            raise ValueError(f"Quantity must be strictly positive, got {quantity}")
+
+        product = self.get_product_by_id(product_id)
+        if not product:
+            raise ValueError(f"Product #{product_id} not found in catalog.")
+
+        mode = "RETAIL_NEAR_ME" if str(shopping_mode).upper() in ["RETAIL", "RETAIL_NEAR_ME"] else "ONLINE"
+
+        if mode == "RETAIL_NEAR_ME":
+            if not store_id:
+                raise ValueError("store_id is required for Retail shopping.")
+            s_id = int(store_id)
+            store = self.get_store_by_id(s_id)
+            if not store or not store.get("is_active"):
+                raise ValueError(f"Store #{s_id} is inactive or does not exist.")
+
+            # Catalog isolation: Retail is strictly groceries
+            if product.get("category") != "Daily Essentials & Groceries":
+                raise ValueError(f"Product '{product['title']}' is not a daily retail grocery product and cannot be added to a retail basket.")
+
+            # Store inventory & stock check
+            inv = self.get_store_product(s_id, product_id)
+            if not inv or not inv.get("is_available") or int(inv.get("stock_quantity", 0)) <= 0:
+                raise ValueError(f"Product '{product['title']}' is currently out of stock at {store['store_name']}.")
+
+            available_stock = int(inv["stock_quantity"])
+            unit_price = float(inv["selling_price"])
+        else:
+            s_id = None
+            # Catalog isolation: Online cart cannot have hyper-local groceries
+            if product.get("category") == "Daily Essentials & Groceries":
+                raise ValueError(f"Product '{product['title']}' is a hyper-local retail grocery item and cannot be added to the Online Marketplace cart. Please switch to Retail Near Me mode.")
+
+            available_stock = int(product.get("stock", 0))
+            if available_stock <= 0:
+                raise ValueError(f"Product '{product['title']}' is currently out of stock.")
+
+            unit_price = float(product.get("price", 0.0))
+
+        cart = self.get_or_create_cart(customer_id, session_id, mode, s_id)
+        cart_id = cart["id"]
+
+        existing_qty = 0
+        existing_item_id = None
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = %s AND product_id = %s LIMIT 1;", (cart_id, product_id))
+                row = cur.fetchone()
+                if row:
+                    existing_item_id = row["id"]
+                    existing_qty = row["quantity"]
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? LIMIT 1;", (cart_id, product_id))
+            row = cur.fetchone()
+            if row:
+                existing_item_id = row[0]
+                existing_qty = row[1]
+
+        new_qty = existing_qty + quantity
+        if new_qty > available_stock:
+            raise ValueError(f"Requested total quantity ({new_qty}) exceeds available stock ({available_stock}) for '{product['title']}'.")
+
+        fulfillment_val = fulfillment if fulfillment in ["delivery", "pickup"] else "delivery"
+
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if existing_item_id:
+                    cur.execute("""
+                        UPDATE cart_items
+                        SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s;
+                    """, (new_qty, unit_price, fulfillment_val, existing_item_id))
+                else:
+                    cur.execute("""
+                        INSERT INTO cart_items (cart_id, product_id, store_id, quantity, unit_price, fulfillment)
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                    """, (cart_id, product_id, s_id, quantity, unit_price, fulfillment_val))
+                conn.commit()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if existing_item_id:
+                cur.execute("""
+                    UPDATE cart_items
+                    SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?;
+                """, (new_qty, unit_price, fulfillment_val, existing_item_id))
+            else:
+                cur.execute("""
+                    INSERT INTO cart_items (cart_id, product_id, store_id, quantity, unit_price, fulfillment)
+                    VALUES (?, ?, ?, ?, ?, ?);
+                """, (cart_id, product_id, s_id, quantity, unit_price, fulfillment_val))
+            conn.commit()
+
+        return self.get_cart(customer_id, session_id, mode, s_id)
+
+    def update_cart_item(self, item_id: int, quantity: Optional[int] = None, fulfillment: Optional[str] = None, customer_id: Optional[int] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Updates quantity or fulfillment type for an item in the cart.
+        """
+        item_row = None
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                           c.customer_id, c.session_id, c.shopping_mode
+                    FROM cart_items ci
+                    JOIN carts c ON ci.cart_id = c.id
+                    WHERE ci.id = %s;
+                """, (item_id,))
+                row = cur.fetchone()
+                if row:
+                    item_row = dict(row)
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                       c.customer_id, c.session_id, c.shopping_mode
+                FROM cart_items ci
+                JOIN carts c ON ci.cart_id = c.id
+                WHERE ci.id = ?;
+            """, (item_id,))
+            cols = [c[0] for c in cur.description]
+            row = cur.fetchone()
+            if row:
+                item_row = dict(zip(cols, row))
+
+        if not item_row:
+            raise ValueError(f"Cart item #{item_id} not found.")
+
+        if customer_id:
+            if item_row.get("customer_id") and item_row["customer_id"] != customer_id:
+                raise PermissionError("Access denied: cart item belongs to another customer.")
+        else:
+            if item_row.get("customer_id"):
+                raise PermissionError("Access denied: cart item belongs to a registered customer.")
+            if session_id and item_row.get("session_id") and not item_row["session_id"].startswith(f"s_{session_id}") and item_row["session_id"] != session_id:
+                raise PermissionError("Access denied: cart item belongs to another session.")
+
+        product_id = item_row["product_id"]
+        store_id = item_row["store_id"]
+        mode = item_row["shopping_mode"]
+
+        if quantity is not None:
+            if quantity <= 0:
+                if self.is_live_postgres:
+                    conn = self._get_pg_connection()
+                    with conn.cursor() as cur:
+                        cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
+                        conn.commit()
+                else:
+                    conn = self._get_sqlite_connection()
+                    cur = conn.cursor()
+                    cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
+                    conn.commit()
+            else:
+                if mode == "RETAIL_NEAR_ME" and store_id:
+                    inv = self.get_store_product(store_id, product_id)
+                    if not inv or not inv.get("is_available") or int(inv.get("stock_quantity", 0)) <= 0:
+                        raise ValueError("Product is no longer available at this store.")
+                    avail = int(inv["stock_quantity"])
+                    if quantity > avail:
+                        raise ValueError(f"Requested quantity ({quantity}) exceeds available store stock ({avail}).")
+                    unit_price = float(inv["selling_price"])
+                else:
+                    prod = self.get_product_by_id(product_id)
+                    if not prod or int(prod.get("stock", 0)) <= 0:
+                        raise ValueError("Product is currently out of stock.")
+                    avail = int(prod["stock"])
+                    if quantity > avail:
+                        raise ValueError(f"Requested quantity ({quantity}) exceeds available stock ({avail}).")
+                    unit_price = float(prod.get("price", 0.0))
+
+                f_val = fulfillment if fulfillment in ["delivery", "pickup"] else item_row["fulfillment"]
+                if self.is_live_postgres:
+                    conn = self._get_pg_connection()
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE cart_items
+                            SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s;
+                        """, (quantity, unit_price, f_val, item_id))
+                        conn.commit()
+                else:
+                    conn = self._get_sqlite_connection()
+                    cur = conn.cursor()
+                    cur.execute("""
+                        UPDATE cart_items
+                        SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?;
+                    """, (quantity, unit_price, f_val, item_id))
+                    conn.commit()
+        elif fulfillment in ["delivery", "pickup"]:
+            if self.is_live_postgres:
+                conn = self._get_pg_connection()
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE cart_items SET fulfillment = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (fulfillment, item_id))
+                    conn.commit()
+            else:
+                conn = self._get_sqlite_connection()
+                cur = conn.cursor()
+                cur.execute("UPDATE cart_items SET fulfillment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (fulfillment, item_id))
+                conn.commit()
+
+        return self.get_cart(customer_id, session_id, mode, store_id)
+
+    def remove_cart_item(self, item_id: int, customer_id: Optional[int] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Removes an item from cart with customer-level ownership validation.
+        """
+        item_row = None
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, c.customer_id, c.session_id, c.shopping_mode
+                    FROM cart_items ci
+                    JOIN carts c ON ci.cart_id = c.id
+                    WHERE ci.id = %s;
+                """, (item_id,))
+                row = cur.fetchone()
+                if row:
+                    item_row = dict(row)
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, c.customer_id, c.session_id, c.shopping_mode
+                FROM cart_items ci
+                JOIN carts c ON ci.cart_id = c.id
+                WHERE ci.id = ?;
+            """, (item_id,))
+            cols = [c[0] for c in cur.description]
+            row = cur.fetchone()
+            if row:
+                item_row = dict(zip(cols, row))
+
+        if not item_row:
+            raise ValueError(f"Cart item #{item_id} not found.")
+
+        if customer_id:
+            if item_row.get("customer_id") and item_row["customer_id"] != customer_id:
+                raise PermissionError("Access denied: cart item belongs to another customer.")
+        else:
+            if item_row.get("customer_id"):
+                raise PermissionError("Access denied: cart item belongs to a registered customer.")
+            if session_id and item_row.get("session_id") and not item_row["session_id"].startswith(f"s_{session_id}") and item_row["session_id"] != session_id:
+                raise PermissionError("Access denied: cart item belongs to another session.")
+
+        mode = item_row["shopping_mode"]
+        store_id = item_row["store_id"]
+
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
+                conn.commit()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
+            conn.commit()
+
+        return self.get_cart(customer_id, session_id, mode, store_id)
+
+    def clear_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", store_id: Optional[int] = None) -> bool:
+        """
+        Clears items from the specified cart.
+        """
+        cart = self.get_or_create_cart(customer_id, session_id, shopping_mode, store_id)
+        cart_id = cart["id"]
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM cart_items WHERE cart_id = %s;", (cart_id,))
+                conn.commit()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM cart_items WHERE cart_id = ?;", (cart_id,))
+            conn.commit()
+        return True
+
+    def clear_all_retail_carts(self, customer_id: Optional[int] = None, session_id: Optional[str] = None) -> bool:
+        """
+        Clears all retail store carts for this customer/session.
+        """
+        user_sess_prefix = f"c_{customer_id}:RETAIL_NEAR_ME:%" if customer_id else f"s_{session_id or 'anon'}:RETAIL_NEAR_ME:%"
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                if customer_id:
+                    cur.execute("""
+                        DELETE FROM cart_items
+                        WHERE cart_id IN (
+                            SELECT id FROM carts WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        );
+                    """, (customer_id,))
+                else:
+                    cur.execute("""
+                        DELETE FROM cart_items
+                        WHERE cart_id IN (
+                            SELECT id FROM carts WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        );
+                    """, (user_sess_prefix, session_id))
+                conn.commit()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if customer_id:
+                cur.execute("""
+                    DELETE FROM cart_items
+                    WHERE cart_id IN (
+                        SELECT id FROM carts WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                    );
+                """, (customer_id,))
+            else:
+                cur.execute("""
+                    DELETE FROM cart_items
+                    WHERE cart_id IN (
+                        SELECT id FROM carts WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                    );
+                """, (user_sess_prefix, session_id))
+            conn.commit()
+        return True
+
+    def checkout_online_cart(self, customer_id: int, session_id: Optional[str], customer_info: Dict[str, Any], payment_method: str = "UPI") -> Dict[str, Any]:
+        """
+        Executes independent Online Shopping checkout using ACID row locking.
+        """
+        cart = self.get_cart(customer_id, session_id, shopping_mode="ONLINE")
+        if not cart or not cart.get("items"):
+            raise ValueError("Online cart is empty. Please add items to your basket before checkout.")
+
+        items_payload = [{"product_id": it["product_id"], "quantity": it["quantity"]} for it in cart["items"]]
+
+        order = self.process_checkout_transaction(
+            customer_info=customer_info,
+            items=items_payload,
+            shipping_city=customer_info.get("city") or "Bengaluru",
+            shipping_address=customer_info.get("address") or "Customer Delivery Address",
+            payment_info={"method": payment_method, "status": "PENDING"}
+        )
+
+        cart_id = cart["cart_id"]
+        if cart_id:
+            if self.is_live_postgres:
+                conn = self._get_pg_connection()
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (cart_id,))
+                    conn.commit()
+            else:
+                conn = self._get_sqlite_connection()
+                cur = conn.cursor()
+                cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (cart_id,))
+                conn.commit()
+
+        return order
+
+    def checkout_retail_multi_store(self, customer_id: int, session_id: Optional[str], selected_store_ids: List[int], customer_info: Dict[str, Any], delivery_address: Dict[str, Any], payment_method: str = "UPI") -> Dict[str, Any]:
+        """
+        Executes multi-store checkout for selected Retail baskets.
+        - Atomically verifies stock and commits sales for each store.
+        - Calculates individual store delivery fees.
+        - Creates a parent master order and store-specific suborders.
+        - Converts carts for checked-out stores while leaving unselected store baskets intact.
+        """
+        if not selected_store_ids:
+            raise ValueError("No store baskets selected for checkout.")
+
+        cust_lat = delivery_address.get("latitude") or delivery_address.get("lat")
+        cust_lng = delivery_address.get("longitude") or delivery_address.get("lng")
+        shipping_city = delivery_address.get("city") or customer_info.get("city") or "Bengaluru"
+        shipping_addr_str = delivery_address.get("formatted") or delivery_address.get("full_address") or customer_info.get("address") or "Customer Address"
+
+        store_baskets = []
+        for s_id in selected_store_ids:
+            cart = self.get_cart(customer_id, session_id, shopping_mode="RETAIL_NEAR_ME", store_id=s_id)
+            if not cart or not cart.get("items"):
+                raise ValueError(f"Cart for Store #{s_id} is empty.")
+
+            store_obj = self.get_store_by_id(s_id)
+            if not store_obj or not store_obj.get("is_active"):
+                raise ValueError(f"Store #{s_id} is currently inactive.")
+
+            fulfillment = cart["items"][0].get("fulfillment", "delivery")
+            del_fee = self.calculate_retail_delivery_fee(s_id, customer_lat=cust_lat, customer_lng=cust_lng, fulfillment=fulfillment)
+
+            for it in cart["items"]:
+                inv = self.get_store_product(s_id, it["product_id"])
+                if not inv or not inv.get("is_available") or int(inv.get("stock_quantity", 0)) < it["quantity"]:
+                    raise ValueError(f"Insufficient stock for '{it['title']}' at {store_obj['store_name']}. Available: {inv.get('stock_quantity', 0) if inv else 0}.")
+
+            store_baskets.append({
+                "store_id": s_id,
+                "store_name": store_obj["store_name"],
+                "cart": cart,
+                "fulfillment": fulfillment,
+                "delivery_fee": del_fee,
+                "subtotal": cart["subtotal"],
+                "total": round(cart["subtotal"] + del_fee, 2)
+            })
+
+        parent_order_num = f"BK-RET-P-{uuid.uuid4().hex[:8].upper()}"
+        combined_product_subtotal = round(sum(b["subtotal"] for b in store_baskets), 2)
+        combined_delivery_fees = round(sum(b["delivery_fee"] for b in store_baskets), 2)
+        combined_grand_total = round(combined_product_subtotal + combined_delivery_fees, 2)
+
+        is_single_store = (len(store_baskets) == 1)
+        suborders = []
+        parent_id = None
+        single_order_id = None
+        single_order_num = None
+
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            try:
+                with conn.cursor() as cur:
+                    if not is_single_store:
+                        cur.execute("""
+                            INSERT INTO orders (order_number, customer_id, total_amount, shipping_fee, status, payment_method, payment_status, shipping_city, shipping_address, shopping_mode)
+                            VALUES (%s, %s, %s, %s, 'CONFIRMED', %s, 'PAID', %s, %s, 'RETAIL_NEAR_ME')
+                            RETURNING id, created_at;
+                        """, (parent_order_num, customer_id, combined_grand_total, combined_delivery_fees, payment_method, shipping_city, shipping_addr_str))
+                        p_row = cur.fetchone()
+                        parent_id = p_row["id"]
+
+                    for b in store_baskets:
+                        s_id = b["store_id"]
+                        sub_order_num = f"BK-RET-S{s_id}-{uuid.uuid4().hex[:6].upper()}"
+                        cur.execute("""
+                            INSERT INTO orders (order_number, customer_id, total_amount, shipping_fee, status, payment_method, payment_status, shipping_city, shipping_address, shopping_mode, store_id, parent_order_id, fulfillment_type)
+                            VALUES (%s, %s, %s, %s, 'CONFIRMED', %s, 'PAID', %s, %s, 'RETAIL_NEAR_ME', %s, %s, %s)
+                            RETURNING id, created_at;
+                        """, (sub_order_num, customer_id, b["total"], b["delivery_fee"], payment_method, shipping_city, shipping_addr_str, s_id, parent_id, b["fulfillment"]))
+                        sub_row = cur.fetchone()
+                        sub_id = sub_row["id"]
+                        if is_single_store:
+                            single_order_id = sub_id
+                            single_order_num = sub_order_num
+
+                        for it in b["cart"]["items"]:
+                            cur.execute("""
+                                INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+                                VALUES (%s, %s, %s, %s, %s);
+                            """, (sub_id, it["product_id"], it["quantity"], it["unit_price"], it["subtotal"]))
+
+                            from app.schema import atomic_commit_store_sale
+                            atomic_commit_store_sale(cur, is_postgres=True, store_id=s_id, product_id=it["product_id"], quantity=it["quantity"], reference_type="ORDER", reference_id=str(sub_id))
+
+                        cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (b["cart"]["cart_id"],))
+
+                        suborders.append({
+                            "suborder_id": sub_id,
+                            "suborder_number": sub_order_num,
+                            "store_id": s_id,
+                            "store_name": b["store_name"],
+                            "items_count": len(b["cart"]["items"]),
+                            "subtotal": b["subtotal"],
+                            "delivery_fee": b["delivery_fee"],
+                            "total_amount": b["total"],
+                            "fulfillment": b["fulfillment"]
+                        })
+                    conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            try:
+                if not is_single_store:
+                    cur.execute("""
+                        INSERT INTO orders (order_number, customer_id, total_amount, shipping_fee, status, payment_method, payment_status, shipping_city, shipping_address, shopping_mode)
+                        VALUES (?, ?, ?, ?, 'CONFIRMED', ?, 'PAID', ?, ?, 'RETAIL_NEAR_ME');
+                    """, (parent_order_num, customer_id, combined_grand_total, combined_delivery_fees, payment_method, shipping_city, shipping_addr_str))
+                    parent_id = cur.lastrowid
+
+                for b in store_baskets:
+                    s_id = b["store_id"]
+                    sub_order_num = f"BK-RET-S{s_id}-{uuid.uuid4().hex[:6].upper()}"
+                    cur.execute("""
+                        INSERT INTO orders (order_number, customer_id, total_amount, shipping_fee, status, payment_method, payment_status, shipping_city, shipping_address, shopping_mode, store_id, parent_order_id, fulfillment_type)
+                        VALUES (?, ?, ?, ?, 'CONFIRMED', ?, 'PAID', ?, ?, 'RETAIL_NEAR_ME', ?, ?, ?);
+                    """, (sub_order_num, customer_id, b["total"], b["delivery_fee"], payment_method, shipping_city, shipping_addr_str, s_id, parent_id, b["fulfillment"]))
+                    sub_id = cur.lastrowid
+                    if is_single_store:
+                        single_order_id = sub_id
+                        single_order_num = sub_order_num
+
+                    for it in b["cart"]["items"]:
+                        cur.execute("""
+                            INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+                            VALUES (?, ?, ?, ?, ?);
+                        """, (sub_id, it["product_id"], it["quantity"], it["unit_price"], it["subtotal"]))
+
+                        from app.schema import atomic_commit_store_sale
+                        atomic_commit_store_sale(cur, is_postgres=False, store_id=s_id, product_id=it["product_id"], quantity=it["quantity"], reference_type="ORDER", reference_id=str(sub_id))
+
+                    cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (b["cart"]["cart_id"],))
+
+                    suborders.append({
+                        "suborder_id": sub_id,
+                        "suborder_number": sub_order_num,
+                        "store_id": s_id,
+                        "store_name": b["store_name"],
+                        "items_count": len(b["cart"]["items"]),
+                        "subtotal": b["subtotal"],
+                        "delivery_fee": b["delivery_fee"],
+                        "total_amount": b["total"],
+                        "fulfillment": b["fulfillment"]
+                    })
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        if is_single_store:
+            b0 = store_baskets[0]
+            return {
+                "success": True,
+                "order_id": single_order_id,
+                "order_number": single_order_num,
+                "store_id": b0["store_id"],
+                "store_name": b0["store_name"],
+                "customer_id": customer_id,
+                "status": "CONFIRMED",
+                "payment_status": "PAID",
+                "payment_method": payment_method,
+                "items_count": len(b0["cart"]["items"]),
+                "subtotal": b0["subtotal"],
+                "delivery_fee": b0["delivery_fee"],
+                "grand_total": b0["total"],
+                "total_amount": b0["total"],
+                "fulfillment": b0["fulfillment"],
+                "suborders": []
+            }
+
+        return {
+            "success": True,
+            "parent_order_id": parent_id,
+            "parent_order_number": parent_order_num,
+            "order_id": parent_id,
+            "order_number": parent_order_num,
+            "customer_id": customer_id,
+            "status": "CONFIRMED",
+            "payment_status": "PAID",
+            "payment_method": payment_method,
+            "stores_count": len(suborders),
+            "subtotal": combined_product_subtotal,
+            "total_delivery_fee": combined_delivery_fees,
+            "grand_total": combined_grand_total,
+            "total_amount": combined_grand_total,
+            "suborders": suborders
+        }
+
 
 
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

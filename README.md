@@ -5,7 +5,7 @@
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-blue)](https://aiven.io/postgresql)
 [![Streaming](https://img.shields.io/badge/streaming-Apache%20Kafka-red)](https://aiven.io/kafka)
 [![Search](https://img.shields.io/badge/search-OpenSearch%202.x-teal)](https://aiven.io/opensearch)
-[![Tests](https://img.shields.io/badge/tests-113%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
+[![Tests](https://img.shields.io/badge/tests-151%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **BharatStore** is a modern, location-aware, dual-mode e-commerce and quick-commerce platform designed for India's retail ecosystem. It bridges physical neighborhood grocery stores and supermarkets with an enterprise-scale online marketplace. Customers experience the hyper-local speed of quick commerce (Zepto / Swiggy Instamart / Blinkit) alongside the nationwide selection of a full marketplace (Amazon / Flipkart) — unified within a single Flask-driven platform.
@@ -22,17 +22,18 @@
 - [3. Key Platform Capabilities](#3-key-platform-capabilities)
 - [4. Five-Shop Retail Grocery Marketplace & Price Comparison](#4-five-shop-retail-grocery-marketplace--price-comparison)
 - [5. Multi-Store Inventory Foundation](#5-multi-store-inventory-foundation)
-- [6. Technology Stack](#6-technology-stack)
-- [7. Architecture Diagram](#7-architecture-diagram)
-- [8. Database Schema & Relational Design](#8-database-schema--relational-design)
-- [9. Installation & Local Setup (Windows PowerShell)](#9-installation--local-setup-windows-powershell)
-- [10. Environment Configuration](#10-environment-configuration)
-- [11. REST API Documentation](#11-rest-api-documentation)
-- [12. Automated Testing & Verification](#12-automated-testing--verification)
-- [13. Project Roadmap](#13-project-roadmap)
-- [14. Security & Concurrency Controls](#14-security--concurrency-controls)
-- [15. Contributors & Collaboration](#15-contributors--collaboration)
-- [16. License](#16-license)
+- [6. Multi-Store Cart & Checkout Architecture (Phase 7)](#6-multi-store-cart--checkout-architecture-phase-7)
+- [7. Technology Stack](#7-technology-stack)
+- [8. Architecture Diagram](#8-architecture-diagram)
+- [9. Database Schema & Relational Design](#9-database-schema--relational-design)
+- [10. Installation & Local Setup (Windows PowerShell)](#10-installation--local-setup-windows-powershell)
+- [11. Environment Configuration](#11-environment-configuration)
+- [12. REST API Documentation](#12-rest-api-documentation)
+- [13. Automated Testing & Verification](#13-automated-testing--verification)
+- [14. Project Roadmap](#14-project-roadmap)
+- [15. Security & Concurrency Controls](#15-security--concurrency-controls)
+- [16. Contributors & Collaboration](#16-contributors--collaboration)
+- [17. License](#17-license)
 
 ---
 
@@ -134,7 +135,52 @@ Phase 4 establishes complete inventory decentralization across physical retail s
 
 ---
 
-## 6. Technology Stack
+## 6. Multi-Store Cart & Checkout Architecture (Phase 7)
+
+Phase 7 implements a robust, database-backed, multi-store shopping cart and checkout architecture that permanently resolves cart synchronization bugs, supports simultaneous independent baskets across multiple physical grocery stores, calculates distance-based delivery fees, and executes atomic ACID row-locking checkouts.
+
+### 1. Three Independent Cart Scopes
+The platform maintains complete isolation across shopping environments:
+1. **Online Shopping Cart (`shopping_mode = 'ONLINE', store_id = NULL`):**
+   - Strictly accepts only marketplace items (laptops, phones, electronics, fashion).
+   - Attempts to add daily groceries are rejected by the backend with HTTP 400.
+   - Independent item count, subtotal, and checkout flow.
+2. **Retail Store-Specific Carts (`shopping_mode = 'RETAIL_NEAR_ME', store_id = <id>`):**
+   - Each physical grocery store maintains an isolated basket in the database.
+   - Prices reflect the specific store's selling price (e.g., Amul Milk ₹60 at Store 1 vs ₹62 at Store 2).
+   - Validates live stock quantity against `store_inventory` before adding or updating.
+   - Customers can build baskets in Store 1, Store 2, and Store 3 simultaneously without cross-store interference.
+3. **Master Retail Cart View (`/cart`):**
+   - Displays all active retail baskets grouped by physical store.
+   - Shows store badges, distance labels, individual store subtotals, and delivery fee calculations.
+   - Per-store fulfillment selector: **2-Hour Express Delivery** (tiered fee) vs **In-Store Pickup** (₹0).
+   - Flexible checkout triggers: checkout a single store or select multiple stores for unified parent checkout.
+
+### 2. Permanent Fix for Stale Cart Preview Bug
+In previous versions, client-side `localStorage` caching could drift from the server session, causing phantom or deleted items to reappear on browser refresh. Phase 7 permanently eliminates this issue:
+- **Server Database as Sole Authority:** Cart item counts, prices, availability, and totals are computed strictly from the database.
+- **Bi-Directional Client Synchronization:** `syncCartWithBackend()` runs on initial page load and after every mutation.
+- **Client Cache Purge:** When a cart is cleared, all items are deleted, or a user logs out (`/api/auth/logout`), client-side `localStorage` keys are explicitly purged.
+- **Zero Phantom Items:** Refreshing the browser or opening new tabs guarantees 0 phantom items on an empty cart.
+- **Strict IDOR & Guest Partitioning:** Cross-customer cart modifications are blocked with HTTP 403; guest carts are strictly partitioned by `session_id`.
+
+### 3. Hyperlocal Distance-Based Delivery Fee Engine
+Delivery fees for physical grocery stores are calculated using Haversine distance math based on customer coordinates and the store's physical location:
+- **Tier 1 (0 – 5 km):** ₹20.00
+- **Tier 2 (5 – 10 km):** ₹40.00
+- **Tier 3 (10 – 15 km):** ₹60.00
+- **Store Counter Pickup:** ₹0.00 (Free for all distances)
+- **Outside Service Radius (> 15 km):** Delivery is blocked; customers are prompted to choose in-store pickup.
+
+### 4. Multi-Store ACID Row-Locking Checkout
+- **Single-Store Retail Checkout:** Creates a single retail order in `orders` table (`store_id` populated, `parent_order_id = NULL`) in status `CONFIRMED`.
+- **Multi-Store Retail Checkout:** Atomically creates a master parent order (`BK-RET-P-XXXX`) and individual suborders for each selected store (`BK-RET-S{id}-XXXX`), linking `parent_order_id` to the master order.
+- **Atomic Stock Commit & Rollback:** Uses `atomic_commit_store_sale` with row-level locks. If any item in the order has insufficient stock, the entire transaction rolls back cleanly with zero overselling.
+- **Selective Cart Conversion:** Checked-out store baskets are marked as `CONVERTED`, while unselected store carts remain active in the customer's account.
+
+---
+
+## 7. Technology Stack
 
 - **Backend Framework:** Python 3.10+, Flask 3.0.0, Flask-CORS 4.0.0
 - **Database Engine:**
@@ -147,7 +193,7 @@ Phase 4 establishes complete inventory decentralization across physical retail s
 
 ---
 
-## 7. Architecture Diagram
+## 8. Architecture Diagram
 
 ```mermaid
 flowchart TD
@@ -189,7 +235,7 @@ flowchart TD
 
 ---
 
-## 8. Database Schema & Relational Design
+## 9. Database Schema & Relational Design
 
 The system implements relational tables with strict referential integrity:
 
@@ -225,7 +271,7 @@ The system implements relational tables with strict referential integrity:
 
 ---
 
-## 9. Installation & Local Setup (Windows PowerShell)
+## 10. Installation & Local Setup (Windows PowerShell)
 
 Follow these steps to run BharatStore locally:
 
@@ -277,7 +323,7 @@ Open your browser to:
 
 ---
 
-## 10. Environment Configuration
+## 11. Environment Configuration
 
 | Variable | Required | Default / Fallback | Description |
 | :--- | :---: | :--- | :--- |
@@ -293,7 +339,7 @@ Open your browser to:
 
 ---
 
-## 11. REST API Documentation
+## 12. REST API Documentation
 
 ### Retail Near Me & Price Comparison Endpoints
 
@@ -429,11 +475,43 @@ Web directory view listing all physical grocery stores within 15 km with interac
 #### `GET /retail/store/<store_id>`
 Dynamic individual store front displaying the physical store's verified grocery inventory across all 5 departments, real-time in-store search, and instant basket checkout.
 
+### Phase 7: Multi-Store Cart & Checkout Endpoints
+
+#### Online Shopping Cart APIs
+- `GET /api/cart/online`: Retrieves active Online shopping cart with live catalog prices and stock.
+- `POST /api/cart/online/add`: Adds an online marketplace product to the Online cart. Rejects grocery items with HTTP 400.
+  - Body: `{"product_id": 1, "quantity": 1}`
+- `POST /api/cart/online/clear`: Clears all items from the Online shopping cart.
+
+#### Retail Store-Specific Cart APIs
+- `GET /api/cart/retail`: Retrieves all active retail baskets grouped by physical store with delivery fee calculations and grand totals.
+- `GET /api/cart/retail/<store_id>`: Retrieves active basket for a specific physical grocery store with store-specific pricing.
+- `POST /api/cart/retail/<store_id>/add`: Adds a grocery item to the specified store's basket. Rejects out-of-stock items or quantities exceeding store stock.
+  - Body: `{"product_id": 61, "quantity": 2, "fulfillment": "delivery"}`
+- `POST /api/cart/retail/<store_id>/clear`: Clears items from the specified store's basket.
+- `POST /api/cart/retail/clear`: Clears all retail baskets across all physical stores.
+
+#### Unified Cart Summary & Line-Item Mutations
+- `GET /api/cart/summary`: Returns unified cart counts (`total_items`, `subtotal`, `grand_total`) across both Online and Retail modes.
+- `PATCH /api/cart/items/<item_id>`: Updates item quantity (or fulfillment: `delivery`/`pickup`). Setting quantity to 0 removes the item. Validates customer ownership (IDOR protection).
+  - Body: `{"quantity": 3, "fulfillment": "pickup"}`
+- `DELETE /api/cart/items/<item_id>`: Deletes a specific line item from the database cart. Validates customer ownership.
+
+#### Checkout APIs (ACID Row-Locking)
+- `POST /api/checkout/online`: Executes independent Online Shopping checkout with row-level stock decrements and converts the online cart.
+  - Body: `{"customer_info": {...}, "payment_method": "UPI"}`
+- `POST /api/checkout/retail/multi-store`: Executes multi-store retail checkout. Creates single retail order (if 1 store) or parent master order (`BK-RET-P-`) with suborders (`BK-RET-S{id}-`) per store. Atomically decrements store inventory; converts checked-out store baskets while leaving unselected store baskets active.
+  - Body: `{"selected_store_ids": [1, 2], "payment_method": "UPI", "delivery_address": {"latitude": 12.9784, "longitude": 77.6408, "city": "Bengaluru", "address": "Indiranagar"}}`
+
+#### Authentication & Session APIs
+- `POST /api/auth/login`: Logs in a customer, migrates guest cart items to the customer account, and updates session.
+- `POST /api/auth/logout`: Logs out the user and clears server session. Instructs client to wipe `localStorage`.
+
 ---
 
-## 12. Automated Testing & Verification
+## 13. Automated Testing & Verification
 
-All 113 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, and Retail Price Comparison are executed and verified:
+All 151 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, and Retail Price Comparison are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -443,11 +521,28 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 113 tests in 10.579s
+Ran 151 tests in 12.146s
 
 OK (100% Passed)
 ```
 
+- **Phase 7 Multi-Store Cart & Checkout Suite (`tests/test_phase7_multi_store_cart_checkout.py`):** 38 / 38 PASS
+  - Online cart strictly accepts marketplace items and isolates groceries (HTTP 400 rejection).
+  - Retail cart store-specific pricing verified (Amul Milk ₹60 at Store 1 vs ₹62 at Store 2).
+  - Customer simultaneously maintains independent baskets across all 5 physical stores.
+  - Switching active stores and toggling shopping modes cleanly preserves all baskets without cross-contamination.
+  - Stale cart preview bug permanently eliminated (zero zombie items on refresh or after clearing).
+  - Cart preview dropdown, drawer, header badge count, and cart page strictly synchronized with DB authority.
+  - Client price tampering in payload ignored; authoritative database price strictly enforced.
+  - Backend rejects phantom items; client localStorage cannot force invalid state.
+  - Out-of-stock items and quantity exceeding store stock rejected with informative errors.
+  - Distance-based delivery fee tiers verified (₹20 for 0-5 km, ₹40 for 5-10 km, ₹60 for 10-15 km, ₹0 pickup, >15 km blocked).
+  - Single-store checkout creates single retail order (`store_id` populated, `parent_order_id` NULL).
+  - Multi-store checkout creates parent master order (`BK-RET-P-`) + store suborders (`BK-RET-S{id}-`).
+  - ACID inventory deduction and rollback verified on insufficient stock during checkout.
+  - Cross-customer cart modification strictly blocked with HTTP 403 (IDOR security).
+  - Guest carts strictly partitioned by session ID.
+  - Concurrent checkout row locking verified: exactly 1 purchase succeeds under concurrency, 0 overselling.
 - **Phase 6 Retail Storefronts & Five-Shop Price Comparison Suite (`tests/test_phase6_retail_storefronts.py`):** 10 / 10 PASS
   - Dynamic individual physical storefronts (`/retail/store/<id>`) for all 5 Bengaluru stores.
   - Storefront department categorization (Dairy, Grains, Cooking Essentials, Fresh Produce, Household).
@@ -500,7 +595,7 @@ OK (100% Passed)
 
 ---
 
-## 13. Project Roadmap
+## 14. Project Roadmap
 
 - [x] **Phase 1: Platform Foundation & Core E-Commerce** (18 modules, Aiven Cloud integrations, dual SQLite/PG engine).
 - [x] **Phase 2: Dual Shopping Mode Selection Engine** (Retail Near Me ⇄ Online Shopping, isolated carts).
@@ -509,11 +604,12 @@ OK (100% Passed)
 - [x] **Retail Near Me 5-Shop Price Comparison Marketplace** (5 Bengaluru shops, 50+ groceries, 5-shop compare modal, shop-aware cart).
 - [x] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Engine** (Haversine math, 15 km cap, directory `/retail/stores`, dynamic storefronts `/retail/store/<id>`, automatic scroll bug fix).
 - [x] **Phase 6: Retail Storefronts & Five-Shop Price Comparison** (Dynamic storefronts `/retail/store/<id>`, 5 grocery departments, real-time comparison modal, shop-aware multi-store cart, delivery/pickup toggle).
-- [ ] **Phase 7: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
+- [x] **Phase 7: Advanced Multi-Store Cart & Checkout System** (3 independent cart scopes, permanent fix for stale cart preview bug, distance-based tiered delivery fees, atomic ACID row-locking multi-store checkout, 38/38 automated tests).
+- [ ] **Phase 8: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
 
 ---
 
-## 14. Security & Concurrency Controls
+## 15. Security & Concurrency Controls
 
 1. **Timing-Safe HMAC Authentication:** Administrative API endpoints verify credentials using `hmac.compare_digest` to prevent side-channel timing attacks.
 2. **ACID Concurrency & Row Locking:** Store stock reservations use atomic decrements and row-level locks (`FOR UPDATE` on PostgreSQL; immediate transactions on SQLite) to prevent overselling under high concurrency.
@@ -523,14 +619,14 @@ OK (100% Passed)
 
 ---
 
-## 15. Contributors & Collaboration
+## 16. Contributors & Collaboration
 
 - **Ayush Anjan Choudhary** ([@ayush35099-cloud](https://github.com/ayush35099-cloud)) — *Full-Stack Architecture, Database Engineering & Cloud Infrastructure*
 - **Team Collaborators** — *Frontend UI/UX, Component Theming & Voice Search Integrations*
 
 ---
 
-## 16. License
+## 17. License
 
 This project is licensed under the terms of the [MIT License](LICENSE).
 

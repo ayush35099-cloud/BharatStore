@@ -7,15 +7,14 @@
 
 // Global State
 const initialMode = localStorage.getItem("bharatstore_shopping_mode") || "ONLINE";
-const initialRetailCart = JSON.parse(localStorage.getItem("bharatstore_retail_cart") || "{}");
-const initialOnlineCart = JSON.parse(localStorage.getItem("bharatstore_online_cart") || localStorage.getItem("bharatstore_cart") || "{}");
-
 const appState = {
   products: [],
   shoppingMode: initialMode,
-  retailCart: initialRetailCart,
-  onlineCart: initialOnlineCart,
-  cart: initialMode === "RETAIL_NEAR_ME" ? initialRetailCart : initialOnlineCart,
+  retailCart: {},
+  onlineCart: {},
+  cart: {},
+  retailCarts: [],
+  selectedRetailStores: new Set([1, 2, 3, 4, 5]),
   pendingSwitchMode: null,
   wishlist: new Set(JSON.parse(localStorage.getItem("bharatstore_wishlist") || "[]")),
   currentCity: localStorage.getItem("bharatstore_selected_city") || "Mumbai",
@@ -42,10 +41,10 @@ const appState = {
 // -----------------------------------------------------------------------------
 // 1. Initialization & Theme Switching
 // -----------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   initTheme();
-  initShoppingMode();
-  updateHeaderBadges();
+  await initShoppingMode();
+  await syncCartWithBackend();
   initDeliveryLocation();
   initDealTimer();
 
@@ -675,24 +674,114 @@ function handleNearbyStoresNav() {
 }
 
 // -----------------------------------------------------------------------------
-// 2. Cart Management (LocalStorage + Live Drawer Sync)
+// 2. Cart Management (Backend Database Authoritative Source of Truth)
 // -----------------------------------------------------------------------------
-function saveCart() {
-  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
-    appState.retailCart = appState.cart;
-    localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
-  } else {
-    appState.onlineCart = appState.cart;
-    localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+async function syncCartWithBackend() {
+  try {
+    const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+    if (isRetail) {
+      let locParams = "";
+      if (appState.deliveryLocation && appState.deliveryLocation.latitude && appState.deliveryLocation.longitude) {
+        locParams = `?customer_lat=${appState.deliveryLocation.latitude}&customer_lng=${appState.deliveryLocation.longitude}`;
+      }
+      const res = await fetch(`/api/cart/retail${locParams}`);
+      if (res.ok) {
+        const data = await res.json();
+        const shops = data.shops || [];
+        appState.retailCarts = shops;
+        appState.cart = {};
+        let totalItems = 0;
+        shops.forEach(shop => {
+          (shop.items || []).forEach(it => {
+            const key = `${shop.store_id}_${it.product_id}`;
+            appState.cart[key] = {
+              id: it.item_id,
+              key: key,
+              store_id: shop.store_id,
+              store_name: shop.store_name,
+              fulfillment: it.fulfillment || shop.fulfillment || "delivery",
+              product: {
+                id: it.product_id,
+                title: it.title,
+                brand: it.brand,
+                price: it.unit_price,
+                image_url: it.image_url,
+                stock: it.live_stock,
+                category: it.category
+              },
+              qty: it.quantity
+            };
+            totalItems += it.quantity;
+          });
+        });
+        appState.retailCart = { ...appState.cart };
+        if (totalItems === 0) {
+          localStorage.removeItem("bharatstore_retail_cart");
+          localStorage.removeItem("bharatstore_cart");
+        } else {
+          localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+          localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+        }
+      }
+    } else {
+      const res = await fetch("/api/cart/online");
+      if (res.ok) {
+        const data = await res.json();
+        const cartData = data.cart || {};
+        const items = cartData.items || [];
+        appState.cart = {};
+        let totalItems = 0;
+        items.forEach(it => {
+          appState.cart[it.product_id] = {
+            id: it.item_id,
+            key: it.product_id,
+            product: {
+              id: it.product_id,
+              title: it.title,
+              brand: it.brand,
+              price: it.unit_price,
+              image_url: it.image_url,
+              stock: it.live_stock,
+              category: it.category
+            },
+            qty: it.quantity,
+            fulfillment: "delivery"
+          };
+          totalItems += it.quantity;
+        });
+        appState.onlineCart = { ...appState.cart };
+        if (totalItems === 0) {
+          localStorage.removeItem("bharatstore_online_cart");
+          localStorage.removeItem("bharatstore_cart");
+        } else {
+          localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+          localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Backend cart sync notice:", err);
+  } finally {
+    updateHeaderBadges();
+    renderCartDrawer();
+    if (document.getElementById("cart-page-items-list")) {
+      renderCartPage();
+    }
+    if (document.getElementById("checkout-items-preview")) {
+      initCheckoutPage();
+    }
   }
-  localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+}
+
+function saveCart() {
   updateHeaderBadges();
   renderCartDrawer();
 }
 
 function updateHeaderBadges() {
-  const totalItems = Object.values(appState.cart).reduce((sum, item) => sum + item.qty, 0);
-  const totalAmount = Object.values(appState.cart).reduce((sum, item) => sum + (item.product.price * item.qty), 0);
+  const items = Object.values(appState.cart);
+  const totalItems = items.reduce((sum, item) => sum + (item.qty || 0), 0);
+  const totalAmount = items.reduce((sum, item) => sum + (((item.product && item.product.price) || 0) * (item.qty || 0)), 0);
 
   const cartBadge = document.getElementById("cart-badge-count");
   if (cartBadge) cartBadge.textContent = totalItems;
@@ -704,126 +793,152 @@ function updateHeaderBadges() {
   if (wishlistBadge) wishlistBadge.textContent = appState.wishlist.size;
 }
 
-async function addToCart(productId, qty = 1, storeId = null, storeName = null) {
-  let product = appState.products.find(p => p.id === productId);
-  if (!product) {
+async function addToCart(productId, qty = 1, storeId = null, storeName = null, fulfillment = "delivery") {
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  if (isRetail) {
+    const sId = storeId || parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1");
     try {
-      const res = await fetch(`/api/products/${productId}`);
+      const res = await fetch(`/api/cart/retail/${sId}/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: productId,
+          quantity: qty,
+          fulfillment: fulfillment || "delivery"
+        })
+      });
       const data = await res.json();
-      product = data.product || (data.id ? data : null);
+      if (!res.ok || !data.success) {
+        showToast(data.error || "Cannot add product to store basket", true);
+        return;
+      }
+      await syncCartWithBackend();
+      showToast(`Added to ${data.cart?.store_name || `Store #${sId}`} basket!`);
     } catch (e) {
-      console.error("Error fetching product details for cart:", e);
+      console.error("Retail add to cart error:", e);
+      showToast("Network error while adding to basket", true);
+    }
+  } else {
+    try {
+      const res = await fetch("/api/cart/online/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: productId,
+          quantity: qty
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error || "Cannot add product to online cart", true);
+        return;
+      }
+      await syncCartWithBackend();
+      showToast("Added to Online Shopping cart!");
+    } catch (e) {
+      console.error("Online add to cart error:", e);
+      showToast("Network error while adding to cart", true);
     }
   }
-  if (!product) {
-    showToast("Product details could not be retrieved", true);
+}
+
+async function updateCartItemQty(keyOrId, delta) {
+  let item = appState.cart[keyOrId];
+  if (!item) {
+    item = Object.values(appState.cart).find(it => it.id === Number(keyOrId) || (it.product && it.product.id === Number(keyOrId)) || it.key === String(keyOrId));
+  }
+  if (!item) return;
+
+  const newQty = item.qty + delta;
+  if (newQty <= 0) {
+    await removeCartItem(item.id || keyOrId);
     return;
   }
 
-  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
-  const sId = storeId || (isRetail ? parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1") : null);
-
-  // Backend stock validation guard
   try {
-    const valPayload = { product_id: productId, quantity: qty };
-    if (isRetail && sId) {
-      valPayload.store_id = sId;
-    }
-    const valRes = await fetch("/api/cart/validate", {
-      method: "POST",
+    const res = await fetch(`/api/cart/items/${item.id}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(valPayload)
+      body: JSON.stringify({ quantity: newQty })
     });
-    const valData = await valRes.json();
-    if (!valRes.ok || !valData.valid) {
-      showToast(valData.error || "Requested quantity exceeds available stock", true);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      showToast(data.error || "Could not update item quantity", true);
       return;
     }
+    await syncCartWithBackend();
   } catch (err) {
-    console.warn("Backend validation note:", err);
+    console.error("Update item qty error:", err);
   }
+}
 
-  // If in retail mode, also sync with retail cart session API
-  if (isRetail && sId) {
-    const activeHeroStore = document.getElementById("retail-hero-store-name");
-    const heroStoreName = activeHeroStore ? activeHeroStore.textContent.trim() : "Bharat Fresh Mart";
-    const sName = storeName || heroStoreName;
+async function removeCartItem(keyOrId) {
+  let item = appState.cart[keyOrId];
+  if (!item) {
+    item = Object.values(appState.cart).find(it => it.id === Number(keyOrId) || (it.product && it.product.id === Number(keyOrId)) || it.key === String(keyOrId));
+  }
+  const itemId = item ? item.id : keyOrId;
+  try {
+    const res = await fetch(`/api/cart/items/${itemId}`, {
+      method: "DELETE"
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      showToast(data.error || "Could not remove item", true);
+      return;
+    }
+    await syncCartWithBackend();
+    showToast("Item removed from basket");
+  } catch (err) {
+    console.error("Remove cart item error:", err);
+  }
+}
+
+async function clearCart() {
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  try {
+    if (isRetail) {
+      await fetch("/api/cart/retail/clear", { method: "DELETE" });
+    } else {
+      await fetch("/api/cart/online/clear", { method: "DELETE" });
+    }
+    await syncCartWithBackend();
+    showToast("Basket cleared.");
+  } catch (err) {
+    console.error("Clear cart error:", err);
+  }
+}
+
+async function clearStoreBasket(storeId) {
+  try {
+    await fetch(`/api/cart/retail/${storeId}/clear`, { method: "DELETE" });
+    await syncCartWithBackend();
+    showToast("Store basket cleared.");
+  } catch (err) {
+    console.error("Clear store basket error:", err);
+  }
+}
+
+async function updateShopFulfillment(storeIdOrShopName, value) {
+  let sId = Number(storeIdOrShopName);
+  if (isNaN(sId)) {
+    const found = (appState.retailCarts || []).find(s => s.store_name === storeIdOrShopName);
+    if (found) sId = found.store_id;
+  }
+  const items = Object.values(appState.cart).filter(it => it.store_id === sId);
+  for (const it of items) {
     try {
-      await fetch("/api/retail/cart/add", {
-        method: "POST",
+      await fetch(`/api/cart/items/${it.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product_id: productId, store_id: sId, quantity: qty, store_name: sName })
+        body: JSON.stringify({ fulfillment: value })
       });
     } catch (e) {
-      console.warn("Retail cart sync warning:", e);
+      console.warn("Fulfillment update error:", e);
     }
   }
-
-  const cartKey = isRetail && sId ? `${sId}_${productId}` : productId;
-  if (!appState.cart[cartKey]) {
-    appState.cart[cartKey] = {
-      product,
-      qty: 0,
-      store_id: sId,
-      store_name: storeName || (document.getElementById("retail-hero-store-name")?.textContent.trim() || "Bharat Fresh Mart"),
-      fulfillment: "delivery"
-    };
-  }
-  appState.cart[cartKey].qty += qty;
-  const maxStock = product.stock || 20;
-  if (appState.cart[cartKey].qty > maxStock) {
-    appState.cart[cartKey].qty = maxStock;
-    showToast(`Maximum available stock (${maxStock}) reached for ${product.title}`);
-  } else {
-    showToast(`Added ${qty > 1 ? qty + ' units of ' : ''}${product.title} to your basket`);
-  }
-  saveCart();
-}
-
-function updateCartItemQty(key, delta) {
-  let itemKey = key;
-  if (!appState.cart[itemKey]) {
-    const found = Object.keys(appState.cart).find(k => appState.cart[k].product && appState.cart[k].product.id === Number(key));
-    if (found) itemKey = found;
-  }
-  if (appState.cart[itemKey]) {
-    appState.cart[itemKey].qty += delta;
-    if (appState.cart[itemKey].qty <= 0) {
-      delete appState.cart[itemKey];
-    } else if (appState.cart[itemKey].qty > (appState.cart[itemKey].product.stock || 20)) {
-      appState.cart[itemKey].qty = (appState.cart[itemKey].product.stock || 20);
-      showToast("Cannot exceed available physical store stock");
-    }
-    saveCart();
-    if (document.getElementById("cart-page-items-list")) {
-      renderCartPage();
-    }
-  }
-}
-
-function removeCartItem(key) {
-  let itemKey = key;
-  if (!appState.cart[itemKey]) {
-    const found = Object.keys(appState.cart).find(k => appState.cart[k].product && appState.cart[k].product.id === Number(key));
-    if (found) itemKey = found;
-  }
-  if (appState.cart[itemKey]) {
-    delete appState.cart[itemKey];
-    saveCart();
-    if (document.getElementById("cart-page-items-list")) {
-      renderCartPage();
-    }
-    showToast("Item removed from basket");
-  }
-}
-
-function clearCart() {
-  appState.cart = {};
-  saveCart();
-  if (document.getElementById("cart-page-items-list")) {
-    renderCartPage();
-  }
-  showToast("Basket cleared.");
+  await syncCartWithBackend();
+  showToast(`Fulfillment updated: ${value === 'pickup' ? 'Store Counter Pickup (FREE)' : '2-Hour Delivery'}`);
 }
 
 function openCartDrawer() {
@@ -847,16 +962,6 @@ function toggleCartDrawer() {
 function closeCartDrawer(e) {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer) drawer.classList.remove("open");
-}
-
-function updateShopFulfillment(shopName, value) {
-  Object.values(appState.cart).forEach(item => {
-    if ((item.store_name || "Bharat Fresh Mart") === shopName) {
-      item.fulfillment = value;
-    }
-  });
-  saveCart();
-  showToast(`Fulfillment updated for ${shopName}: ${value === 'pickup' ? 'Free Store Pickup' : '2-Hour Delivery'}`);
 }
 
 function renderCartDrawer() {
@@ -924,12 +1029,12 @@ function renderCartDrawer() {
                   <div class="drawer-item-title" style="font-size:12.5px;">${p.title}</div>
                   <div class="drawer-item-price" style="font-size:13px;">₹${p.price.toLocaleString('en-IN')}</div>
                   <div class="drawer-qty-control" style="margin-top:4px;">
-                    <button onclick="updateCartItemQty(${p.id}, -1)">-</button>
+                    <button onclick="updateCartItemQty('${item.id || item.key}', -1)">-</button>
                     <span>${item.qty}</span>
-                    <button onclick="updateCartItemQty(${p.id}, 1)">+</button>
+                    <button onclick="updateCartItemQty('${item.id || item.key}', 1)">+</button>
                   </div>
                 </div>
-                <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
+                <button onclick="removeCartItem('${item.id || item.key}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
               </div>
@@ -956,12 +1061,12 @@ function renderCartDrawer() {
             <div class="drawer-item-title">${p.title}</div>
             <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
             <div class="drawer-qty-control">
-              <button onclick="updateCartItemQty(${p.id}, -1)">-</button>
+              <button onclick="updateCartItemQty('${item.id || item.key || p.id}', -1)">-</button>
               <span>${item.qty}</span>
-              <button onclick="updateCartItemQty(${p.id}, 1)">+</button>
+              <button onclick="updateCartItemQty('${item.id || item.key || p.id}', 1)">+</button>
             </div>
           </div>
-          <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer;" title="Remove">
+          <button onclick="removeCartItem('${item.id || item.key || p.id}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer;" title="Remove">
             <i class="fa-solid fa-trash-can"></i>
           </button>
         </div>
@@ -1604,7 +1709,7 @@ function closeQuickViewModal(e) {
 }
 
 // -----------------------------------------------------------------------------
-// 9. Detailed Cart Page (/cart)
+// 9. Detailed Cart Page (/cart) — Multi-Store Retail & Online Isolation
 // -----------------------------------------------------------------------------
 function renderCartPage() {
   const container = document.getElementById("cart-page-items-list");
@@ -1614,7 +1719,8 @@ function renderCartPage() {
   if (!container) return;
 
   const items = Object.values(appState.cart);
-  if (countEl) countEl.textContent = items.reduce((s, i) => s + i.qty, 0);
+  const totalCount = items.reduce((s, i) => s + (i.qty || 0), 0);
+  if (countEl) countEl.textContent = totalCount;
 
   if (items.length === 0) {
     if (contentWrapper) contentWrapper.style.display = "none";
@@ -1625,61 +1731,273 @@ function renderCartPage() {
   if (contentWrapper) contentWrapper.style.display = "grid";
   if (emptyView) emptyView.style.display = "none";
 
-  let subtotal = 0;
-  container.innerHTML = items.map(item => {
-    const p = item.product;
-    const itemTotal = p.price * item.qty;
-    subtotal += itemTotal;
-    return `
-      <div style="display:grid; grid-template-columns:80px 1fr auto auto; gap:20px; align-items:center; padding-bottom:18px; margin-bottom:18px; border-bottom:1px solid var(--color-border-subtle);">
-        <img src="${p.image_url}" alt="${p.title}" style="width:80px; height:80px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--color-border);">
-        <div>
-          <span style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--color-primary);">${p.brand}</span>
-          <h4 style="font-size:14.5px; font-weight:600; margin-bottom:4px;"><a href="/product/${p.id}">${p.title}</a></h4>
-          <span style="font-size:11.5px; color:var(--color-sage);"><i class="fa-solid fa-shop"></i> ${item.store_name ? `Fulfillment Store: ${item.store_name}` : `Physical Hub Stock: ${p.stock || 20} units`}</span>
-        </div>
-        <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
-          <button onclick="updateCartItemQty(${p.id}, -1)" style="padding:6px 12px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>
-          <span style="padding:6px 14px; font-weight:700; font-size:13px;">${item.qty}</span>
-          <button onclick="updateCartItemQty(${p.id}, 1)" style="padding:6px 12px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">+</button>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-size:16px; font-weight:800; color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</div>
-          <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); font-size:12px; cursor:pointer; margin-top:4px;">
-            <i class="fa-solid fa-trash-can"></i> Remove
-          </button>
-        </div>
-      </div>
-    `;
-  }).join("");
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
 
-  // Update Free shipping meter (Threshold: ₹499)
-  const meterBar = document.getElementById("shipping-meter-bar");
-  const meterVal = document.getElementById("shipping-meter-val");
-  const meterText = document.getElementById("shipping-meter-text");
-  if (meterBar && meterVal && meterText) {
-    if (subtotal >= 499) {
-      meterBar.style.width = "100%";
-      meterVal.textContent = "100%";
-      meterText.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--color-sage);"></i> Congratulations! You've unlocked FREE 2-Hour Physical Hub Delivery!`;
-    } else {
-      const pct = Math.round((subtotal / 499) * 100);
-      const remaining = 499 - subtotal;
-      meterBar.style.width = `${pct}%`;
-      meterVal.textContent = `${pct}%`;
-      meterText.innerHTML = `<i class="fa-solid fa-truck-fast"></i> Add ₹${remaining.toLocaleString('en-IN')} more to unlock FREE Hub Delivery!`;
+  // Hide or show Free shipping meter for online vs retail
+  const meterBox = document.getElementById("shipping-meter-bar")?.closest('div[style*="background:var(--color-bg-surface)"]');
+  if (meterBox) {
+    meterBox.style.display = isRetail ? "none" : "block";
+  }
+
+  if (isRetail) {
+    // -------------------------------------------------------------
+    // Master Retail Cart View: Grouped by Shop with Per-Store Controls
+    // -------------------------------------------------------------
+    const shopMap = {};
+    (appState.retailCarts || []).forEach(s => {
+      shopMap[s.store_id] = {
+        store_id: s.store_id,
+        store_name: s.store_name,
+        area: s.area || "",
+        city: s.city || "",
+        distance_km: s.distance_km || 2.5,
+        delivery_fee: s.delivery_fee != null ? s.delivery_fee : 20.0,
+        fulfillment: s.fulfillment || "delivery",
+        items: []
+      };
+    });
+
+    items.forEach(it => {
+      const sId = it.store_id || 1;
+      if (!shopMap[sId]) {
+        shopMap[sId] = {
+          store_id: sId,
+          store_name: it.store_name || `Store #${sId}`,
+          area: "Indiranagar",
+          city: appState.currentCity || "Bengaluru",
+          distance_km: 2.5,
+          delivery_fee: 20.0,
+          fulfillment: it.fulfillment || "delivery",
+          items: []
+        };
+      }
+      shopMap[sId].items.push(it);
+    });
+
+    const activeShops = Object.values(shopMap).filter(s => s.items.length > 0);
+
+    if (activeShops.length === 0) {
+      if (contentWrapper) contentWrapper.style.display = "none";
+      if (emptyView) emptyView.style.display = "block";
+      return;
+    }
+
+    if (!appState.selectedRetailStores) {
+      appState.selectedRetailStores = new Set(activeShops.map(s => s.store_id));
+    }
+
+    let combinedSelectedSubtotal = 0;
+    let combinedSelectedDelivery = 0;
+
+    container.innerHTML = `
+      <div style="margin-bottom:16px; padding:12px 16px; background:var(--color-bg-subtle); border-radius:var(--radius-md); font-size:13px; color:var(--color-text-main);">
+        <i class="fa-solid fa-store" style="color:var(--color-primary); margin-right:6px;"></i>
+        You have active baskets across <strong>${activeShops.length} neighbourhood retail store${activeShops.length > 1 ? 's' : ''}</strong>. Select the baskets you wish to checkout or checkout each store individually.
+      </div>
+      ${activeShops.map(shop => {
+        const isSelected = appState.selectedRetailStores.has(shop.store_id);
+        const shopSubtotal = shop.items.reduce((sum, it) => sum + (((it.product && it.product.price) || 0) * it.qty), 0);
+        const fee = (shop.fulfillment === 'pickup') ? 0 : shop.delivery_fee;
+        const shopTotal = shopSubtotal + fee;
+
+        if (isSelected) {
+          combinedSelectedSubtotal += shopSubtotal;
+          combinedSelectedDelivery += fee;
+        }
+
+        return `
+          <div class="retail-shop-basket-card" style="background:var(--color-bg-surface); border:1.5px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius:var(--radius-lg); padding:20px; margin-bottom:24px; box-shadow:var(--shadow-sm);">
+            
+            <!-- Store Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--color-border-subtle); padding-bottom:14px; margin-bottom:14px;">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <input type="checkbox" id="check-store-${shop.store_id}" ${isSelected ? 'checked' : ''} onchange="toggleStoreCheckoutSelect(${shop.store_id})" style="width:18px; height:18px; cursor:pointer;" title="Include in multi-store checkout">
+                <div>
+                  <h3 style="font-size:16px; font-weight:700; margin:0 0 2px 0;">
+                    <i class="fa-solid fa-shop" style="color:var(--color-primary);"></i> ${escapeHtml(shop.store_name)}
+                  </h3>
+                  <span style="font-size:12px; color:var(--color-text-muted);">
+                    <i class="fa-solid fa-location-dot"></i> ${escapeHtml(shop.area)}, ${escapeHtml(shop.city)} &bull; Distance: <strong>${shop.distance_km} km</strong>
+                  </span>
+                </div>
+              </div>
+
+              <button class="btn-secondary" onclick="clearStoreBasket(${shop.store_id})" style="font-size:11.5px; padding:4px 9px; color:var(--color-danger); border-color:var(--color-danger-light);">
+                <i class="fa-solid fa-trash-can"></i> Clear Store Basket
+              </button>
+            </div>
+
+            <!-- Fulfillment Toggle -->
+            <div style="background:var(--color-bg-subtle); padding:10px 14px; border-radius:var(--radius-md); margin-bottom:14px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; font-size:12.5px;">
+              <span style="font-weight:700; color:var(--color-text-main);"><i class="fa-solid fa-truck-fast"></i> Delivery Method:</span>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="radio" name="store_fulfill_${shop.store_id}" value="delivery" ${shop.fulfillment !== 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'delivery')">
+                <span>2-Hour Delivery (₹${shop.delivery_fee})</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="radio" name="store_fulfill_${shop.store_id}" value="pickup" ${shop.fulfillment === 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'pickup')">
+                <span>Store Pickup (<strong style="color:var(--color-sage);">FREE ₹0</strong>)</span>
+              </label>
+            </div>
+
+            <!-- Store Items List -->
+            <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+              ${shop.items.map(it => {
+                const p = it.product;
+                const itTotal = (p.price || 0) * it.qty;
+                return `
+                  <div style="display:grid; grid-template-columns:64px 1fr auto auto; gap:16px; align-items:center; padding:10px 0; border-bottom:1px solid var(--color-border-subtle);">
+                    <img src="${p.image_url}" alt="${p.title}" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:2px;">
+                    <div>
+                      <h4 style="font-size:13.5px; margin:0 0 4px 0;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>
+                      <span style="font-size:12px; color:var(--color-primary); font-weight:700;">₹${(p.price || 0).toLocaleString('en-IN')} / unit</span>
+                      <div style="font-size:11px; color:var(--color-text-muted); margin-top:2px;">Store Stock: ${p.stock || 20} units</div>
+                    </div>
+                    <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
+                      <button onclick="updateCartItemQty('${it.id || it.key}', -1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>
+                      <span style="padding:4px 12px; font-weight:700; font-size:13px;">${it.qty}</span>
+                      <button onclick="updateCartItemQty('${it.id || it.key}', 1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">+</button>
+                    </div>
+                    <div style="text-align:right;">
+                      <div style="font-size:15px; font-weight:800; color:var(--color-text-main);">₹${itTotal.toLocaleString('en-IN')}</div>
+                      <button onclick="removeCartItem('${it.id || it.key}')" style="background:transparent; border:none; color:var(--color-danger); font-size:11px; cursor:pointer; margin-top:2px;">
+                        <i class="fa-solid fa-trash-can"></i> Remove
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+
+            <!-- Store Subtotal & Checkout This Store Action -->
+            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px dashed var(--color-border);">
+              <div>
+                <span style="font-size:12px; color:var(--color-text-muted);">Basket Subtotal: ₹${shopSubtotal.toLocaleString('en-IN')} + Delivery: ₹${fee}</span>
+                <div style="font-size:15px; font-weight:800; color:var(--color-primary);">Store Total: ₹${shopTotal.toLocaleString('en-IN')}</div>
+              </div>
+              <button class="btn-primary" onclick="checkoutSingleRetailStore(${shop.store_id})" style="font-size:12.5px; padding:8px 16px;">
+                <i class="fa-solid fa-bag-shopping"></i> Checkout This Store Only
+              </button>
+            </div>
+
+          </div>
+        `;
+      }).join("")}
+    `;
+
+    // Update Right Summary box for Multi-Store Retail
+    const selectedCount = appState.selectedRetailStores.size;
+    const grandTotal = combinedSelectedSubtotal + combinedSelectedDelivery;
+
+    document.getElementById("summary-subtotal").textContent = `₹${combinedSelectedSubtotal.toLocaleString('en-IN')}`;
+    document.getElementById("summary-discount").textContent = "-₹0";
+    document.getElementById("summary-shipping").textContent = `₹${combinedSelectedDelivery.toLocaleString('en-IN')}`;
+    document.getElementById("summary-grand-total").textContent = `₹${grandTotal.toLocaleString('en-IN')}`;
+
+    const checkoutBtn = document.querySelector('#cart-content-wrapper a[href*="checkout"]') || document.querySelector('#cart-content-wrapper button[onclick*="Checkout"]');
+    if (checkoutBtn) {
+      checkoutBtn.setAttribute("href", "javascript:void(0)");
+      checkoutBtn.setAttribute("onclick", "proceedToRetailMultiStoreCheckout()");
+      checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Checkout Selected Stores (${selectedCount})`;
+      checkoutBtn.style.opacity = selectedCount > 0 ? "1" : "0.5";
+      checkoutBtn.style.pointerEvents = selectedCount > 0 ? "auto" : "none";
+    }
+
+  } else {
+    // -------------------------------------------------------------
+    // Online Shopping Mode Standard Cart
+    // -------------------------------------------------------------
+    let subtotal = 0;
+    container.innerHTML = items.map(item => {
+      const p = item.product;
+      const itemTotal = ((p && p.price) || 0) * item.qty;
+      subtotal += itemTotal;
+      return `
+        <div style="display:grid; grid-template-columns:80px 1fr auto auto; gap:20px; align-items:center; padding-bottom:18px; margin-bottom:18px; border-bottom:1px solid var(--color-border-subtle);">
+          <img src="${p.image_url}" alt="${p.title}" style="width:80px; height:80px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--color-border);">
+          <div>
+            <span style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--color-primary);">${p.brand || 'Authentic'}</span>
+            <h4 style="font-size:14.5px; font-weight:600; margin-bottom:4px;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>
+            <span style="font-size:11.5px; color:var(--color-sage);"><i class="fa-solid fa-boxes-stacked"></i> Catalog Stock: ${p.stock || 20} units</span>
+          </div>
+          <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
+            <button onclick="updateCartItemQty('${item.id || p.id}', -1)" style="padding:6px 12px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>
+            <span style="padding:6px 14px; font-weight:700; font-size:13px;">${item.qty}</span>
+            <button onclick="updateCartItemQty('${item.id || p.id}', 1)" style="padding:6px 12px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">+</button>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:16px; font-weight:800; color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</div>
+            <button onclick="removeCartItem('${item.id || p.id}')" style="background:transparent; border:none; color:var(--color-danger); font-size:12px; cursor:pointer; margin-top:4px;">
+              <i class="fa-solid fa-trash-can"></i> Remove
+            </button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // Update Free shipping meter (Threshold: ₹499)
+    const meterBar = document.getElementById("shipping-meter-bar");
+    const meterVal = document.getElementById("shipping-meter-val");
+    const meterText = document.getElementById("shipping-meter-text");
+    if (meterBar && meterVal && meterText) {
+      if (subtotal >= 499) {
+        meterBar.style.width = "100%";
+        meterVal.textContent = "100%";
+        meterText.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--color-sage);"></i> Congratulations! You've unlocked FREE Physical Hub Delivery!`;
+      } else {
+        const pct = Math.round((subtotal / 499) * 100);
+        const remaining = 499 - subtotal;
+        meterBar.style.width = `${pct}%`;
+        meterVal.textContent = `${pct}%`;
+        meterText.innerHTML = `<i class="fa-solid fa-truck-fast"></i> Add ₹${remaining.toLocaleString('en-IN')} more to unlock FREE Hub Delivery!`;
+      }
+    }
+
+    let discount = 0;
+    if (appState.activeCoupon === "BHARAT10") {
+      discount = Math.round(subtotal * 0.1);
+    }
+
+    document.getElementById("summary-subtotal").textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+    document.getElementById("summary-discount").textContent = `-₹${discount.toLocaleString('en-IN')}`;
+    document.getElementById("summary-shipping").textContent = "FREE";
+    document.getElementById("summary-grand-total").textContent = `₹${(subtotal - discount).toLocaleString('en-IN')}`;
+
+    const checkoutBtn = document.querySelector('#cart-content-wrapper a[href*="checkout"]') || document.querySelector('#cart-content-wrapper button[onclick*="Checkout"]');
+    if (checkoutBtn) {
+      checkoutBtn.setAttribute("href", "/checkout?mode=online");
+      checkoutBtn.removeAttribute("onclick");
+      checkoutBtn.innerHTML = `<i class="fa-solid fa-lock"></i> Proceed to Checkout`;
+      checkoutBtn.style.opacity = "1";
+      checkoutBtn.style.pointerEvents = "auto";
     }
   }
+}
 
-  // Update summary fields
-  let discount = 0;
-  if (appState.activeCoupon === "BHARAT10") {
-    discount = Math.round(subtotal * 0.1);
+function toggleStoreCheckoutSelect(storeId) {
+  if (!appState.selectedRetailStores) {
+    appState.selectedRetailStores = new Set();
   }
+  const sId = Number(storeId);
+  if (appState.selectedRetailStores.has(sId)) {
+    appState.selectedRetailStores.delete(sId);
+  } else {
+    appState.selectedRetailStores.add(sId);
+  }
+  renderCartPage();
+}
 
-  document.getElementById("summary-subtotal").textContent = `₹${subtotal.toLocaleString('en-IN')}`;
-  document.getElementById("summary-discount").textContent = `-₹${discount.toLocaleString('en-IN')}`;
-  document.getElementById("summary-grand-total").textContent = `₹${(subtotal - discount).toLocaleString('en-IN')}`;
+function checkoutSingleRetailStore(storeId) {
+  window.location.href = `/checkout?mode=retail&store_id=${storeId}`;
+}
+
+function proceedToRetailMultiStoreCheckout() {
+  const selected = Array.from(appState.selectedRetailStores || []);
+  if (selected.length === 0) {
+    alert("Please select at least one store basket for checkout.");
+    return;
+  }
+  window.location.href = `/checkout?mode=retail&stores=${selected.join(",")}`;
 }
 
 function applyCouponCode() {
@@ -1721,7 +2039,7 @@ async function renderWishlistPage() {
 }
 
 // -----------------------------------------------------------------------------
-// 11. Checkout & Transactional ACID Execution (/checkout)
+// 11. Checkout & Transactional ACID Execution (/checkout) — Multi-Store Support
 // -----------------------------------------------------------------------------
 function initCheckoutPage() {
   const container = document.getElementById("checkout-items-preview");
@@ -1729,28 +2047,97 @@ function initCheckoutPage() {
   const totalEl = document.getElementById("checkout-grand-total");
   if (!container) return;
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const checkoutMode = urlParams.get("mode") || (appState.shoppingMode === "RETAIL_NEAR_ME" ? "retail" : "online");
+
   const items = Object.values(appState.cart);
   if (items.length === 0) {
     container.innerHTML = `<p style="font-size:13px; color:var(--color-text-muted);">No items in cart. <a href="/products" style="color:var(--color-primary); font-weight:700;">Browse catalog</a></p>`;
-    document.getElementById("btn-submit-order").disabled = true;
+    const btn = document.getElementById("btn-submit-order");
+    if (btn) btn.disabled = true;
     return;
   }
 
-  let subtotal = 0;
-  container.innerHTML = items.map(item => {
-    const p = item.product;
-    const itemTotal = p.price * item.qty;
-    subtotal += itemTotal;
-    return `
-      <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px;">
-        <span style="max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.qty}x ${p.title}</span>
-        <strong style="color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</strong>
-      </div>
-    `;
-  }).join("");
+  if (checkoutMode === "retail") {
+    const urlStoreId = urlParams.get("store_id");
+    const urlStores = urlParams.get("stores");
+    let targetStoreIds = null;
+    if (urlStoreId) {
+      targetStoreIds = [Number(urlStoreId)];
+    } else if (urlStores) {
+      targetStoreIds = urlStores.split(",").map(Number);
+    } else if (appState.selectedRetailStores && appState.selectedRetailStores.size > 0) {
+      targetStoreIds = Array.from(appState.selectedRetailStores);
+    }
 
-  if (subtotalEl) subtotalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
-  if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+    const checkoutItems = targetStoreIds ? items.filter(it => targetStoreIds.includes(it.store_id)) : items;
+
+    const storeMap = {};
+    checkoutItems.forEach(it => {
+      const sId = it.store_id || 1;
+      if (!storeMap[sId]) {
+        const matchingShop = (appState.retailCarts || []).find(s => s.store_id === sId);
+        storeMap[sId] = {
+          store_id: sId,
+          store_name: it.store_name || matchingShop?.store_name || `Store #${sId}`,
+          fulfillment: it.fulfillment || "delivery",
+          delivery_fee: matchingShop?.delivery_fee != null ? matchingShop.delivery_fee : 20.0,
+          items: [],
+          subtotal: 0
+        };
+      }
+      storeMap[sId].items.push(it);
+      storeMap[sId].subtotal += ((it.product && it.product.price) || 0) * it.qty;
+    });
+
+    let combinedSubtotal = 0;
+    let combinedDelivery = 0;
+
+    container.innerHTML = Object.values(storeMap).map(st => {
+      const fee = st.fulfillment === "pickup" ? 0 : st.delivery_fee;
+      combinedSubtotal += st.subtotal;
+      combinedDelivery += fee;
+      return `
+        <div style="background:var(--color-bg-base); padding:10px 12px; border-radius:var(--radius-md); border:1px solid var(--color-border-subtle); margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; font-weight:700; font-size:12.5px; margin-bottom:6px; color:var(--color-primary);">
+            <span><i class="fa-solid fa-shop"></i> ${escapeHtml(st.store_name)}</span>
+            <span>Subtotal: ₹${st.subtotal.toLocaleString('en-IN')}</span>
+          </div>
+          ${st.items.map(it => `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--color-text-body); padding:2px 0;">
+              <span style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${it.qty}x ${it.product.title}</span>
+              <strong>₹${(((it.product && it.product.price) || 0) * it.qty).toLocaleString('en-IN')}</strong>
+            </div>
+          `).join("")}
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--color-text-muted); margin-top:6px; padding-top:4px; border-top:1px dashed var(--color-border);">
+            <span>Fulfillment (${st.fulfillment === 'pickup' ? 'Store Pickup' : '2-Hour Delivery'})</span>
+            <span style="font-weight:700; color:var(--color-sage);">${fee === 0 ? 'FREE' : '₹' + fee}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    if (subtotalEl) subtotalEl.textContent = `₹${combinedSubtotal.toLocaleString('en-IN')}`;
+    const grandTotal = combinedSubtotal + combinedDelivery;
+    if (totalEl) totalEl.textContent = `₹${grandTotal.toLocaleString('en-IN')}`;
+
+  } else {
+    let subtotal = 0;
+    container.innerHTML = items.map(item => {
+      const p = item.product;
+      const itemTotal = ((p && p.price) || 0) * item.qty;
+      subtotal += itemTotal;
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px;">
+          <span style="max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.qty}x ${p.title}</span>
+          <strong style="color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</strong>
+        </div>
+      `;
+    }).join("");
+
+    if (subtotalEl) subtotalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+    if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+  }
 
   // Phase 3: Load Saved Addresses into Checkout
   loadCheckoutSavedAddresses();
@@ -1879,83 +2266,154 @@ function updateCheckoutCity(cityName) {
 let placedOrderRef = null;
 
 async function placeOrderFromCheckout() {
-  const items = Object.values(appState.cart).map(i => ({
-    product_id: i.product.id,
-    quantity: i.qty
-  }));
-
-  if (items.length === 0) {
-    alert("Your basket is empty!");
-    return;
-  }
+  const urlParams = new URLSearchParams(window.location.search);
+  const checkoutMode = urlParams.get("mode") || (appState.shoppingMode === "RETAIL_NEAR_ME" ? "retail" : "online");
 
   const customerName = document.getElementById("checkout-customer-name")?.value || "Priya Sharma";
   const customerEmail = document.getElementById("checkout-customer-email")?.value || "priya.sharma@example.in";
   const customerPhone = document.getElementById("checkout-customer-phone")?.value || "+91 98201 12345";
-  const shippingAddress = document.getElementById("checkout-shipping-address")?.value || "Worli Sea Face";
-  const shippingCity = document.getElementById("checkout-shipping-city")?.value || "Mumbai";
+  const shippingAddress = document.getElementById("checkout-shipping-address")?.value || "Flat 402, Sea Green Apts, Worli Sea Face";
+  const shippingCity = document.getElementById("checkout-shipping-city")?.value || "Bengaluru";
   const paymentMethod = document.querySelector('input[name="checkout_payment_method"]:checked')?.value || "UPI";
 
   // Open Transaction Monitor Modal
   const modal = document.getElementById("tx-modal-overlay");
   if (modal) modal.classList.add("open");
 
-  // Step 1: PostgreSQL BEGIN transaction
   setTxStep("step-db", "PostgreSQL: Acquiring Row Lock (SELECT ... FOR UPDATE)...");
 
-  // Payload: Compliance with Rule 9 (Payment status set to PENDING)
-  const payload = {
-    customer: {
-      name: customerName,
-      email: customerEmail,
-      phone: customerPhone
-    },
-    items: items,
-    shipping_city: shippingCity,
-    shipping_address: shippingAddress,
-    payment: {
-      method: paymentMethod,
-      status: paymentMethod === "COD" ? "PENDING" : "PENDING"
-    }
-  };
-
-  try {
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (!data.success) {
-      setTxStep("step-db", `ROLLBACK: ${data.error}`, true);
-      alert(`Checkout failed: ${data.error}`);
-      return;
+  if (checkoutMode === "retail") {
+    const urlStoreId = urlParams.get("store_id");
+    const urlStores = urlParams.get("stores");
+    let targetStoreIds = null;
+    if (urlStoreId) {
+      targetStoreIds = [Number(urlStoreId)];
+    } else if (urlStores) {
+      targetStoreIds = urlStores.split(",").map(Number);
+    } else if (appState.selectedRetailStores && appState.selectedRetailStores.size > 0) {
+      targetStoreIds = Array.from(appState.selectedRetailStores);
+    } else {
+      targetStoreIds = Array.from(new Set(Object.values(appState.cart).map(it => it.store_id || 1)));
     }
 
-    placedOrderRef = data.order;
+    try {
+      const res = await fetch("/api/checkout/retail/multi-store", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          selected_store_ids: targetStoreIds,
+          customer_info: {
+            name: customerName,
+            email: customerEmail,
+            phone: customerPhone,
+            address: shippingAddress,
+            city: shippingCity
+          },
+          delivery_address: {
+            formatted: shippingAddress,
+            city: shippingCity,
+            latitude: appState.deliveryLocation?.latitude || 12.9784,
+            longitude: appState.deliveryLocation?.longitude || 77.6408
+          },
+          payment_method: paymentMethod
+        })
+      });
 
-    // Step 1 Success
-    setTxStep("step-db", `COMMITTED: Order #${data.order.order_number} (${data.tx_duration_ms}ms, 0 Overselling)`);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setTxStep("step-db", `ROLLBACK: ${data.error || 'Checkout failed.'}`, true);
+        alert(`Checkout failed: ${data.error || 'Unknown error'}`);
+        return;
+      }
 
-    // Step 2: Lifecycle
-    setTimeout(() => {
-      setTxStep("step-state", `Order registered in '${data.order.status}' status with stock reserved.`);
-    }, 400);
+      placedOrderRef = {
+        order_id: data.parent_order_id,
+        order_number: data.parent_order_number
+      };
 
-    // Step 3: Kafka
-    setTimeout(() => {
-      setTxStep("step-kafka", `Published event '${data.kafka_event.event_id}' to topic 'order-events'`);
-      document.getElementById("btn-tx-finish").style.display = "inline-flex";
+      setTxStep("step-db", `COMMITTED: Master Order #${data.parent_order_number} (${data.stores_count} store suborders, 0 Overselling)`);
 
-      // Clear cart
-      appState.cart = {};
-      saveCart();
-    }, 800);
+      setTimeout(() => {
+        setTxStep("step-state", `Parent Order and ${data.stores_count} suborders registered in 'CONFIRMED' status.`);
+      }, 400);
 
-  } catch (err) {
-    setTxStep("step-db", `Network error: ${err.message}`, true);
+      setTimeout(async () => {
+        setTxStep("step-kafka", `Published event '${data.kafka_event?.event_id || 'EVT-RET-ORDER'}' to topic 'order-events'`);
+        const finishBtn = document.getElementById("btn-tx-finish");
+        if (finishBtn) finishBtn.style.display = "inline-flex";
+
+        await syncCartWithBackend();
+      }, 800);
+
+    } catch (err) {
+      setTxStep("step-db", `Network error: ${err.message}`, true);
+    }
+
+  } else {
+    // Online checkout
+    try {
+      const res = await fetch("/api/checkout/online", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_info: {
+            name: customerName,
+            email: customerEmail,
+            phone: customerPhone,
+            address: shippingAddress,
+            city: shippingCity
+          },
+          payment_method: paymentMethod
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setTxStep("step-db", `ROLLBACK: ${data.error || 'Checkout failed.'}`, true);
+        alert(`Checkout failed: ${data.error || 'Unknown error'}`);
+        return;
+      }
+
+      const ord = data.order || {};
+      placedOrderRef = {
+        order_id: ord.order_id || ord.id,
+        order_number: ord.order_number
+      };
+
+      setTxStep("step-db", `COMMITTED: Order #${ord.order_number} (0 Overselling)`);
+
+      setTimeout(() => {
+        setTxStep("step-state", `Order registered in '${ord.status}' status with stock reserved.`);
+      }, 400);
+
+      setTimeout(async () => {
+        setTxStep("step-kafka", `Published event '${ord.kafka_event?.event_id || 'EVT-ONLINE-ORDER'}' to topic 'order-events'`);
+        const finishBtn = document.getElementById("btn-tx-finish");
+        if (finishBtn) finishBtn.style.display = "inline-flex";
+
+        await syncCartWithBackend();
+      }, 800);
+
+    } catch (err) {
+      setTxStep("step-db", `Network error: ${err.message}`, true);
+    }
   }
+}
+
+async function logoutUser() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (e) {}
+  localStorage.removeItem("bharatstore_retail_cart");
+  localStorage.removeItem("bharatstore_online_cart");
+  localStorage.removeItem("bharatstore_cart");
+  appState.cart = {};
+  appState.retailCart = {};
+  appState.onlineCart = {};
+  appState.retailCarts = [];
+  updateHeaderBadges();
+  renderCartDrawer();
+  window.location.href = "/login";
 }
 
 function setTxStep(stepId, text, isError = false) {

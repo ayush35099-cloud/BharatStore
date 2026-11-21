@@ -140,9 +140,30 @@ class DatabaseService:
             return ""
         # Redact URI credentials: postgresql://user:password@host
         sanitized = re.sub(r"://([^:]+):([^@]+)@", r"://\1:******@", err_msg)
-        # Redact keyword parameters: password=...
+        # Redact keyword parameters: password=... or pwd=...
         sanitized = re.sub(r"password=([^\s]+)", r"password=******", sanitized)
+        sanitized = re.sub(r"pwd=([^\s]+)", r"pwd=******", sanitized)
+        sanitized = re.sub(r"user=([^\s]+)", r"user=******", sanitized)
         return sanitized
+
+    @staticmethod
+    def _parse_cities_json(val: Any) -> List[str]:
+        if not val:
+            return []
+        if isinstance(val, list):
+            return val
+        if isinstance(val, (dict, set)):
+            return list(val)
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, list) else [str(parsed)]
+        except Exception:
+            try:
+                import ast
+                parsed = ast.literal_eval(val)
+                return parsed if isinstance(parsed, list) else [str(parsed)]
+            except Exception:
+                return []
 
     def _init_connection(self):
         if Config.is_pg_configured():
@@ -161,13 +182,16 @@ class DatabaseService:
                 clean_err = self._sanitize_db_error(str(e))
                 self.connection_error = clean_err
                 if Config.is_production():
-                    logger.error(f"CRITICAL: Failed to connect to PostgreSQL in production! Error: {clean_err}. Falling back to local SQLite.")
+                    logger.error(f"CRITICAL: Failed to connect to PostgreSQL in production! Error: {clean_err}.")
+                    raise RuntimeError(f"Production PostgreSQL connection failed: {clean_err}. BharatStore requires persistent PostgreSQL in production.")
                 else:
                     logger.warning(f"Failed to connect to PostgreSQL: {clean_err}. Falling back to ACID SQLite.")
+        elif Config.is_production():
+            err_msg = "CRITICAL: DATABASE_URL / AIVEN_PG_URL not configured. BharatStore requires persistent PostgreSQL in production."
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
         
         self.is_live_postgres = False
-        if Config.is_production() and not Config.is_pg_configured():
-            logger.warning("DATABASE_URL / AIVEN_PG_URL not configured. Running with persistent local SQLite database.")
         self._init_sqlite_schema()
 
     def _get_pg_connection(self):
@@ -351,7 +375,7 @@ class DatabaseService:
             products = []
             for r in rows:
                 item = dict(r)
-                item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
+                item["cities"] = self._parse_cities_json(item.get("cities_json"))
                 item["price"] = float(item["price"])
                 item["original_price"] = float(item["original_price"]) if item["original_price"] else None
                 item["rating"] = float(item["rating"]) if item["rating"] else None
@@ -369,7 +393,7 @@ class DatabaseService:
             products = []
             for r in rows:
                 item = dict(r)
-                item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
+                item["cities"] = self._parse_cities_json(item.get("cities_json"))
                 products.append(item)
             conn.close()
 
@@ -396,7 +420,7 @@ class DatabaseService:
             if not row:
                 return None
             item = dict(row)
-            item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
+            item["cities"] = self._parse_cities_json(item.get("cities_json"))
             item["price"] = float(item["price"])
             item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
             item["images"] = self.get_product_images(product_id, item)
@@ -417,7 +441,7 @@ class DatabaseService:
             if not row:
                 return None
             item = dict(row)
-            item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
+            item["cities"] = self._parse_cities_json(item.get("cities_json"))
             item["price"] = float(item["price"])
             item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
             item["images"] = self.get_product_images(product_id, item)
@@ -533,7 +557,7 @@ class DatabaseService:
                     rows.extend([dict(r) for r in cur.fetchall()])
             conn.close()
             for r in rows:
-                r["cities"] = json.loads(r["cities_json"]) if r.get("cities_json") else []
+                r["cities"] = self._parse_cities_json(r.get("cities_json"))
                 r["price"] = float(r["price"])
                 r["original_price"] = float(r["original_price"]) if r.get("original_price") else None
             return rows
@@ -575,7 +599,7 @@ class DatabaseService:
                 rows.extend([dict(r) for r in cur.fetchall()])
             conn.close()
             for r in rows:
-                r["cities"] = json.loads(r["cities_json"]) if r.get("cities_json") else []
+                r["cities"] = self._parse_cities_json(r.get("cities_json"))
                 r["price"] = float(r["price"])
                 r["original_price"] = float(r["original_price"]) if r.get("original_price") else None
             return rows
@@ -3269,15 +3293,23 @@ class DatabaseService:
     def get_retail_stores(self, city: str = "Bengaluru") -> List[Dict[str, Any]]:
         """
         Retrieves active physical retail shops for the specified city, enriched with metadata.
-        For Bengaluru, returns the 5 neighbourhood retail shops (IDs 1 to 5).
+        Filters strictly by city so stores from one city never leak into another.
+        For Bengaluru, returns the 5 canonical neighbourhood retail shops (IDs 1 to 5).
         """
         all_stores = self.get_all_stores(active_only=True)
         city_lower = (city or "Bengaluru").strip().lower()
-        matched = [s for s in all_stores if city_lower in s.get("city", "").lower() and s.get("id") in [1, 2, 3, 4, 5]]
-        if not matched:
-            matched = [s for s in all_stores if s.get("id") in [1, 2, 3, 4, 5]]
-            if not matched:
-                matched = all_stores[:5]
+        matched = [
+            s for s in all_stores
+            if (city_lower in s.get("city", "").lower() or s.get("city", "").lower() in city_lower)
+        ]
+        # For Bengaluru, preserve canonical 5-shop marketplace (IDs 1 to 5)
+        if "bengaluru" in city_lower or "bangalore" in city_lower:
+            blr_order = {sid: i for i, sid in enumerate([1, 2, 3, 4, 5])}
+            flagship = [s for s in matched if s.get("id") in [1, 2, 3, 4, 5]]
+            if len(flagship) == 5:
+                matched = sorted(flagship, key=lambda s: blr_order.get(s.get("id"), 99))
+            else:
+                matched = sorted(matched, key=lambda s: blr_order.get(s.get("id"), 99))
         return [self._enrich_store_metadata(s) for s in matched]
 
     def get_product_price_comparison(self, product_id: int, city: str = "Bengaluru") -> Optional[Dict[str, Any]]:
@@ -3912,7 +3944,14 @@ class DatabaseService:
 
             store_obj = self.get_store_by_id(s_id) or {}
             fulfillment = cart_details["items"][0].get("fulfillment", "delivery") if cart_details["items"] else "delivery"
-            del_fee = self.calculate_retail_delivery_fee(s_id, customer_lat=customer_lat, customer_lng=customer_lng, fulfillment=fulfillment)
+            try:
+                del_fee = self.calculate_retail_delivery_fee(s_id, customer_lat=customer_lat, customer_lng=customer_lng, fulfillment=fulfillment)
+                delivery_eligible = True
+                delivery_ineligible_reason = None
+            except ValueError as ve:
+                del_fee = 60.0
+                delivery_eligible = False
+                delivery_ineligible_reason = str(ve)
 
             shop_entry = {
                 "cart_id": cart_details["cart_id"],
@@ -3931,6 +3970,8 @@ class DatabaseService:
                 "fulfillment": fulfillment,
                 "fulfillment_type": fulfillment,
                 "delivery_fee": del_fee,
+                "delivery_eligible": delivery_eligible,
+                "delivery_ineligible_reason": delivery_ineligible_reason,
                 "min_order": float(store_obj.get("min_order_value") or 99.0),
                 "store_total": round(cart_details["subtotal"] + del_fee, 2)
             }

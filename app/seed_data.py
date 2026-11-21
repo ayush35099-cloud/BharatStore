@@ -9,6 +9,7 @@ FULFILLMENT_HUBS = [
     {"code": "DEL", "city": "Delhi", "name": "BharatKart Delhi NCR - Connaught Place", "state": "Delhi"},
     {"code": "HYD", "city": "Hyderabad", "name": "BharatKart Hyderabad Hub - HITEC City", "state": "Telangana"},
     {"code": "MAA", "city": "Chennai", "name": "BharatKart Chennai Hub - Anna Nagar", "state": "Tamil Nadu"},
+    {"code": "PNQ", "city": "Pune", "name": "BharatKart Pune Central - Shivaji Nagar", "state": "Maharashtra"},
     {"code": "CCU", "city": "Kolkata", "name": "BharatKart Kolkata Hub - Park Street", "state": "West Bengal"}
 ]
 

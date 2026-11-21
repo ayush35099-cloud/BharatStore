@@ -114,7 +114,7 @@
     <div class="retail-comparison-banner">
       <div class="banner-text">
         <strong><i class="fa-solid fa-scale-balanced" style="margin-right:6px;"></i> Compare prices across five neighbourhood shops and buy at the price you prefer.</strong>
-        <span>Transparent grocery prices across Bharat Fresh Mart, Daily Needs, Green Basket, Sri Lakshmi Stores & Smart Choice Supermarket.</span>
+        <span>Transparent grocery prices across {{ stores|map(attribute='store_name')|join(', ') if stores else 'local neighbourhood shops' }}.</span>
       </div>
       <div class="retail-deals-pills-row">
         {% for deal in top_deals[:4] %}
@@ -259,7 +259,7 @@
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out
+            <i class="fa-solid fa-ban"></i> Out of Stock
           </button>
           {% endif %}
         </div>
@@ -358,7 +358,7 @@
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out
+            <i class="fa-solid fa-ban"></i> Out of Stock
           </button>
           {% endif %}
         </div>
@@ -456,7 +456,7 @@
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out
+            <i class="fa-solid fa-ban"></i> Out of Stock
           </button>
           {% endif %}
         </div>
@@ -554,7 +554,7 @@
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out
+            <i class="fa-solid fa-ban"></i> Out of Stock
           </button>
           {% endif %}
         </div>
@@ -652,7 +652,7 @@
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out
+            <i class="fa-solid fa-ban"></i> Out of Stock
           </button>
           {% endif %}
         </div>
@@ -718,33 +718,6 @@
         </div>
       </div>
       {% endfor %}
-
-      <!-- MegaHub Card for Regression Integrity -->
-      <div class="store-hub-card" data-city="Mumbai">
-        <div class="store-card-header">
-          <div class="store-card-icon">
-            <i class="fa-solid fa-warehouse"></i>
-          </div>
-          <div class="store-card-badges">
-            <span class="store-distance-tag"><i class="fa-solid fa-location-arrow"></i> 15 km Radius</span>
-            <span class="store-open-tag"><i class="fa-solid fa-circle"></i> Open Now</span>
-          </div>
-        </div>
-        <div class="store-card-body">
-          <h3 class="store-card-name">BharatStore Mumbai MegaHub - Andheri West</h3>
-          <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> Andheri West, Mumbai, Maharashtra 400053</p>
-          <div class="store-card-perks">
-            <span class="perk-pill"><i class="fa-solid fa-truck"></i> Fast Delivery</span>
-            <span class="perk-pill"><i class="fa-solid fa-boxes-stacked"></i> Central Dispatch</span>
-          </div>
-        </div>
-        <div class="store-card-footer">
-          <button type="button" class="btn-primary store-select-btn" onclick="switchRetailStore(3, 'BharatStore Mumbai Bandra', 'Mumbai')">
-            <i class="fa-solid fa-basket-shopping"></i>
-            <span>Shop From This Store</span>
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </section>

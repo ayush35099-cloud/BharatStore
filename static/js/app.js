@@ -61,10 +61,16 @@ const appState = {
 // -----------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", async () => {
   initTheme();
-  await initShoppingMode();
-  await syncCartWithBackend();
-  initDeliveryLocation();
   initDealTimer();
+
+  // Run shopping mode sync and delivery location initialization in parallel
+  await Promise.allSettled([
+    initShoppingMode(),
+    initDeliveryLocation()
+  ]);
+
+  // Synchronize cart with backend once mode is established
+  await syncCartWithBackend();
 
   // If on Homepage
   if (document.getElementById("deals-products-container")) {
@@ -744,30 +750,70 @@ function handleNearbyStoresNav() {
 // -----------------------------------------------------------------------------
 // 2. Cart Management (Backend Database Authoritative Source of Truth)
 // -----------------------------------------------------------------------------
+let _syncCartInFlightPromise = null;
 async function syncCartWithBackend() {
-  try {
-    const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
-    if (isRetail) {
-      let locParams = "";
-      if (appState.deliveryLocation && appState.deliveryLocation.latitude && appState.deliveryLocation.longitude) {
-        locParams = `?customer_lat=${appState.deliveryLocation.latitude}&customer_lng=${appState.deliveryLocation.longitude}`;
-      }
-      const res = await fetch(`/api/cart/retail${locParams}`);
-      if (res.ok) {
-        const data = await res.json();
-        const shops = data.shops || [];
-        appState.retailCarts = shops;
-        appState.cart = {};
-        let totalItems = 0;
-        shops.forEach(shop => {
-          (shop.items || []).forEach(it => {
-            const key = `${shop.store_id}_${it.product_id}`;
-            appState.cart[key] = {
+  if (_syncCartInFlightPromise) {
+    return _syncCartInFlightPromise;
+  }
+  _syncCartInFlightPromise = (async () => {
+    try {
+      const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+      if (isRetail) {
+        let locParams = "";
+        if (appState.deliveryLocation && appState.deliveryLocation.latitude && appState.deliveryLocation.longitude) {
+          locParams = `?customer_lat=${appState.deliveryLocation.latitude}&customer_lng=${appState.deliveryLocation.longitude}`;
+        }
+        const res = await fetch(`/api/cart/retail${locParams}`);
+        if (res.ok) {
+          const data = await res.json();
+          const shops = data.shops || [];
+          appState.retailCarts = shops;
+          appState.cart = {};
+          let totalItems = 0;
+          shops.forEach(shop => {
+            (shop.items || []).forEach(it => {
+              const key = `${shop.store_id}_${it.product_id}`;
+              appState.cart[key] = {
+                id: it.item_id,
+                key: key,
+                store_id: shop.store_id,
+                store_name: shop.store_name,
+                fulfillment: it.fulfillment || shop.fulfillment || "delivery",
+                product: {
+                  id: it.product_id,
+                  title: it.title,
+                  brand: it.brand,
+                  price: it.unit_price,
+                  image_url: it.image_url,
+                  stock: it.live_stock,
+                  category: it.category
+                },
+                qty: it.quantity
+              };
+              totalItems += it.quantity;
+            });
+          });
+          appState.retailCart = { ...appState.cart };
+          if (totalItems === 0) {
+            localStorage.removeItem("bharatstore_retail_cart");
+            localStorage.removeItem("bharatstore_cart");
+          } else {
+            localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+            localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+          }
+        }
+      } else {
+        const res = await fetch("/api/cart/online");
+        if (res.ok) {
+          const data = await res.json();
+          const cartData = data.cart || {};
+          const items = cartData.items || [];
+          appState.cart = {};
+          let totalItems = 0;
+          items.forEach(it => {
+            appState.cart[it.product_id] = {
               id: it.item_id,
-              key: key,
-              store_id: shop.store_id,
-              store_name: shop.store_name,
-              fulfillment: it.fulfillment || shop.fulfillment || "delivery",
+              key: it.product_id,
               product: {
                 id: it.product_id,
                 title: it.title,
@@ -777,68 +823,36 @@ async function syncCartWithBackend() {
                 stock: it.live_stock,
                 category: it.category
               },
-              qty: it.quantity
+              qty: it.quantity,
+              fulfillment: "delivery"
             };
             totalItems += it.quantity;
           });
-        });
-        appState.retailCart = { ...appState.cart };
-        if (totalItems === 0) {
-          localStorage.removeItem("bharatstore_retail_cart");
-          localStorage.removeItem("bharatstore_cart");
-        } else {
-          localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
-          localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+          appState.onlineCart = { ...appState.cart };
+          if (totalItems === 0) {
+            localStorage.removeItem("bharatstore_online_cart");
+            localStorage.removeItem("bharatstore_cart");
+          } else {
+            localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+            localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+          }
         }
       }
-    } else {
-      const res = await fetch("/api/cart/online");
-      if (res.ok) {
-        const data = await res.json();
-        const cartData = data.cart || {};
-        const items = cartData.items || [];
-        appState.cart = {};
-        let totalItems = 0;
-        items.forEach(it => {
-          appState.cart[it.product_id] = {
-            id: it.item_id,
-            key: it.product_id,
-            product: {
-              id: it.product_id,
-              title: it.title,
-              brand: it.brand,
-              price: it.unit_price,
-              image_url: it.image_url,
-              stock: it.live_stock,
-              category: it.category
-            },
-            qty: it.quantity,
-            fulfillment: "delivery"
-          };
-          totalItems += it.quantity;
-        });
-        appState.onlineCart = { ...appState.cart };
-        if (totalItems === 0) {
-          localStorage.removeItem("bharatstore_online_cart");
-          localStorage.removeItem("bharatstore_cart");
-        } else {
-          localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
-          localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
-        }
+    } catch (err) {
+      console.warn("Backend cart sync notice:", err);
+    } finally {
+      _syncCartInFlightPromise = null;
+      updateHeaderBadges();
+      renderCartDrawer();
+      if (document.getElementById("cart-page-items-list")) {
+        renderCartPage();
+      }
+      if (document.getElementById("checkout-items-preview")) {
+        initCheckoutPage();
       }
     }
-  } catch (err) {
-    console.warn("Backend cart sync notice:", err);
-  } finally {
-    updateHeaderBadges();
-    renderCartDrawer();
-    if (document.getElementById("cart-page-items-list")) {
-      renderCartPage();
-    }
-    if (document.getElementById("checkout-items-preview")) {
-      initCheckoutPage();
-    }
-  }
+  })();
+  return _syncCartInFlightPromise;
 }
 
 function saveCart() {
@@ -1201,7 +1215,7 @@ function renderCartDrawer() {
               const p = item.product;
               return `
                 <div class="drawer-item">
-                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
+                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}" loading="lazy" decoding="async" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
                   <div style="min-width:0; width:100%;">
                     <div class="drawer-item-title">${escapeHtml(p.title)}</div>
                     <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
@@ -1247,7 +1261,7 @@ function renderCartDrawer() {
       subtotal += itemTotal;
       return `
         <div class="drawer-item">
-          <img src="${p.image_url}" alt="${escapeHtml(p.title)}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
+          <img src="${p.image_url}" alt="${escapeHtml(p.title)}" loading="lazy" decoding="async" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
           <div style="min-width:0; width:100%;">
             <div class="drawer-item-title">${escapeHtml(p.title)}</div>
             <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
@@ -1379,7 +1393,7 @@ function createProductCardHTML(p) {
           <i class="${isWishlisted ? 'fa-solid fa-heart' : 'fa-regular fa-heart'}" style="${isWishlisted ? 'color:#E03131;' : ''}"></i>
         </button>
         <a href="/product/${p.id}" style="width:100%; height:100%;">
-          <img src="${p.image_url}" alt="${p.title}" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
+          <img src="${p.image_url}" alt="${p.title}" loading="lazy" decoding="async" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
         </a>
       </div>
 
@@ -1418,6 +1432,7 @@ function createProductCardHTML(p) {
 // -----------------------------------------------------------------------------
 // 5. Homepage Sections Populator (with Skeletons, Error & Empty Handling)
 // -----------------------------------------------------------------------------
+let _homepageFetchPromise = null;
 async function loadHomepageSections() {
   const dealsContainer = document.getElementById("deals-products-container");
   const trendingContainer = document.getElementById("trending-products-container");
@@ -1431,10 +1446,21 @@ async function loadHomepageSections() {
   if (recommendedContainer) recommendedContainer.innerHTML = createProductSkeletonHTML(4);
 
   try {
-    const res = await fetch("/api/products");
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products from backend API`);
-    const data = await res.json();
-    appState.products = data.products || [];
+    if (!appState.products || appState.products.length === 0) {
+      if (!_homepageFetchPromise) {
+        _homepageFetchPromise = (async () => {
+          const res = await fetch("/api/products");
+          if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products from backend API`);
+          const data = await res.json();
+          return data.products || [];
+        })();
+      }
+      try {
+        appState.products = await _homepageFetchPromise;
+      } finally {
+        _homepageFetchPromise = null;
+      }
+    }
 
     if (appState.products.length === 0) {
       const emptyHtml = createEmptyStateHTML("Catalog Updating", "Physical store inventory is syncing with cloud nodes.");

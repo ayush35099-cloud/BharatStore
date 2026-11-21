@@ -211,7 +211,7 @@ class TestLiveAuditAndFixes(unittest.TestCase):
         """
         with patch.dict(os.environ, {"RENDER": "true", "DATABASE_URL": "postgresql://usr:secret_pass_123@host:5432/db"}):
             with patch.object(Config, "is_pg_configured", return_value=True):
-                with patch.object(DatabaseService, "_get_pg_connection", side_effect=Exception("password=secret_pass_123 failed")):
+                with patch.object(DatabaseService, "_connect_pg_direct", side_effect=Exception("password=secret_pass_123 failed")):
                     with self.assertRaises(RuntimeError) as ctx:
                         DatabaseService()
                     err = str(ctx.exception)

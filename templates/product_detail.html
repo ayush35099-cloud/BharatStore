@@ -24,6 +24,8 @@
           id="main-detail-img" 
           src="{{ product.image_url }}" 
           alt="{{ product.title }}"
+          fetchpriority="high"
+          decoding="async"
           onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';"
         >
         <div class="gallery-zoom-hint">
@@ -43,13 +45,15 @@
             <img 
               src="{{ img.image_url }}" 
               alt="Angle {{ loop.index }}"
+              loading="lazy"
+              decoding="async"
               onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';"
             >
           </div>
           {% endfor %}
         {% else %}
           <div class="detail-thumb-item active" onclick="switchDetailImage('{{ product.image_url }}', this)">
-            <img src="{{ product.image_url }}" alt="Primary View" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
+            <img src="{{ product.image_url }}" alt="Primary View" loading="lazy" decoding="async" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
           </div>
         {% endif %}
       </div>

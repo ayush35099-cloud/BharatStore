@@ -895,13 +895,18 @@ INDEXES_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);",
     "CREATE INDEX IF NOT EXISTS idx_addresses_default ON addresses(customer_id, is_default);",
 
-    # Stores & Multi-Store Inventory (Phase 4)
+    # Stores & Multi-Store Inventory (Phase 4 & Performance Indexes)
     "CREATE INDEX IF NOT EXISTS idx_stores_city_area ON stores(city, area);",
+    "CREATE INDEX IF NOT EXISTS idx_stores_city_active ON stores(city, is_active);",
     "CREATE INDEX IF NOT EXISTS idx_stores_slug ON stores(store_slug);",
     "CREATE INDEX IF NOT EXISTS idx_stores_active ON stores(is_active);",
     "CREATE INDEX IF NOT EXISTS idx_store_inventory_store ON store_inventory(store_id);",
     "CREATE INDEX IF NOT EXISTS idx_store_inventory_product ON store_inventory(product_id);",
-    "CREATE INDEX IF NOT EXISTS idx_store_inventory_avail ON store_inventory(store_id, is_available);"
+    "CREATE INDEX IF NOT EXISTS idx_store_inventory_avail ON store_inventory(store_id, is_available);",
+    "CREATE INDEX IF NOT EXISTS idx_store_inventory_lookup ON store_inventory(store_id, is_available, product_id);",
+    "CREATE INDEX IF NOT EXISTS idx_products_cat_subcat ON products(category, sub_category);",
+    "CREATE INDEX IF NOT EXISTS idx_carts_lookup ON carts(customer_id, session_id, shopping_mode, status, store_id);",
+    "CREATE INDEX IF NOT EXISTS idx_cart_items_lookup ON cart_items(cart_id, store_id, product_id);"
 ]
 
 # -----------------------------------------------------------------------------

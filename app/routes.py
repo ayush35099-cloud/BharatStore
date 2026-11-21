@@ -10,7 +10,7 @@ import hmac
 import uuid
 import concurrent.futures
 from functools import wraps
-from flask import Blueprint, request, jsonify, render_template, Response
+from flask import Blueprint, request, jsonify, render_template, Response, session
 from app.config import Config
 from app.database import DatabaseService, OrderStatus, PaymentStatus
 from app.payment_service import PaymentService
@@ -89,11 +89,44 @@ except Exception as e:
     logger.error(f"Error seeding OpenSearch on launch: {e}")
 
 # -------------------------------------------------------------------------
+# Shopping Mode Constants & Persistence Helpers
+# -------------------------------------------------------------------------
+VALID_SHOPPING_MODES = {"RETAIL_NEAR_ME", "ONLINE"}
+DEFAULT_SHOPPING_MODE = "ONLINE"
+
+def get_current_shopping_mode() -> str:
+    """Retrieves validated shopping mode from session, defaulting to ONLINE."""
+    mode = session.get("shopping_mode")
+    if mode in VALID_SHOPPING_MODES:
+        return mode
+    return DEFAULT_SHOPPING_MODE
+
+def set_current_shopping_mode(mode: str) -> bool:
+    """Sets and validates shopping mode in the session."""
+    if mode in VALID_SHOPPING_MODES:
+        session["shopping_mode"] = mode
+        session.permanent = True
+        return True
+    return False
+
+@main_bp.app_context_processor
+def inject_shopping_mode():
+    """Injects current shopping mode into all Jinja2 templates."""
+    return {
+        "current_shopping_mode": get_current_shopping_mode(),
+        "valid_shopping_modes": sorted(list(VALID_SHOPPING_MODES))
+    }
+
+# -------------------------------------------------------------------------
 # Web Views
 # -------------------------------------------------------------------------
 @main_bp.route("/")
 def index():
     return render_template("index.html")
+
+@main_bp.route("/select-mode")
+def select_mode_page():
+    return render_template("select_mode.html", current_mode=get_current_shopping_mode())
 
 @main_bp.route("/architecture")
 def architecture():
@@ -231,6 +264,48 @@ def health_check():
             }
         },
         "all_aiven_live": db_service.is_live_postgres and kafka_service.is_live_kafka and opensearch_service.is_live_opensearch
+    })
+
+# -------------------------------------------------------------------------
+# Shopping Mode APIs
+# -------------------------------------------------------------------------
+@main_bp.route("/api/shopping-mode", methods=["GET"])
+def get_shopping_mode_api():
+    """Returns the customer's active shopping mode from session."""
+    mode = get_current_shopping_mode()
+    return jsonify({
+        "success": True,
+        "mode": mode,
+        "supported_modes": sorted(list(VALID_SHOPPING_MODES))
+    })
+
+@main_bp.route("/api/shopping-mode", methods=["POST"])
+def set_shopping_mode_api():
+    """
+    Validates and updates customer shopping mode in session.
+    Guarantees strict server-side validation against unauthorized or arbitrary mode identifiers.
+    """
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode")
+    if not mode or not isinstance(mode, str):
+        return jsonify({
+            "success": False,
+            "error": "A valid 'mode' string is required."
+        }), 400
+
+    clean_mode = mode.strip().upper()
+    if clean_mode not in VALID_SHOPPING_MODES:
+        return jsonify({
+            "success": False,
+            "error": f"Invalid shopping mode '{mode}'. Must be one of: {', '.join(sorted(list(VALID_SHOPPING_MODES)))}."
+        }), 400
+
+    set_current_shopping_mode(clean_mode)
+    logger.info(f"Shopping mode successfully set to '{clean_mode}'")
+    return jsonify({
+        "success": True,
+        "mode": clean_mode,
+        "message": f"Shopping mode successfully switched to {clean_mode}."
     })
 
 # -------------------------------------------------------------------------

@@ -63,6 +63,35 @@
         </div>
       </a>
 
+      <!-- Dual Shopping Mode Pill Selector -->
+      <div class="shopping-mode-switcher" id="header-mode-switcher" role="radiogroup" aria-label="Shopping Mode Selection">
+        <button 
+          type="button" 
+          class="mode-pill-btn {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}active{% endif %}" 
+          id="mode-btn-retail" 
+          role="radio" 
+          aria-checked="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}true{% else %}false{% endif %}"
+          onclick="handleModeSwitchRequest('RETAIL_NEAR_ME')"
+          title="Switch to Retail Near Me — Quick local retail discovery & delivery"
+        >
+          <span class="mode-pill-icon"><i class="fa-solid fa-bag-shopping"></i></span>
+          <span class="mode-pill-text">Retail Near Me</span>
+          <span class="mode-pill-badge">15 km</span>
+        </button>
+        <button 
+          type="button" 
+          class="mode-pill-btn {% if current_shopping_mode != 'RETAIL_NEAR_ME' %}active{% endif %}" 
+          id="mode-btn-online" 
+          role="radio" 
+          aria-checked="{% if current_shopping_mode != 'RETAIL_NEAR_ME' %}true{% else %}false{% endif %}"
+          onclick="handleModeSwitchRequest('ONLINE')"
+          title="Switch to Online Shopping — Full nationwide marketplace catalog"
+        >
+          <span class="mode-pill-icon"><i class="fa-solid fa-globe"></i></span>
+          <span class="mode-pill-text">Online Shopping</span>
+        </button>
+      </div>
+
       <!-- Delivery Hub Picker -->
       <div class="hub-selector-box" onclick="openHubSwitchModal()" title="Select your local physical store fulfillment hub">
         <i class="fa-solid fa-location-dot hub-icon"></i>
@@ -141,14 +170,40 @@
   </header>
 
   <!-- =========================================================================
-       7. CATEGORY NAVIGATION BAR
+       7. CATEGORY NAVIGATION BAR (Mode-Aware)
        ========================================================================= -->
   <nav class="category-navbar">
     <div class="container category-nav-inner">
-      <a href="/products" class="category-nav-link active">
-        <i class="fa-solid fa-border-all"></i> All Products
-      </a>
+      <!-- Mode-Specific Primary Nav Links -->
+      <div class="mode-nav-links" id="mode-nav-links">
+        <a href="/" class="category-nav-link" id="nav-mode-home">
+          <i class="fa-solid fa-house"></i> Home
+        </a>
+        <a href="/products" class="category-nav-link" id="nav-mode-categories">
+          <i class="fa-solid fa-layer-group"></i> Categories
+        </a>
+        <!-- Retail Near Me link -->
+        <a href="javascript:void(0)" onclick="handleNearbyStoresNav()" class="category-nav-link retail-only-nav {% if current_shopping_mode != 'RETAIL_NEAR_ME' %}nav-hidden{% endif %}" id="nav-mode-nearby-stores">
+          <i class="fa-solid fa-location-crosshairs"></i> Nearby Stores <span class="nav-chip-badge">15 km</span>
+        </a>
+        <!-- Online Shopping link -->
+        <a href="/products?deals=true" class="category-nav-link online-only-nav {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}nav-hidden{% endif %}" id="nav-mode-offers">
+          <i class="fa-solid fa-tag"></i> Offers
+        </a>
+        <a href="/wishlist" class="category-nav-link" id="nav-mode-wishlist">
+          <i class="fa-regular fa-heart"></i> Wishlist
+        </a>
+        <a href="/orders" class="category-nav-link" id="nav-mode-orders" style="color: var(--color-accent-navy);">
+          <i class="fa-solid fa-box"></i> Orders
+        </a>
+        <a href="javascript:void(0)" onclick="toggleCartDrawer()" class="category-nav-link" id="nav-mode-cart">
+          <i class="fa-solid fa-bag-shopping"></i> Cart
+        </a>
+      </div>
+
       <span class="category-nav-separator"></span>
+
+      <!-- Fast Category Shortcuts -->
       <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-nav-link">
         <i class="fa-solid fa-jar"></i> Pure Organic & Foods
       </a>
@@ -167,13 +222,7 @@
       <a href="/products?category=Fashion+%26+Apparel" class="category-nav-link">
         <i class="fa-solid fa-shirt"></i> Fashion & Apparel
       </a>
-      <a href="/products?category=Beauty+%26+Personal+Care" class="category-nav-link">
-        <i class="fa-solid fa-spa"></i> Beauty & Wellness
-      </a>
       <span class="category-nav-separator"></span>
-      <a href="/orders" class="category-nav-link" style="color: var(--color-accent-navy);">
-        <i class="fa-solid fa-box"></i> My Orders
-      </a>
       <a href="/admin" class="category-nav-link" style="color: var(--color-primary);">
         <i class="fa-solid fa-shield-halved"></i> Admin
       </a>
@@ -345,6 +394,109 @@
       <button onclick="closeQuickViewModal()" style="position:absolute; top:18px; right:18px; background:transparent; border:none; font-size:24px; cursor:pointer; color:var(--color-text-muted);">&times;</button>
       <div id="quick-view-content" style="display:grid; grid-template-columns:1fr 1.2fr; gap:28px;">
         <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       DUAL SHOPPING MODE SELECTION MODAL
+       ========================================================================= -->
+  <div class="cart-drawer-overlay" id="mode-selection-modal" onclick="closeModeSelectModal(event)">
+    <div class="mode-modal-card-container" onclick="event.stopPropagation()">
+      <div class="mode-modal-header">
+        <div>
+          <span class="section-kicker" style="font-size:11px; margin-bottom:2px;"><i class="fa-solid fa-sparkles"></i> Experience BharatStore 2.0</span>
+          <h2 style="font-size: 20px; font-weight: 700; margin: 0;">Select Your Shopping Mode</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" onclick="closeModeSelectModal()" aria-label="Close modal">&times;</button>
+      </div>
+      <p style="font-size: 13px; color: var(--color-text-muted); margin: 6px 0 20px 0;">
+        Choose your shopping mode. You can switch anytime using the header toggle without losing your cart.
+      </p>
+
+      <div class="mode-cards-grid modal-mode-grid">
+        <!-- Card A: Retail Near Me -->
+        <div class="mode-selection-card mode-card-retail" id="modal-card-retail">
+          <div class="mode-card-badge"><i class="fa-solid fa-bolt"></i> Quick Commerce (15 km)</div>
+          <div class="mode-card-icon-circle"><i class="fa-solid fa-bag-shopping"></i></div>
+          <div class="mode-card-content">
+            <h3 class="mode-card-title">Retail Near Me</h3>
+            <p class="mode-card-desc">
+              Discover nearby retail stores, explore locally available products and get your essentials delivered.
+            </p>
+            <ul class="mode-feature-list">
+              <li><i class="fa-solid fa-location-dot"></i> Nearby retail discovery</li>
+              <li><i class="fa-solid fa-boxes-stacked"></i> Store-specific availability</li>
+              <li><i class="fa-solid fa-truck-fast"></i> Home delivery</li>
+              <li><i class="fa-solid fa-store"></i> Store pickup</li>
+            </ul>
+          </div>
+          <div class="mode-card-footer">
+            <button type="button" class="btn-primary mode-select-action-btn" onclick="selectModeFromModal('RETAIL_NEAR_ME')" aria-label="Explore Nearby Stores">
+              <span>Explore Nearby Stores</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card B: Online Shopping -->
+        <div class="mode-selection-card mode-card-online" id="modal-card-online">
+          <div class="mode-card-badge mode-badge-panindia"><i class="fa-solid fa-globe"></i> Pan-India Marketplace</div>
+          <div class="mode-card-icon-circle"><i class="fa-solid fa-earth-asia"></i></div>
+          <div class="mode-card-content">
+            <h3 class="mode-card-title">Online Shopping</h3>
+            <p class="mode-card-desc">
+              Explore our complete marketplace and shop from a wide range of products.
+            </p>
+            <ul class="mode-feature-list">
+              <li><i class="fa-solid fa-layer-group"></i> Full product catalogue</li>
+              <li><i class="fa-solid fa-tags"></i> Multiple categories</li>
+              <li><i class="fa-solid fa-award"></i> Brand discovery</li>
+              <li><i class="fa-solid fa-cart-shopping"></i> Standard online shopping</li>
+            </ul>
+          </div>
+          <div class="mode-card-footer">
+            <button type="button" class="btn-secondary mode-select-action-btn online-action-btn" onclick="selectModeFromModal('ONLINE')" aria-label="Explore Online Store">
+              <span>Explore Online Store</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       CART MODE SWITCH CONFIRMATION MODAL
+       ========================================================================= -->
+  <div class="cart-drawer-overlay" id="mode-switch-modal-overlay" onclick="closeModeSwitchModal(event)">
+    <div class="mode-confirm-modal-box" onclick="event.stopPropagation()">
+      <div class="mode-confirm-header">
+        <div class="mode-confirm-icon-wrap">
+          <i class="fa-solid fa-arrow-right-arrow-left"></i>
+        </div>
+        <div>
+          <h3 id="mode-confirm-title" style="margin: 0; font-size: 18px;">Switch Shopping Mode?</h3>
+          <span style="font-size: 12px; color: var(--color-text-muted);">Separate Basket Preservation</span>
+        </div>
+        <button type="button" class="drawer-close-btn" onclick="closeModeSwitchModal()" style="margin-left: auto;">&times;</button>
+      </div>
+
+      <div class="mode-confirm-body">
+        <p id="mode-confirm-message" style="font-size: 13.5px; line-height: 1.6; margin: 12px 0;">
+          Your cart contains items from your current shopping session. Switching modes will preserve your items in a separate basket so you don't lose them.
+        </p>
+        <div class="mode-confirm-cart-preview" id="mode-confirm-cart-preview">
+          <!-- Dynamic summary injected by app.js -->
+        </div>
+      </div>
+
+      <div class="mode-confirm-actions">
+        <button type="button" class="btn-secondary" onclick="closeModeSwitchModal()">Stay in Current Mode</button>
+        <button type="button" class="btn-primary" id="mode-confirm-proceed-btn" onclick="confirmModeSwitchProceed()">
+          <span>Switch & Preserve Basket</span>
+          <i class="fa-solid fa-arrow-right"></i>
+        </button>
       </div>
     </div>
   </div>

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Choose Your Shopping Experience — BharatStore{% endblock %}
+
+{% block content %}
+<section class="mode-selection-page-section">
+  <div class="container">
+    <div class="mode-page-header">
+      <span class="section-kicker"><i class="fa-solid fa-sparkles"></i> Welcome to BharatStore 2.0</span>
+      <h1 class="mode-page-title">How would you like to shop today?</h1>
+      <p class="mode-page-subtitle">
+        Choose your preferred shopping experience. You can seamlessly switch modes anytime from the top navigation.
+      </p>
+    </div>
+
+    <!-- Dual Shopping Mode Cards Grid -->
+    <div class="mode-cards-grid">
+      
+      <!-- Card A: Retail Near Me -->
+      <div class="mode-selection-card mode-card-retail {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}active-mode-card{% endif %}" id="page-card-retail">
+        <div class="mode-card-badge">
+          <i class="fa-solid fa-bolt"></i> Quick Commerce (15 km)
+        </div>
+        <div class="mode-card-icon-circle">
+          <i class="fa-solid fa-bag-shopping"></i>
+        </div>
+        <div class="mode-card-content">
+          <h2 class="mode-card-title">Retail Near Me</h2>
+          <p class="mode-card-desc">
+            Discover nearby retail stores, explore locally available products and get your essentials delivered.
+          </p>
+          <ul class="mode-feature-list">
+            <li><i class="fa-solid fa-location-dot"></i> Nearby retail discovery</li>
+            <li><i class="fa-solid fa-boxes-stacked"></i> Store-specific availability</li>
+            <li><i class="fa-solid fa-truck-fast"></i> Home delivery</li>
+            <li><i class="fa-solid fa-store"></i> Store pickup</li>
+          </ul>
+        </div>
+        <div class="mode-card-footer">
+          <button 
+            type="button" 
+            class="btn-primary mode-select-action-btn" 
+            onclick="selectModeAndNavigate('RETAIL_NEAR_ME')"
+            aria-label="Explore Nearby Stores in Retail Near Me mode"
+          >
+            <span>Explore Nearby Stores</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+          <div class="mode-card-meta">Best for fast groceries, fresh organic staples & same-day needs</div>
+        </div>
+      </div>
+
+      <!-- Card B: Online Shopping -->
+      <div class="mode-selection-card mode-card-online {% if current_shopping_mode == 'ONLINE' %}active-mode-card{% endif %}" id="page-card-online">
+        <div class="mode-card-badge mode-badge-panindia">
+          <i class="fa-solid fa-globe"></i> Pan-India Marketplace
+        </div>
+        <div class="mode-card-icon-circle">
+          <i class="fa-solid fa-earth-asia"></i>
+        </div>
+        <div class="mode-card-content">
+          <h2 class="mode-card-title">Online Shopping</h2>
+          <p class="mode-card-desc">
+            Explore our complete marketplace and shop from a wide range of products.
+          </p>
+          <ul class="mode-feature-list">
+            <li><i class="fa-solid fa-layer-group"></i> Full product catalogue</li>
+            <li><i class="fa-solid fa-tags"></i> Multiple categories</li>
+            <li><i class="fa-solid fa-award"></i> Brand discovery</li>
+            <li><i class="fa-solid fa-cart-shopping"></i> Standard online shopping</li>
+          </ul>
+        </div>
+        <div class="mode-card-footer">
+          <button 
+            type="button" 
+            class="btn-secondary mode-select-action-btn online-action-btn" 
+            onclick="selectModeAndNavigate('ONLINE')"
+            aria-label="Explore Online Store in Online Shopping mode"
+          >
+            <span>Explore Online Store</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+          <div class="mode-card-meta">Best for full catalog variety, tech, apparel & nationwide shipping</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Trust banner -->
+    <div class="mode-trust-strip">
+      <div class="trust-item"><i class="fa-solid fa-shield-halved"></i> <span>Shared Account & History</span></div>
+      <div class="trust-item"><i class="fa-solid fa-rotate-left"></i> <span>Separate Safe Baskets</span></div>
+      <div class="trust-item"><i class="fa-solid fa-arrows-rotate"></i> <span>Switch Anytime from Header</span></div>
+      <div class="trust-item"><i class="fa-solid fa-lock"></i> <span>Aiven ACID Row-Locking</span></div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -6,9 +6,17 @@
  */
 
 // Global State
+const initialMode = localStorage.getItem("bharatstore_shopping_mode") || "ONLINE";
+const initialRetailCart = JSON.parse(localStorage.getItem("bharatstore_retail_cart") || "{}");
+const initialOnlineCart = JSON.parse(localStorage.getItem("bharatstore_online_cart") || localStorage.getItem("bharatstore_cart") || "{}");
+
 const appState = {
   products: [],
-  cart: JSON.parse(localStorage.getItem("bharatstore_cart") || "{}"),
+  shoppingMode: initialMode,
+  retailCart: initialRetailCart,
+  onlineCart: initialOnlineCart,
+  cart: initialMode === "RETAIL_NEAR_ME" ? initialRetailCart : initialOnlineCart,
+  pendingSwitchMode: null,
   wishlist: new Set(JSON.parse(localStorage.getItem("bharatstore_wishlist") || "[]")),
   currentCity: localStorage.getItem("bharatstore_selected_city") || "Mumbai",
   currentCustomer: JSON.parse(localStorage.getItem("bharatstore_current_customer") || JSON.stringify({
@@ -26,6 +34,7 @@ const appState = {
 // -----------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  initShoppingMode();
   updateHeaderBadges();
   updateHubUI();
   initDealTimer();
@@ -90,9 +99,236 @@ function selectDeliveryHub(hubName) {
 }
 
 // -----------------------------------------------------------------------------
+// 1b. Dual Shopping Mode Management & Basket Isolation
+// -----------------------------------------------------------------------------
+async function initShoppingMode() {
+  // 1. Sync mode with server Flask session
+  try {
+    const res = await fetch("/api/shopping-mode");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.mode && ["RETAIL_NEAR_ME", "ONLINE"].includes(data.mode)) {
+        appState.shoppingMode = data.mode;
+        localStorage.setItem("bharatstore_shopping_mode", data.mode);
+      }
+    }
+  } catch (err) {
+    console.debug("Shopping mode session sync check:", err);
+  }
+
+  // 2. Point active cart to the mode-specific basket
+  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+    appState.cart = appState.retailCart || {};
+  } else {
+    appState.cart = appState.onlineCart || {};
+  }
+  localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+
+  // 3. Update UI states
+  updateModeUI();
+  updateModeNav();
+  updateHeaderBadges();
+}
+
+function updateModeUI() {
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  const btnRetail = document.getElementById("mode-btn-retail");
+  const btnOnline = document.getElementById("mode-btn-online");
+
+  if (btnRetail) {
+    btnRetail.classList.toggle("active", isRetail);
+    btnRetail.setAttribute("aria-checked", isRetail ? "true" : "false");
+  }
+  if (btnOnline) {
+    btnOnline.classList.toggle("active", !isRetail);
+    btnOnline.setAttribute("aria-checked", !isRetail ? "true" : "false");
+  }
+
+  // Update card highlights if on /select-mode page or modal
+  const pageCardRetail = document.getElementById("page-card-retail");
+  const pageCardOnline = document.getElementById("page-card-online");
+  if (pageCardRetail) pageCardRetail.classList.toggle("active-mode-card", isRetail);
+  if (pageCardOnline) pageCardOnline.classList.toggle("active-mode-card", !isRetail);
+
+  const modalCardRetail = document.getElementById("modal-card-retail");
+  const modalCardOnline = document.getElementById("modal-card-online");
+  if (modalCardRetail) modalCardRetail.classList.toggle("active-mode-card", isRetail);
+  if (modalCardOnline) modalCardOnline.classList.toggle("active-mode-card", !isRetail);
+}
+
+function updateModeNav() {
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  document.querySelectorAll(".retail-only-nav").forEach(el => {
+    el.classList.toggle("nav-hidden", !isRetail);
+  });
+  document.querySelectorAll(".online-only-nav").forEach(el => {
+    el.classList.toggle("nav-hidden", isRetail);
+  });
+}
+
+function handleModeSwitchRequest(targetMode) {
+  if (targetMode === appState.shoppingMode) {
+    const name = targetMode === "RETAIL_NEAR_ME" ? "Retail Near Me" : "Online Shopping";
+    showToast(`Already shopping in ${name} mode.`);
+    return;
+  }
+
+  const currentItems = Object.values(appState.cart);
+  const itemCount = currentItems.reduce((sum, item) => sum + item.qty, 0);
+
+  if (itemCount > 0) {
+    // Current cart has items! Prompt confirmation modal to isolate and preserve the basket.
+    appState.pendingSwitchMode = targetMode;
+    openModeSwitchModal(targetMode, itemCount);
+  } else {
+    // Cart is empty, switch immediately without interruption
+    executeModeSwitch(targetMode);
+  }
+}
+
+function openModeSwitchModal(targetMode, itemCount) {
+  const modal = document.getElementById("mode-switch-modal-overlay");
+  if (!modal) {
+    const confirmSwitch = confirm(`Your cart contains ${itemCount} items. Switching modes will preserve your items in a separate basket. Proceed?`);
+    if (confirmSwitch) executeModeSwitch(targetMode);
+    return;
+  }
+
+  const currentModeName = appState.shoppingMode === "RETAIL_NEAR_ME" ? "Retail Near Me" : "Online Shopping";
+  const targetModeName = targetMode === "RETAIL_NEAR_ME" ? "Retail Near Me" : "Online Shopping";
+  const storeLabel = appState.shoppingMode === "RETAIL_NEAR_ME" ? `BharatStore ${appState.currentCity} Store` : "Online Marketplace";
+
+  const msgEl = document.getElementById("mode-confirm-message");
+  if (msgEl) {
+    msgEl.innerHTML = `Your basket currently contains <strong>${itemCount} item${itemCount > 1 ? 's' : ''}</strong> from <strong>${storeLabel}</strong> (${currentModeName}).<br><br>Switching to <strong>${targetModeName}</strong> will safely preserve your current items in a separate basket. Would you like to proceed?`;
+  }
+
+  const previewEl = document.getElementById("mode-confirm-cart-preview");
+  if (previewEl) {
+    const items = Object.values(appState.cart).slice(0, 3);
+    previewEl.innerHTML = `
+      <div style="font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); margin-bottom: 8px; text-transform: uppercase;">Preserved Basket Preview:</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${items.map(it => `
+          <div style="display:flex; align-items:center; gap:6px; background:var(--color-bg-canvas); padding:4px 8px; border-radius:var(--radius-sm); border:1px solid var(--color-border); font-size:12px;">
+            <img src="${it.product.image_url}" alt="" style="width:24px; height:24px; object-fit:cover; border-radius:4px;">
+            <span style="max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${it.product.title}</span>
+            <span style="font-weight:700; color:var(--color-primary);">×${it.qty}</span>
+          </div>
+        `).join("")}
+        ${Object.values(appState.cart).length > 3 ? `<span style="font-size:11px; align-self:center; color:var(--color-text-muted);">+${Object.values(appState.cart).length - 3} more</span>` : ''}
+      </div>
+    `;
+  }
+
+  modal.classList.add("open");
+}
+
+function closeModeSwitchModal(e) {
+  const modal = document.getElementById("mode-switch-modal-overlay");
+  if (modal) modal.classList.remove("open");
+  appState.pendingSwitchMode = null;
+}
+
+function confirmModeSwitchProceed() {
+  const targetMode = appState.pendingSwitchMode;
+  closeModeSwitchModal();
+  if (targetMode) {
+    executeModeSwitch(targetMode);
+  }
+}
+
+async function executeModeSwitch(targetMode) {
+  // 1. Save current cart to its specific bucket
+  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+    appState.retailCart = appState.cart;
+    localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+  } else {
+    appState.onlineCart = appState.cart;
+    localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+  }
+
+  // 2. Persist to server session
+  try {
+    const res = await fetch("/api/shopping-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: targetMode })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      console.warn("Server mode update notice:", data.error);
+    }
+  } catch (err) {
+    console.debug("Offline mode sync fallback:", err);
+  }
+
+  // 3. Switch active state
+  appState.shoppingMode = targetMode;
+  localStorage.setItem("bharatstore_shopping_mode", targetMode);
+  localStorage.setItem("bharatstore_mode_selected", "true");
+
+  // 4. Restore the other basket
+  if (targetMode === "RETAIL_NEAR_ME") {
+    appState.cart = appState.retailCart || {};
+  } else {
+    appState.cart = appState.onlineCart || {};
+  }
+  localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+
+  // 5. Update UI
+  updateModeUI();
+  updateModeNav();
+  updateHeaderBadges();
+  renderCartDrawer();
+
+  const restoredCount = Object.values(appState.cart).reduce((sum, item) => sum + item.qty, 0);
+  const modeName = targetMode === "RETAIL_NEAR_ME" ? "🛍️ Retail Near Me (15 km Quick Commerce)" : "🌐 Online Shopping (Pan-India Marketplace)";
+  showToast(`Switched to ${modeName}.${restoredCount > 0 ? ` Restored your ${targetMode === 'RETAIL_NEAR_ME' ? 'retail' : 'online'} basket (${restoredCount} items).` : ''}`);
+
+  if (document.getElementById("cart-page-items-list")) {
+    renderCartPage();
+  }
+}
+
+function openModeSelectModal() {
+  const modal = document.getElementById("mode-selection-modal");
+  if (modal) modal.classList.add("open");
+}
+
+function closeModeSelectModal(e) {
+  const modal = document.getElementById("mode-selection-modal");
+  if (modal) modal.classList.remove("open");
+}
+
+function selectModeFromModal(targetMode) {
+  closeModeSelectModal();
+  handleModeSwitchRequest(targetMode);
+}
+
+function selectModeAndNavigate(targetMode) {
+  handleModeSwitchRequest(targetMode);
+  setTimeout(() => {
+    window.location.href = "/";
+  }, 250);
+}
+
+function handleNearbyStoresNav() {
+  showToast("Retail Near Me: Stores within 15 km in Mumbai, Bengaluru, Delhi, Hyderabad, Chennai & Kolkata! Full GPS discovery activates in Phase 5.");
+  openHubSwitchModal();
+}
+
+// -----------------------------------------------------------------------------
 // 2. Cart Management (LocalStorage + Live Drawer Sync)
 // -----------------------------------------------------------------------------
 function saveCart() {
+  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+    appState.retailCart = appState.cart;
+    localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+  } else {
+    appState.onlineCart = appState.cart;
+    localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+  }
   localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
   updateHeaderBadges();
   renderCartDrawer();

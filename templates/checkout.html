@@ -20,43 +20,62 @@
       <!-- Step 1: Delivery Address -->
       <div class="checkout-step-card">
         <h3><i class="fa-solid fa-location-dot" style="color:var(--color-primary);"></i> 1. Delivery & Contact Details</h3>
+
+        <!-- Saved Addresses Quick-Select (Phase 3) -->
+        <div id="checkout-saved-addresses-block" style="margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--color-border);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span style="font-weight:700; font-size:13px; color:var(--color-text-main);">
+              <i class="fa-solid fa-map-pin" style="color:var(--color-primary);"></i> Saved Delivery Addresses
+            </span>
+            <button type="button" class="btn-secondary" style="font-size:11.5px; padding:4px 9px;" onclick="selectNewAddressOption()">
+              <i class="fa-solid fa-plus"></i> Enter Different Address
+            </button>
+          </div>
+          <div id="checkout-saved-addresses-list" style="display:flex; flex-direction:column; gap:8px;">
+            <div style="font-size:12px; color:var(--color-text-muted); padding:6px 0;">
+              <i class="fa-solid fa-spinner fa-spin"></i> Loading saved addresses...
+            </div>
+          </div>
+        </div>
         
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label>Full Name *</label>
-            <input type="text" id="checkout-customer-name" class="form-control" value="Priya Sharma" required>
+        <div id="checkout-address-form-fields">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label>Full Name *</label>
+              <input type="text" id="checkout-customer-name" class="form-control" value="Priya Sharma" required>
+            </div>
+            <div class="form-group">
+              <label>Phone Number *</label>
+              <input type="tel" id="checkout-customer-phone" class="form-control" value="+91 98201 12345" required>
+            </div>
           </div>
+
           <div class="form-group">
-            <label>Phone Number *</label>
-            <input type="tel" id="checkout-customer-phone" class="form-control" value="+91 98201 12345" required>
+            <label>Email Address (For Live Kafka & BlueDart Tracking) *</label>
+            <input type="email" id="checkout-customer-email" class="form-control" value="priya.sharma@example.in" required>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label>Email Address (For Live Kafka & BlueDart Tracking) *</label>
-          <input type="email" id="checkout-customer-email" class="form-control" value="priya.sharma@example.in" required>
-        </div>
-
-        <div class="form-group">
-          <label>Street Address / Apartment / Landmark *</label>
-          <input type="text" id="checkout-shipping-address" class="form-control" value="Flat 402, Sea Green Apts, Worli Sea Face" required>
-        </div>
-
-        <div class="form-grid-2">
           <div class="form-group">
-            <label>Physical Store Fulfillment Metro Hub *</label>
-            <select id="checkout-shipping-city" class="form-control" onchange="updateCheckoutCity(this.value)">
-              <option value="Mumbai">Mumbai MegaHub (Andheri / Worli)</option>
-              <option value="Bengaluru">Bengaluru Central Hub (Indiranagar)</option>
-              <option value="Delhi">Delhi NCR Hub (Connaught Place)</option>
-              <option value="Hyderabad">Hyderabad Hub (HITEC City)</option>
-              <option value="Chennai">Chennai Hub (Anna Nagar)</option>
-              <option value="Kolkata">Kolkata Hub (Park Street)</option>
-            </select>
+            <label>Street Address / Apartment / Landmark *</label>
+            <input type="text" id="checkout-shipping-address" class="form-control" value="Flat 402, Sea Green Apts, Worli Sea Face" required>
           </div>
-          <div class="form-group">
-            <label>Postal PIN Code *</label>
-            <input type="text" id="checkout-pincode" class="form-control" value="400030" maxlength="6" required>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label>Physical Store Fulfillment Metro Hub *</label>
+              <select id="checkout-shipping-city" class="form-control" onchange="updateCheckoutCity(this.value)">
+                <option value="Mumbai">Mumbai MegaHub (Andheri / Worli)</option>
+                <option value="Bengaluru">Bengaluru Central Hub (Indiranagar)</option>
+                <option value="Delhi">Delhi NCR Hub (Connaught Place)</option>
+                <option value="Hyderabad">Hyderabad Hub (HITEC City)</option>
+                <option value="Chennai">Chennai Hub (Anna Nagar)</option>
+                <option value="Kolkata">Kolkata Hub (Park Street)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Postal PIN Code *</label>
+              <input type="text" id="checkout-pincode" class="form-control" value="400030" maxlength="6" required>
+            </div>
           </div>
         </div>
       </div>

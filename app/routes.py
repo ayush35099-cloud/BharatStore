@@ -3,14 +3,16 @@ BharatKart API Routes & Web Endpoints
 """
 
 import os
+import math
 import json
 import time
 import logging
 import hmac
 import uuid
 import concurrent.futures
+from typing import Optional, Dict, Any, List
 from functools import wraps
-from flask import Blueprint, request, jsonify, render_template, Response, session
+from flask import Blueprint, request, jsonify, render_template, Response, session, redirect, url_for
 from app.config import Config
 from app.database import DatabaseService, OrderStatus, PaymentStatus
 from app.payment_service import PaymentService
@@ -91,30 +93,190 @@ except Exception as e:
 # -------------------------------------------------------------------------
 # Shopping Mode Constants & Persistence Helpers
 # -------------------------------------------------------------------------
-VALID_SHOPPING_MODES = {"RETAIL_NEAR_ME", "ONLINE"}
+MODE_NORMALIZATION = {
+    "RETAIL": "RETAIL_NEAR_ME",
+    "RETAIL_NEAR_ME": "RETAIL_NEAR_ME",
+    "ONLINE": "ONLINE",
+    "MARKETPLACE": "ONLINE"
+}
+VALID_SHOPPING_MODES = {"RETAIL_NEAR_ME", "ONLINE", "RETAIL", "retail", "online", "retail_near_me"}
 DEFAULT_SHOPPING_MODE = "ONLINE"
+
+def normalize_shopping_mode(mode: Optional[str]) -> Optional[str]:
+    """Normalizes mode strings like 'retail', 'online', 'RETAIL_NEAR_ME' to canonical mode."""
+    if not mode or not isinstance(mode, str):
+        return None
+    cleaned = mode.strip().upper().replace("-", "_").replace(" ", "_")
+    return MODE_NORMALIZATION.get(cleaned)
 
 def get_current_shopping_mode() -> str:
     """Retrieves validated shopping mode from session, defaulting to ONLINE."""
     mode = session.get("shopping_mode")
-    if mode in VALID_SHOPPING_MODES:
-        return mode
+    canonical = normalize_shopping_mode(mode)
+    if canonical:
+        return canonical
     return DEFAULT_SHOPPING_MODE
 
 def set_current_shopping_mode(mode: str) -> bool:
     """Sets and validates shopping mode in the session."""
-    if mode in VALID_SHOPPING_MODES:
-        session["shopping_mode"] = mode
+    canonical = normalize_shopping_mode(mode)
+    if canonical:
+        session["shopping_mode"] = canonical
         session.permanent = True
         return True
     return False
 
+# -------------------------------------------------------------------------
+# Phase 3: Location Constants, Distance Calculation & Context Injector
+# -------------------------------------------------------------------------
+CITIES_AND_AREAS_DATA = [
+    {
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "hub_code": "HUB-MUM-01",
+        "hub_name": "BharatStore Mumbai MegaHub",
+        "hub_address": "Linking Road, Bandra West, Mumbai 400050",
+        "hub_lat": 19.0596,
+        "hub_lng": 72.8295,
+        "default_pincode": "400050",
+        "areas": [
+            {"name": "Bandra West", "pincode": "400050", "lat": 19.0596, "lng": 72.8295, "distance_km": 0.5},
+            {"name": "Andheri West", "pincode": "400058", "lat": 19.1363, "lng": 72.8277, "distance_km": 8.5},
+            {"name": "Worli Sea Face", "pincode": "400030", "lat": 19.0178, "lng": 72.8178, "distance_km": 4.8},
+            {"name": "Powai", "pincode": "400076", "lat": 19.1176, "lng": 72.9060, "distance_km": 11.2},
+            {"name": "Dadar West", "pincode": "400028", "lat": 19.0178, "lng": 72.8478, "distance_km": 4.9},
+            {"name": "Juhu", "pincode": "400049", "lat": 19.1075, "lng": 72.8263, "distance_km": 5.4},
+            {"name": "Colaba", "pincode": "400005", "lat": 18.9067, "lng": 72.8147, "distance_km": 17.5}
+        ]
+    },
+    {
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "hub_code": "HUB-BLR-01",
+        "hub_name": "BharatStore Bengaluru Tech Store",
+        "hub_address": "100 Feet Road, Indiranagar, Bengaluru 560038",
+        "hub_lat": 12.9784,
+        "hub_lng": 77.6408,
+        "default_pincode": "560038",
+        "areas": [
+            {"name": "Indiranagar", "pincode": "560038", "lat": 12.9784, "lng": 77.6408, "distance_km": 0.3},
+            {"name": "Koramangala", "pincode": "560034", "lat": 12.9352, "lng": 77.6245, "distance_km": 5.1},
+            {"name": "HSR Layout", "pincode": "560102", "lat": 12.9121, "lng": 77.6446, "distance_km": 7.4},
+            {"name": "Whitefield", "pincode": "560066", "lat": 12.9698, "lng": 77.7500, "distance_km": 12.3},
+            {"name": "Jayanagar", "pincode": "560011", "lat": 12.9308, "lng": 77.5838, "distance_km": 8.2},
+            {"name": "Malleshwaram", "pincode": "560003", "lat": 13.0031, "lng": 77.5643, "distance_km": 9.5}
+        ]
+    },
+    {
+        "city": "Delhi NCR",
+        "state": "Delhi",
+        "hub_code": "HUB-DEL-01",
+        "hub_name": "BharatStore Delhi NCR Flagship",
+        "hub_address": "Connaught Place, Block C, New Delhi 110001",
+        "hub_lat": 28.6315,
+        "hub_lng": 77.2167,
+        "default_pincode": "110001",
+        "areas": [
+            {"name": "Connaught Place", "pincode": "110001", "lat": 28.6315, "lng": 77.2167, "distance_km": 0.4},
+            {"name": "Saket", "pincode": "110017", "lat": 28.5244, "lng": 77.2100, "distance_km": 12.0},
+            {"name": "Hauz Khas", "pincode": "110016", "lat": 28.5494, "lng": 77.2001, "distance_km": 9.3},
+            {"name": "Vasant Kunj", "pincode": "110070", "lat": 28.5293, "lng": 77.1539, "distance_km": 13.5},
+            {"name": "Noida Sector 18", "pincode": "201301", "lat": 28.5708, "lng": 77.3260, "distance_km": 14.1},
+            {"name": "Gurgaon DLF Phase 1", "pincode": "122002", "lat": 28.4790, "lng": 77.0980, "distance_km": 20.5}
+        ]
+    },
+    {
+        "city": "Hyderabad",
+        "state": "Telangana",
+        "hub_code": "HUB-HYD-01",
+        "hub_name": "BharatStore Hyderabad Hub",
+        "hub_address": "Road No. 36, Jubilee Hills, Hyderabad 500033",
+        "hub_lat": 17.4319,
+        "hub_lng": 78.4073,
+        "default_pincode": "500033",
+        "areas": [
+            {"name": "Jubilee Hills", "pincode": "500033", "lat": 17.4319, "lng": 78.4073, "distance_km": 0.5},
+            {"name": "Banjara Hills", "pincode": "500034", "lat": 17.4156, "lng": 78.4354, "distance_km": 3.8},
+            {"name": "HITEC City", "pincode": "500081", "lat": 17.4435, "lng": 78.3772, "distance_km": 4.1},
+            {"name": "Madhapur", "pincode": "500081", "lat": 17.4483, "lng": 78.3915, "distance_km": 2.9},
+            {"name": "Gachibowli", "pincode": "500032", "lat": 17.4401, "lng": 78.3489, "distance_km": 6.8}
+        ]
+    },
+    {
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "hub_code": "HUB-CHN-01",
+        "hub_name": "BharatStore Chennai Marina Store",
+        "hub_address": "T Nagar, Chennai 600017",
+        "hub_lat": 13.0418,
+        "hub_lng": 80.2341,
+        "default_pincode": "600017",
+        "areas": [
+            {"name": "T Nagar", "pincode": "600017", "lat": 13.0418, "lng": 80.2341, "distance_km": 0.4},
+            {"name": "Anna Nagar", "pincode": "600040", "lat": 13.0850, "lng": 80.2101, "distance_km": 5.6},
+            {"name": "Adyar", "pincode": "600020", "lat": 13.0012, "lng": 80.2565, "distance_km": 5.2},
+            {"name": "Mylapore", "pincode": "600004", "lat": 13.0368, "lng": 80.2676, "distance_km": 3.7},
+            {"name": "Velachery", "pincode": "600042", "lat": 12.9815, "lng": 80.2180, "distance_km": 7.1}
+        ]
+    },
+    {
+        "city": "Kolkata",
+        "state": "West Bengal",
+        "hub_code": "HUB-KOL-01",
+        "hub_name": "BharatStore Kolkata Hub",
+        "hub_address": "Park Street, Kolkata 700016",
+        "hub_lat": 22.5516,
+        "hub_lng": 88.3524,
+        "default_pincode": "700016",
+        "areas": [
+            {"name": "Park Street", "pincode": "700016", "lat": 22.5516, "lng": 88.3524, "distance_km": 0.4},
+            {"name": "Salt Lake Sector 5", "pincode": "700091", "lat": 22.5867, "lng": 88.4178, "distance_km": 7.8},
+            {"name": "New Town", "pincode": "700156", "lat": 22.5850, "lng": 88.4680, "distance_km": 13.2},
+            {"name": "Ballygunge", "pincode": "700019", "lat": 22.5280, "lng": 88.3655, "distance_km": 3.1},
+            {"name": "Alipore", "pincode": "700027", "lat": 22.5333, "lng": 88.3333, "distance_km": 3.0}
+        ]
+    }
+]
+
+def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates great-circle distance between two GPS coordinates in kilometers."""
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (math.sin(delta_phi / 2.0) ** 2 +
+         math.cos(phi1) * math.cos(phi2) * (math.sin(delta_lambda / 2.0) ** 2))
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return round(R * c, 1)
+
+def get_current_delivery_location() -> Dict[str, Any]:
+    """Retrieves current delivery location from session or returns default Mumbai location."""
+    loc = session.get("customer_location")
+    if loc and isinstance(loc, dict) and loc.get("city"):
+        return loc
+    return {
+        "city": "Mumbai",
+        "area": "Bandra West",
+        "pincode": "400050",
+        "address_line": "Flat 402, Sea Green Apts, Worli Sea Face",
+        "latitude": 19.0178,
+        "longitude": 72.8178,
+        "source": "default",
+        "formatted": "Bandra West, Mumbai",
+        "nearest_hub": "BharatStore Mumbai MegaHub",
+        "distance_km": 0.5,
+        "is_within_delivery_radius": True,
+        "is_fallback": True
+    }
+
 @main_bp.app_context_processor
 def inject_shopping_mode():
-    """Injects current shopping mode into all Jinja2 templates."""
+    """Injects current shopping mode and delivery location into all Jinja2 templates."""
     return {
         "current_shopping_mode": get_current_shopping_mode(),
-        "valid_shopping_modes": sorted(list(VALID_SHOPPING_MODES))
+        "valid_shopping_modes": ["ONLINE", "RETAIL_NEAR_ME"],
+        "current_delivery_location": get_current_delivery_location()
     }
 
 # -------------------------------------------------------------------------
@@ -122,6 +284,23 @@ def inject_shopping_mode():
 # -------------------------------------------------------------------------
 @main_bp.route("/")
 def index():
+    mode = get_current_shopping_mode()
+    if mode == "RETAIL_NEAR_ME" and request.args.get("view") != "online":
+        hubs = db_service.get_store_hubs()
+        products = db_service.get_all_products()
+        return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+    return render_template("index.html")
+
+@main_bp.route("/retail")
+def retail_page():
+    set_current_shopping_mode("RETAIL_NEAR_ME")
+    hubs = db_service.get_store_hubs()
+    products = db_service.get_all_products()
+    return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+
+@main_bp.route("/online")
+def online_page():
+    set_current_shopping_mode("ONLINE")
     return render_template("index.html")
 
 @main_bp.route("/select-mode")
@@ -140,6 +319,8 @@ def orders_page():
 def order_detail_page(order_id: int):
     order = db_service.get_order_by_id(order_id)
     tracking = db_service.get_shipment_tracking(order_id)
+    if tracking and "shipment" not in tracking:
+        tracking["shipment"] = tracking
     return render_template("order_detail.html", order=order, tracking=tracking)
 
 @main_bp.route("/products")
@@ -284,6 +465,7 @@ def set_shopping_mode_api():
     """
     Validates and updates customer shopping mode in session.
     Guarantees strict server-side validation against unauthorized or arbitrary mode identifiers.
+    Accepts 'retail', 'online', 'RETAIL_NEAR_ME', 'ONLINE'.
     """
     data = request.get_json(silent=True) or {}
     mode = data.get("mode")
@@ -293,20 +475,301 @@ def set_shopping_mode_api():
             "error": "A valid 'mode' string is required."
         }), 400
 
-    clean_mode = mode.strip().upper()
-    if clean_mode not in VALID_SHOPPING_MODES:
+    canonical = normalize_shopping_mode(mode)
+    if not canonical:
         return jsonify({
             "success": False,
-            "error": f"Invalid shopping mode '{mode}'. Must be one of: {', '.join(sorted(list(VALID_SHOPPING_MODES)))}."
+            "error": f"Invalid shopping mode '{mode}'. Must be one of: ONLINE, RETAIL_NEAR_ME (or 'retail', 'online')."
         }), 400
 
-    set_current_shopping_mode(clean_mode)
-    logger.info(f"Shopping mode successfully set to '{clean_mode}'")
+    set_current_shopping_mode(canonical)
+    logger.info(f"Shopping mode successfully set to '{canonical}'")
     return jsonify({
         "success": True,
-        "mode": clean_mode,
-        "message": f"Shopping mode successfully switched to {clean_mode}."
+        "mode": canonical,
+        "message": f"Shopping mode successfully switched to {canonical}."
     })
+
+# -------------------------------------------------------------------------
+# Phase 3: Location & Saved Address Management Endpoints
+# -------------------------------------------------------------------------
+def get_auth_customer_id() -> int:
+    """
+    Resolves the authenticated customer ID from session, request headers, or query/body params.
+    Default fallback is customer 1 (Priya Sharma).
+    """
+    if session.get("customer_id"):
+        try:
+            return int(session["customer_id"])
+        except (ValueError, TypeError):
+            pass
+    header_id = request.headers.get("X-Customer-Id")
+    if header_id:
+        try:
+            return int(header_id)
+        except (ValueError, TypeError):
+            pass
+    q_id = request.args.get("customer_id")
+    if q_id:
+        try:
+            return int(q_id)
+        except (ValueError, TypeError):
+            pass
+    data = request.get_json(silent=True) or {}
+    if data.get("customer_id"):
+        try:
+            return int(data["customer_id"])
+        except (ValueError, TypeError):
+            pass
+    return 1
+
+@main_bp.route("/api/location/validate-coords", methods=["POST"])
+def validate_coordinates_api():
+    """
+    Strict server-side coordinate validation.
+    Latitude: -90.0 to 90.0, Longitude: -180.0 to 180.0.
+    Rejects missing, non-numeric and out-of-bounds coordinates with HTTP 400.
+    Finds nearest physical store hub and verifies 15 km delivery radius.
+    """
+    data = request.get_json(silent=True) or {}
+    lat = data.get("latitude") if "latitude" in data else data.get("lat")
+    lng = data.get("longitude") if "longitude" in data else data.get("lng")
+
+    if lat is None or lng is None or str(lat).strip() == "" or str(lng).strip() == "":
+        return jsonify({
+            "success": False,
+            "valid": False,
+            "error": "Missing coordinates. 'latitude' and 'longitude' are required."
+        }), 400
+
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except (ValueError, TypeError):
+        return jsonify({
+            "success": False,
+            "valid": False,
+            "error": "Non-numeric coordinates. Latitude and longitude must be valid floating-point numbers."
+        }), 400
+
+    if not (-90.0 <= lat_f <= 90.0) or not (-180.0 <= lng_f <= 180.0):
+        return jsonify({
+            "success": False,
+            "valid": False,
+            "error": "Coordinates out of bounds (-90.0 <= latitude <= 90.0, -180.0 <= longitude <= 180.0)."
+        }), 400
+
+    closest_hub = None
+    min_dist = float("inf")
+    for city_item in CITIES_AND_AREAS_DATA:
+        dist = calculate_haversine_distance(lat_f, lng_f, city_item["hub_lat"], city_item["hub_lng"])
+        if dist < min_dist:
+            min_dist = dist
+            closest_hub = city_item
+
+    return jsonify({
+        "success": True,
+        "valid": True,
+        "latitude": lat_f,
+        "longitude": lng_f,
+        "nearest_city": closest_hub["city"],
+        "nearest_hub": closest_hub["hub_name"],
+        "hub_address": closest_hub["hub_address"],
+        "distance_km": min_dist,
+        "is_within_delivery_radius": min_dist <= 15.0,
+        "message": f"Coordinates verified. Nearest physical store is {closest_hub['hub_name']} ({min_dist} km away)."
+    })
+
+@main_bp.route("/api/location/cities-areas", methods=["GET"])
+def get_cities_areas_api():
+    """
+    Retrieves supported metro cities and their neighbourhoods/areas with demo coordinates.
+    """
+    return jsonify({
+        "success": True,
+        "demo_mode": True,
+        "delivery_radius_km": 15,
+        "cities": CITIES_AND_AREAS_DATA,
+        "note": "Demo geographic reference data for BharatStore retail discovery."
+    })
+
+@main_bp.route("/api/location/set-current", methods=["POST"])
+def set_current_location_api():
+    """
+    Updates the customer's active delivery location in the session.
+    Calculates physical store hub distance and updates shopping context.
+    """
+    data = request.get_json(silent=True) or {}
+    city = str(data.get("city") or "Mumbai").strip()
+    area = str(data.get("area") or "").strip()
+    pincode = str(data.get("pincode") or "").strip()
+    address_line = str(data.get("address_line") or "").strip()
+    lat = data.get("latitude")
+    lng = data.get("longitude")
+    source = data.get("source", "manual")
+
+    lat_f = None
+    lng_f = None
+    if lat is not None and lng is not None and str(lat).strip() != "" and str(lng).strip() != "":
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+            if not (-90.0 <= lat_f <= 90.0) or not (-180.0 <= lng_f <= 180.0):
+                return jsonify({"success": False, "error": "Coordinates out of bounds (-90 to 90 lat, -180 to 180 lng)."}), 400
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Non-numeric coordinates."}), 400
+
+    matching_city = next((c for c in CITIES_AND_AREAS_DATA if c["city"].lower() == city.lower()), None)
+    dist_km = 1.8
+    hub_name = "BharatStore Mumbai MegaHub"
+    if matching_city:
+        hub_name = matching_city["hub_name"]
+        if lat_f is not None and lng_f is not None:
+            dist_km = calculate_haversine_distance(lat_f, lng_f, matching_city["hub_lat"], matching_city["hub_lng"])
+        elif area:
+            area_match = next((a for a in matching_city["areas"] if a["name"].lower() == area.lower()), None)
+            if area_match:
+                dist_km = area_match.get("distance_km", 2.0)
+
+    formatted = f"{area}, {city}" if area else city
+
+    location_data = {
+        "city": city,
+        "area": area,
+        "pincode": pincode,
+        "address_line": address_line,
+        "latitude": lat_f,
+        "longitude": lng_f,
+        "source": source,
+        "formatted": formatted,
+        "nearest_hub": hub_name,
+        "distance_km": dist_km,
+        "is_within_delivery_radius": dist_km <= 15.0,
+        "is_fallback": False,
+        "updated_at": time.time()
+    }
+
+    session["customer_location"] = location_data
+    session["shopping_city"] = city
+    session.permanent = True
+
+    return jsonify({
+        "success": True,
+        "location": location_data,
+        "message": f"Delivery location set to {formatted}."
+    })
+
+@main_bp.route("/api/location/current", methods=["GET"])
+def get_current_location_api():
+    """
+    Returns the active delivery location for the session.
+    """
+    loc = session.get("customer_location")
+    if loc:
+        return jsonify({"success": True, "location": loc, "is_fallback": False})
+    fallback = get_current_delivery_location()
+    return jsonify({"success": True, "location": fallback, "is_fallback": True})
+
+@main_bp.route("/api/customer/addresses", methods=["GET"])
+def api_get_customer_addresses():
+    """
+    Retrieves all saved addresses for the authenticated customer.
+    """
+    customer_id = get_auth_customer_id()
+    addresses = db_service.get_customer_addresses(customer_id)
+    return jsonify({
+        "success": True,
+        "customer_id": customer_id,
+        "total": len(addresses),
+        "addresses": addresses
+    })
+
+@main_bp.route("/api/customer/addresses", methods=["POST"])
+def api_add_customer_address():
+    """
+    Creates a new delivery address for the customer with server-side validation.
+    """
+    customer_id = get_auth_customer_id()
+    data = request.get_json(silent=True) or {}
+    try:
+        new_addr = db_service.add_customer_address(customer_id, data)
+        return jsonify({
+            "success": True,
+            "message": "Delivery address added successfully.",
+            "address": new_addr
+        }), 201
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error adding customer address: {e}")
+        return jsonify({"success": False, "error": "Internal server error saving address."}), 500
+
+@main_bp.route("/api/customer/addresses/<int:address_id>", methods=["PUT"])
+def api_update_customer_address(address_id: int):
+    """
+    Updates an address belonging to the authenticated customer.
+    """
+    customer_id = get_auth_customer_id()
+    data = request.get_json(silent=True) or {}
+    try:
+        updated = db_service.update_customer_address(address_id, customer_id, data)
+        if not updated:
+            return jsonify({
+                "success": False,
+                "error": f"Address #{address_id} not found or does not belong to the current customer."
+            }), 404
+        return jsonify({
+            "success": True,
+            "message": "Delivery address updated successfully.",
+            "address": updated
+        })
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error updating customer address: {e}")
+        return jsonify({"success": False, "error": "Internal server error updating address."}), 500
+
+@main_bp.route("/api/customer/addresses/<int:address_id>", methods=["DELETE"])
+def api_delete_customer_address(address_id: int):
+    """
+    Deletes an address belonging to the authenticated customer.
+    """
+    customer_id = get_auth_customer_id()
+    try:
+        deleted = db_service.delete_customer_address(address_id, customer_id)
+        if not deleted:
+            return jsonify({
+                "success": False,
+                "error": f"Address #{address_id} not found or unauthorized."
+            }), 404
+        return jsonify({
+            "success": True,
+            "message": f"Address #{address_id} successfully deleted."
+        })
+    except Exception as e:
+        logger.error(f"Error deleting customer address: {e}")
+        return jsonify({"success": False, "error": "Internal server error deleting address."}), 500
+
+@main_bp.route("/api/customer/addresses/<int:address_id>/default", methods=["POST", "PUT"])
+def api_set_default_customer_address(address_id: int):
+    """
+    Atomically sets the specified address as the customer's sole default address.
+    """
+    customer_id = get_auth_customer_id()
+    try:
+        success = db_service.set_default_customer_address(address_id, customer_id)
+        if not success:
+            return jsonify({
+                "success": False,
+                "error": f"Address #{address_id} not found or unauthorized."
+            }), 404
+        return jsonify({
+            "success": True,
+            "message": f"Address #{address_id} is now set as your primary default address."
+        })
+    except Exception as e:
+        logger.error(f"Error setting default address: {e}")
+        return jsonify({"success": False, "error": "Internal server error setting default address."}), 500
 
 # -------------------------------------------------------------------------
 # Catalog & OpenSearch APIs

@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block title %}Retail Near Me — Hyperlocal Stores & 2-Hour Delivery — BharatStore{% endblock %}
+
+{% block content %}
+<!-- =========================================================================
+     1. RETAIL NEAR ME: LOCATION & PHYSICAL STORE HUB HERO
+     ========================================================================= -->
+<section class="retail-hub-hero">
+  <div class="container">
+    <div class="retail-hero-card">
+      <div class="retail-hero-content">
+        <div class="retail-badge-row">
+          <span class="retail-live-badge"><i class="fa-solid fa-bolt"></i> Quick Commerce</span>
+          <span class="retail-radius-badge"><i class="fa-solid fa-location-crosshairs"></i> 15 km Delivery Radius</span>
+          <span class="retail-status-badge"><i class="fa-solid fa-clock"></i> Open Now (8:00 AM – 10:00 PM)</span>
+        </div>
+
+        <h1 class="retail-hero-title">
+          Neighbourhood Physical Stores, <em>Delivered in 2 Hours</em>
+        </h1>
+        <p class="retail-hero-subtitle">
+          Browse authentic local physical stores, check real-time store inventory, and order farm-fresh food, groceries, and daily essentials straight from your nearest store hub.
+        </p>
+
+        <!-- Active Store Bar -->
+        <div class="active-store-selector-bar">
+          <div class="active-store-icon">
+            <i class="fa-solid fa-store"></i>
+          </div>
+          <div class="active-store-info">
+            <span class="active-store-label">Current Fulfillment Store:</span>
+            <strong class="active-store-name" id="retail-hero-store-name">
+              {{ current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'BharatStore Mumbai Central Store' }}
+            </strong>
+            <span class="active-store-meta" id="retail-hero-store-meta">
+              {{ current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Bandra West, Mumbai' }} • {{ current_delivery_location.distance_km if current_delivery_location and current_delivery_location.distance_km else '0.5' }} km away • 2-Hour Express Delivery (₹20) or Pickup (FREE)
+            </span>
+          </div>
+          <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Delivery Location">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>Change Location</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="retail-hero-visual">
+        <div class="retail-visual-box">
+          <div class="retail-icon-large"><i class="fa-solid fa-truck-fast"></i></div>
+          <div class="retail-stat-title">2-Hour Express</div>
+          <div class="retail-stat-desc">Dispatched directly from physical city stores</div>
+          <div class="retail-perks-list">
+            <div><i class="fa-solid fa-circle-check"></i> Physical store verified stock</div>
+            <div><i class="fa-solid fa-circle-check"></i> ₹0 Store pickup available</div>
+            <div><i class="fa-solid fa-circle-check"></i> Distance delivery: ₹20 (0-5 km)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     2. NEARBY STORES & FULFILLMENT HUBS (Within 15 km)
+     ========================================================================= -->
+<section class="section-wrapper" id="nearby-stores-section" style="padding-top: 10px;">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker"><i class="fa-solid fa-location-dot"></i> Local Discovery</span>
+        <h2 class="section-title">Nearby Stores within 15 km</h2>
+      </div>
+      <button class="section-link" onclick="openHubSwitchModal()" style="background:none; border:none; cursor:pointer;">
+        View All Metro Stores <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <!-- Store Cards Grid -->
+    <div class="nearby-stores-grid" id="nearby-stores-grid">
+      {% for hub in hubs %}
+      <div class="store-hub-card {% if hub.city == 'Mumbai' %}active-store-card{% endif %}" data-city="{{ hub.city }}">
+        <div class="store-card-header">
+          <div class="store-card-icon">
+            <i class="fa-solid fa-shop"></i>
+          </div>
+          <div class="store-card-badges">
+            <span class="store-distance-tag"><i class="fa-solid fa-location-arrow"></i> 15 km Radius</span>
+            <span class="store-open-tag"><i class="fa-solid fa-circle"></i> Open Now</span>
+          </div>
+        </div>
+
+        <div class="store-card-body">
+          <h3 class="store-card-name">{{ hub.name }}</h3>
+          <p class="store-card-address"><i class="fa-solid fa-location-dot"></i> {{ hub.address }}</p>
+          <div class="store-card-perks">
+            <span class="perk-pill"><i class="fa-solid fa-truck"></i> Express Delivery</span>
+            <span class="perk-pill"><i class="fa-solid fa-hand-holding-dollar"></i> Free Pickup</span>
+            <span class="perk-pill"><i class="fa-solid fa-shield-check"></i> Live Inventory</span>
+          </div>
+        </div>
+
+        <div class="store-card-footer">
+          <button 
+            type="button" 
+            class="btn-primary store-select-btn" 
+            onclick="selectRetailStore('{{ hub.city }}', '{{ hub.name }}')"
+            aria-label="Shop from {{ hub.name }}"
+          >
+            <i class="fa-solid fa-basket-shopping"></i>
+            <span>Shop From This Store</span>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     3. QUICK COMMERCE CATEGORIES
+     ========================================================================= -->
+<section class="section-wrapper" style="padding-top: 10px;">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-header-left">
+        <span class="section-kicker">Quick Commerce</span>
+        <h2 class="section-title">Shop Essentials from Store</h2>
+      </div>
+      <a href="/products" class="section-link">
+        Explore Catalog <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+    <div class="retail-category-pills-row">
+      <button class="retail-cat-pill active" onclick="filterRetailCategory('all', this)">
+        <i class="fa-solid fa-border-all"></i> All Essentials
+      </button>
+      <button class="retail-cat-pill" onclick="filterRetailCategory('Daily Essentials & Groceries', this)">
+        <i class="fa-solid fa-jar"></i> Pure Organic & Foods
+      </button>
+      <button class="retail-cat-pill" onclick="filterRetailCategory('Home & Kitchen', this)">
+        <i class="fa-solid fa-blender"></i> Home & Kitchen
+      </button>
+      <button class="retail-cat-pill" onclick="filterRetailCategory('Beauty & Personal Care', this)">
+        <i class="fa-solid fa-spa"></i> Daily Needs
+      </button>
+      <button class="retail-cat-pill" onclick="filterRetailCategory('Audio & Wearables', this)">
+        <i class="fa-solid fa-headphones"></i> Tech Essentials
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     4. STORE-SPECIFIC PRODUCTS GRID
+     ========================================================================= -->
+<section class="section-wrapper" style="padding-top: 10px;">
+  <div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="font-size:18px; font-weight:700;">
+        <i class="fa-solid fa-boxes-stacked" style="color:var(--color-primary); margin-right:8px;"></i>
+        Locally Available Products in <span id="retail-current-city-text">Mumbai</span>
+      </h3>
+      <span style="font-size:12.5px; color:var(--color-text-muted);" id="retail-products-count-badge">50+ Products</span>
+    </div>
+
+    <div class="product-cards-grid" id="retail-products-container">
+      {% for product in products[:16] %}
+      <div class="product-card" data-category="{{ product.category }}" data-product-id="{{ product.id }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ product.id }}">
+            <img src="{{ product.image_url }}" alt="{{ product.title }}" class="product-card-image" loading="lazy">
+          </a>
+          <span class="retail-stock-pill"><i class="fa-solid fa-circle-check"></i> In Stock ({{ product.stock }})</span>
+        </div>
+        <div class="product-card-body">
+          <span class="product-card-category">{{ product.category }}</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ product.id }}">{{ product.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(product.price) }}</span>
+            {% if product.original_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(product.original_price) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-footer">
+          <button type="button" class="btn-primary product-card-action-btn" onclick="addToCart({{ product.id }})" aria-label="Add {{ product.title }} to basket">
+            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     5. SWITCH TO ONLINE SHOPPING MARKETPLACE BANNER
+     ========================================================================= -->
+<section class="section-wrapper" style="padding: 24px 0 60px 0;">
+  <div class="container">
+    <div class="retail-switch-online-card">
+      <div class="switch-online-content">
+        <span class="section-kicker" style="color:rgba(255,255,255,0.85);"><i class="fa-solid fa-globe"></i> Looking for More?</span>
+        <h2 style="font-size:24px; font-weight:700; color:#FFFFFF; margin:6px 0 10px 0;">
+          Explore the Full BharatStore Marketplace
+        </h2>
+        <p style="font-size:14px; color:rgba(255,255,255,0.85); line-height:1.6; max-width:600px; margin-bottom:18px;">
+          Shop from our complete nationwide catalogue including laptops, computing, heritage handloom sarees, and gourmet collections without local distance restrictions.
+        </p>
+        <button type="button" class="btn-primary" onclick="handleModeSwitchRequest('ONLINE')" style="background:#FFFFFF; color:var(--color-accent-navy); border-color:#FFFFFF;">
+          <i class="fa-solid fa-arrow-right"></i>
+          <span>Switch to Online Shopping</span>
+        </button>
+      </div>
+      <div class="switch-online-icon-col">
+        <i class="fa-solid fa-earth-asia"></i>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function selectRetailStore(city, storeName) {
+    selectDeliveryHub(city);
+    const storeLabel = document.getElementById("retail-hero-store-name");
+    if (storeLabel) storeLabel.textContent = storeName;
+    const cityText = document.getElementById("retail-current-city-text");
+    if (cityText) cityText.textContent = city;
+    showToast("Selected store: " + storeName);
+
+    // Highlight selected card
+    document.querySelectorAll(".store-hub-card").forEach(c => {
+      c.classList.toggle("active-store-card", c.getAttribute("data-city") === city);
+    });
+  }
+
+  function filterRetailCategory(catName, btn) {
+    document.querySelectorAll(".retail-cat-pill").forEach(p => p.classList.remove("active"));
+    if (btn) btn.classList.add("active");
+
+    const cards = document.querySelectorAll("#retail-products-container .product-card");
+    let visibleCount = 0;
+    cards.forEach(card => {
+      const cardCat = card.getAttribute("data-category");
+      if (catName === "all" || cardCat === catName) {
+        card.style.display = "";
+        visibleCount++;
+      } else {
+        card.style.display = "none";
+      }
+    });
+
+    const countEl = document.getElementById("retail-products-count-badge");
+    if (countEl) countEl.textContent = visibleCount + " Products";
+  }
+
+  // Update selected store name on page load if city saved
+  document.addEventListener("DOMContentLoaded", () => {
+    const savedCity = localStorage.getItem("bharatstore_selected_city") || "Mumbai";
+    const cityText = document.getElementById("retail-current-city-text");
+    if (cityText) cityText.textContent = savedCity;
+
+    // Highlight card
+    document.querySelectorAll(".store-hub-card").forEach(c => {
+      c.classList.toggle("active-store-card", c.getAttribute("data-city") === savedCity);
+    });
+  });
+</script>
+{% endblock %}

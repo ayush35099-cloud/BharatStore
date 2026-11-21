@@ -19,6 +19,16 @@ const appState = {
   pendingSwitchMode: null,
   wishlist: new Set(JSON.parse(localStorage.getItem("bharatstore_wishlist") || "[]")),
   currentCity: localStorage.getItem("bharatstore_selected_city") || "Mumbai",
+  deliveryLocation: JSON.parse(localStorage.getItem("bharatstore_delivery_location") || "null") || {
+    city: "Mumbai",
+    area: "Bandra West",
+    pincode: "400050",
+    address_line: "Flat 402, Sea Green Apts, Worli Sea Face",
+    formatted: "Bandra West, Mumbai",
+    distance_km: 0.5
+  },
+  citiesData: [],
+  detectedGPS: null,
   currentCustomer: JSON.parse(localStorage.getItem("bharatstore_current_customer") || JSON.stringify({
     name: "Priya Sharma",
     email: "priya.sharma@example.in",
@@ -36,7 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initShoppingMode();
   updateHeaderBadges();
-  updateHubUI();
+  initDeliveryLocation();
   initDealTimer();
 
   // If on Homepage
@@ -70,31 +80,339 @@ function toggleTheme() {
   showToast(`Switched to ${nextTheme === 'dark' ? 'Espresso Dark' : 'Cream Linen Light'} theme`);
 }
 
-function updateHubUI() {
+// -----------------------------------------------------------------------------
+// Phase 3: Dynamic Delivery Location & GPS Selector Engine
+// -----------------------------------------------------------------------------
+async function initDeliveryLocation() {
+  try {
+    const res = await fetch("/api/location/current");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.location) {
+        appState.deliveryLocation = data.location;
+        appState.currentCity = data.location.city || appState.currentCity;
+        localStorage.setItem("bharatstore_delivery_location", JSON.stringify(data.location));
+        localStorage.setItem("bharatstore_selected_city", appState.currentCity);
+      }
+    }
+  } catch (err) {
+    console.warn("Could not sync server delivery location:", err);
+  }
+  updateDeliveryLocationUI(appState.deliveryLocation);
+  loadSupportedCitiesAndAreas();
+}
+
+function updateDeliveryLocationUI(loc) {
+  if (!loc) return;
   const display = document.getElementById("current-hub-display");
-  if (display) display.textContent = `${appState.currentCity} Hub`;
+  if (display) {
+    display.textContent = loc.formatted || `${loc.city} Hub`;
+  }
   const label = document.getElementById("recommended-hub-label");
-  if (label) label.textContent = `${appState.currentCity} Hub`;
+  if (label) {
+    label.textContent = `${loc.city} Hub`;
+  }
+  const heroStore = document.getElementById("retail-hero-store-name");
+  if (heroStore && loc.nearest_hub) {
+    heroStore.textContent = loc.nearest_hub;
+  }
+  const heroMeta = document.getElementById("retail-hero-store-meta");
+  if (heroMeta && loc.formatted) {
+    const distText = loc.distance_km ? `${loc.distance_km} km away` : '1.8 km away';
+    heroMeta.textContent = `${loc.formatted} • ${distText} • 2-Hour Express Delivery (₹20) or Pickup (FREE)`;
+  }
+}
+
+function updateHubUI() {
+  updateDeliveryLocationUI(appState.deliveryLocation);
+}
+
+function openLocationSelectorModal() {
+  const modal = document.getElementById("location-selector-modal");
+  if (modal) {
+    modal.classList.add("open");
+    // Ensure form is filled with active state
+    if (appState.deliveryLocation) {
+      const citySelect = document.getElementById("loc-modal-city");
+      if (citySelect && appState.deliveryLocation.city) {
+        citySelect.value = appState.deliveryLocation.city;
+        handleModalCityChange(appState.deliveryLocation.city);
+      }
+      const streetInput = document.getElementById("loc-modal-street");
+      if (streetInput && appState.deliveryLocation.address_line) {
+        streetInput.value = appState.deliveryLocation.address_line;
+      }
+      const pinInput = document.getElementById("loc-modal-pincode");
+      if (pinInput && appState.deliveryLocation.pincode) {
+        pinInput.value = appState.deliveryLocation.pincode;
+      }
+    }
+    loadModalSavedAddresses();
+  }
+}
+
+function closeLocationSelectorModal(e) {
+  if (e && e.target !== e.currentTarget && !e.target.classList.contains("drawer-close-btn")) return;
+  const modal = document.getElementById("location-selector-modal");
+  if (modal) modal.classList.remove("open");
+  const legacy = document.getElementById("hub-modal-overlay");
+  if (legacy) legacy.classList.remove("open");
 }
 
 function openHubSwitchModal() {
-  const modal = document.getElementById("hub-modal-overlay");
-  if (modal) modal.classList.add("open");
+  openLocationSelectorModal();
 }
 
-function closeHubSwitchModal() {
-  const modal = document.getElementById("hub-modal-overlay");
-  if (modal) modal.classList.remove("open");
+function closeHubSwitchModal(e) {
+  closeLocationSelectorModal(e);
 }
 
 function selectDeliveryHub(hubName) {
   appState.currentCity = hubName;
   localStorage.setItem("bharatstore_selected_city", hubName);
-  updateHubUI();
-  closeHubSwitchModal();
-  showToast(`Switched physical fulfillment hub to ${hubName}`);
+  const citySelect = document.getElementById("loc-modal-city");
+  if (citySelect) {
+    citySelect.value = hubName;
+    handleModalCityChange(hubName);
+  }
+  confirmSelectedDeliveryLocation();
   if (document.getElementById("catalog-products-grid")) {
     applyFilters();
+  }
+}
+
+async function loadSupportedCitiesAndAreas() {
+  try {
+    const res = await fetch("/api/location/cities-areas");
+    const data = await res.json();
+    if (data.success && data.cities) {
+      appState.citiesData = data.cities;
+      const currentCity = appState.deliveryLocation?.city || appState.currentCity || "Mumbai";
+      handleModalCityChange(currentCity);
+    }
+  } catch (err) {
+    console.error("Failed to load cities/areas data:", err);
+  }
+}
+
+function handleModalCityChange(cityName) {
+  const cityData = (appState.citiesData || []).find(c => c.city.toLowerCase() === (cityName || "").toLowerCase());
+  const areaSelect = document.getElementById("loc-modal-area");
+  const pinInput = document.getElementById("loc-modal-pincode");
+
+  if (!cityData || !areaSelect) return;
+
+  areaSelect.innerHTML = cityData.areas.map((a, i) => `
+    <option value="${a.name}" ${i === 0 ? 'selected' : ''}>${a.name} (${a.distance_km} km)</option>
+  `).join("");
+
+  if (pinInput && cityData.areas.length > 0) {
+    pinInput.value = cityData.areas[0].pincode;
+  }
+}
+
+function handleModalAreaChange(areaName) {
+  const citySelect = document.getElementById("loc-modal-city");
+  const pinInput = document.getElementById("loc-modal-pincode");
+  if (!citySelect || !pinInput) return;
+
+  const cityName = citySelect.value;
+  const cityData = (appState.citiesData || []).find(c => c.city.toLowerCase() === cityName.toLowerCase());
+  if (!cityData) return;
+
+  const area = cityData.areas.find(a => a.name.toLowerCase() === areaName.toLowerCase());
+  if (area) {
+    pinInput.value = area.pincode;
+  }
+}
+
+async function detectGPSLocation() {
+  const btn = document.getElementById("gps-detect-btn");
+  const statusBox = document.getElementById("gps-status-box");
+  const statusText = document.getElementById("gps-status-text");
+
+  if (!navigator.geolocation) {
+    if (statusBox && statusText) {
+      statusBox.style.display = "block";
+      statusText.innerHTML = `<span style="color:var(--color-danger);"><i class="fa-solid fa-triangle-exclamation"></i> Geolocation is not supported by this browser. Please select your area manually below.</span>`;
+    }
+    showToast("Geolocation not supported. Please select area manually.", "warning");
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Acquiring GPS Satellite Signal...</span>`;
+  }
+  if (statusBox && statusText) {
+    statusBox.style.display = "block";
+    statusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Contacting browser Geolocation API...`;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      appState.detectedGPS = { lat, lng };
+
+      try {
+        if (statusText) statusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Validating coordinates with BharatStore routing engine...`;
+        const res = await fetch("/api/location/validate-coords", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ latitude: lat, longitude: lng })
+        });
+        const data = await res.json();
+        if (data.success && data.valid) {
+          if (statusText) {
+            statusText.innerHTML = `
+              <div style="background:var(--color-primary-light); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--color-primary); color:var(--color-primary-dark); line-height:1.4;">
+                <i class="fa-solid fa-circle-check"></i> <strong>GPS Verified:</strong> ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E<br>
+                <span>Nearest store hub: <strong>${data.nearest_hub}</strong> (${data.distance_km} km away). Please confirm your neighbourhood below.</span>
+              </div>
+            `;
+          }
+          const citySelect = document.getElementById("loc-modal-city");
+          if (citySelect) {
+            citySelect.value = data.nearest_city;
+            handleModalCityChange(data.nearest_city);
+          }
+          showToast(`GPS located! Nearest physical store: ${data.nearest_hub} (${data.distance_km} km)`);
+        } else {
+          if (statusText) {
+            statusText.innerHTML = `<span style="color:var(--color-warning);">${data.error || 'Could not map GPS coordinates. Please select manually.'}</span>`;
+          }
+        }
+      } catch (err) {
+        console.error("GPS validation error:", err);
+        if (statusText) statusText.innerHTML = `<span style="color:var(--color-warning);">Coordinate validation offline. Please select your area manually below.</span>`;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> <span>Use My Current Location (GPS)</span>`;
+        }
+      }
+    },
+    (err) => {
+      let msg = "Could not detect GPS location. Please select your area manually below.";
+      if (err.code === 1) {
+        msg = "Location permission denied. Please select your city and neighbourhood manually below.";
+      } else if (err.code === 2) {
+        msg = "GPS position unavailable. Please choose your location from the supported metro areas.";
+      } else if (err.code === 3) {
+        msg = "GPS request timed out. Please select your location manually.";
+      }
+
+      if (statusText) {
+        statusText.innerHTML = `<span style="color:var(--color-danger);"><i class="fa-solid fa-triangle-exclamation"></i> ${msg}</span>`;
+      }
+      showToast(msg, "warning");
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa-solid fa-location-crosshairs"></i> <span>Use My Current Location (GPS)</span>`;
+      }
+    },
+    { timeout: 8000, enableHighAccuracy: true }
+  );
+}
+
+async function loadModalSavedAddresses() {
+  const container = document.getElementById("modal-saved-address-pills");
+  if (!container) return;
+
+  try {
+    const res = await fetch("/api/customer/addresses");
+    const data = await res.json();
+    if (data.success && data.addresses && data.addresses.length > 0) {
+      container.innerHTML = data.addresses.map(a => `
+        <button type="button" class="btn-secondary" style="font-size:11.5px; padding:6px 10px; justify-content:flex-start; text-align:left;" onclick="selectSavedAddressIntoModal(${a.id})">
+          <i class="fa-solid fa-${a.address_type === 'WORK' ? 'briefcase' : (a.address_type === 'HOME' ? 'house' : 'location-dot')}" style="color:var(--color-primary);"></i>
+          <span><strong>${a.address_type}:</strong> ${escapeHtml(a.city)} (${escapeHtml(a.pincode)})</span>
+        </button>
+      `).join("");
+      window.modalSavedAddressesCache = data.addresses;
+    } else {
+      container.innerHTML = `<span style="font-size:11.5px; color:var(--color-text-muted);">No saved addresses yet. Add one in your profile!</span>`;
+    }
+  } catch (err) {
+    container.innerHTML = "";
+  }
+}
+
+function selectSavedAddressIntoModal(addrId) {
+  const addr = (window.modalSavedAddressesCache || []).find(a => a.id === addrId);
+  if (!addr) return;
+
+  const citySelect = document.getElementById("loc-modal-city");
+  if (citySelect) {
+    citySelect.value = addr.city;
+    handleModalCityChange(addr.city);
+  }
+  const streetInput = document.getElementById("loc-modal-street");
+  if (streetInput) {
+    streetInput.value = `${addr.address_line1}${addr.address_line2 ? ', ' + addr.address_line2 : ''}`;
+  }
+  const pinInput = document.getElementById("loc-modal-pincode");
+  if (pinInput) {
+    pinInput.value = addr.pincode;
+  }
+  const landInput = document.getElementById("loc-modal-landmark");
+  if (landInput && addr.landmark) {
+    landInput.value = addr.landmark;
+  }
+
+  showToast(`Loaded ${addr.address_type} address: ${addr.city}`);
+}
+
+async function confirmSelectedDeliveryLocation() {
+  const citySelect = document.getElementById("loc-modal-city");
+  const areaSelect = document.getElementById("loc-modal-area");
+  const streetInput = document.getElementById("loc-modal-street");
+  const pinInput = document.getElementById("loc-modal-pincode");
+
+  const city = citySelect?.value || appState.currentCity || "Mumbai";
+  const area = areaSelect?.value || "Bandra West";
+  const street = streetInput?.value?.trim() || "Flat 402, Sea Green Apts, Worli Sea Face";
+  const pincode = pinInput?.value?.trim() || "400050";
+
+  if (!/^[1-9][0-9]{5}$/.test(pincode)) {
+    showToast("Please enter a valid 6-digit Indian PIN code (e.g. 400050).", "error");
+    if (pinInput) pinInput.focus();
+    return;
+  }
+
+  const payload = {
+    city: city,
+    area: area,
+    address_line: street,
+    pincode: pincode,
+    latitude: appState.detectedGPS ? appState.detectedGPS.lat : null,
+    longitude: appState.detectedGPS ? appState.detectedGPS.lng : null,
+    source: appState.detectedGPS ? "gps" : "manual"
+  };
+
+  try {
+    const res = await fetch("/api/location/set-current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success && data.location) {
+      appState.deliveryLocation = data.location;
+      appState.currentCity = data.location.city;
+      localStorage.setItem("bharatstore_delivery_location", JSON.stringify(data.location));
+      localStorage.setItem("bharatstore_selected_city", data.location.city);
+      updateDeliveryLocationUI(data.location);
+      closeLocationSelectorModal();
+      showToast(`📍 Delivery location set: ${data.location.formatted}`);
+    } else {
+      showToast(data.error || "Could not set delivery location.", "error");
+    }
+  } catch (err) {
+    console.error("Error setting location:", err);
+    showToast("Network error setting delivery location.", "error");
   }
 }
 
@@ -164,6 +482,10 @@ function updateModeNav() {
   document.querySelectorAll(".online-only-nav").forEach(el => {
     el.classList.toggle("nav-hidden", isRetail);
   });
+  const homeLink = document.getElementById("nav-mode-home");
+  if (homeLink) {
+    homeLink.setAttribute("href", isRetail ? "/retail" : "/");
+  }
 }
 
 function handleModeSwitchRequest(targetMode) {
@@ -289,6 +611,32 @@ async function executeModeSwitch(targetMode) {
   if (document.getElementById("cart-page-items-list")) {
     renderCartPage();
   }
+
+  // 6. Seamless Mode-Aware Navigation Transition
+  const currentPath = window.location.pathname;
+  if (targetMode === "RETAIL_NEAR_ME") {
+    // If not already on retail page, navigate to Retail Near Me experience
+    if (currentPath !== "/retail") {
+      setTimeout(() => {
+        window.location.href = "/retail";
+      }, 300);
+      return;
+    }
+    // If location is not set yet, prompt location/store selector
+    if (!localStorage.getItem("bharatstore_selected_city")) {
+      setTimeout(() => {
+        openHubSwitchModal();
+      }, 400);
+    }
+  } else if (targetMode === "ONLINE") {
+    // If on retail page or select-mode, navigate to full online marketplace homepage
+    if (currentPath === "/retail" || currentPath === "/select-mode") {
+      setTimeout(() => {
+        window.location.href = "/?view=online";
+      }, 300);
+      return;
+    }
+  }
 }
 
 function openModeSelectModal() {
@@ -309,13 +657,21 @@ function selectModeFromModal(targetMode) {
 function selectModeAndNavigate(targetMode) {
   handleModeSwitchRequest(targetMode);
   setTimeout(() => {
-    window.location.href = "/";
+    if (targetMode === "RETAIL_NEAR_ME") {
+      window.location.href = "/retail";
+    } else {
+      window.location.href = "/?view=online";
+    }
   }, 250);
 }
 
 function handleNearbyStoresNav() {
-  showToast("Retail Near Me: Stores within 15 km in Mumbai, Bengaluru, Delhi, Hyderabad, Chennai & Kolkata! Full GPS discovery activates in Phase 5.");
-  openHubSwitchModal();
+  const nearbyEl = document.getElementById("nearby-stores-section");
+  if (nearbyEl) {
+    nearbyEl.scrollIntoView({ behavior: "smooth" });
+  } else {
+    window.location.href = "/retail#nearby-stores-section";
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -1273,6 +1629,124 @@ function initCheckoutPage() {
 
   if (subtotalEl) subtotalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
   if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+
+  // Phase 3: Load Saved Addresses into Checkout
+  loadCheckoutSavedAddresses();
+}
+
+async function loadCheckoutSavedAddresses() {
+  const container = document.getElementById("checkout-saved-addresses-list");
+  if (!container) return;
+
+  try {
+    const res = await fetch("/api/customer/addresses");
+    const data = await res.json();
+    if (!data.success || !data.addresses || data.addresses.length === 0) {
+      container.innerHTML = `
+        <div style="font-size:12px; color:var(--color-text-muted); background:var(--color-bg-base); padding:10px 14px; border-radius:var(--radius-sm); border:1px dashed var(--color-border);">
+          No saved addresses found. Using active delivery location details below.
+        </div>
+      `;
+      prefillGuestCheckoutLocation();
+      return;
+    }
+
+    window.checkoutSavedAddressesList = data.addresses;
+    let defaultAddr = data.addresses.find(a => a.is_default) || data.addresses[0];
+
+    container.innerHTML = data.addresses.map((a) => `
+      <label style="display:flex; align-items:flex-start; gap:10px; padding:10px 14px; border:1.5px solid ${a.id === defaultAddr.id ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius:var(--radius-md); background:${a.id === defaultAddr.id ? 'var(--color-primary-light)' : 'var(--color-bg-base)'}; cursor:pointer;" class="checkout-addr-radio-label" id="checkout-addr-card-${a.id}">
+        <input type="radio" name="checkout_saved_addr" value="${a.id}" ${a.id === defaultAddr.id ? 'checked' : ''} onchange="selectSavedAddressForCheckout(${a.id})" style="margin-top:3px;">
+        <div style="flex:1;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <strong style="font-size:13px; color:var(--color-text-main);">${escapeHtml(a.full_name)}</strong>
+            <span class="badge-status badge-confirmed" style="font-size:10px; font-weight:800;">${a.address_type}</span>
+            ${a.is_default ? '<span style="background:var(--color-primary); color:#FFF; font-size:9px; font-weight:800; padding:1px 6px; border-radius:var(--radius-full);">DEFAULT</span>' : ''}
+          </div>
+          <p style="font-size:12px; color:var(--color-text-body); margin-top:2px; line-height:1.4;">
+            ${escapeHtml(a.address_line1)}${a.address_line2 ? ', ' + escapeHtml(a.address_line2) : ''}, ${escapeHtml(a.city)} — ${escapeHtml(a.pincode)} &bull; Tel: ${escapeHtml(a.phone)}
+          </p>
+        </div>
+      </label>
+    `).join("");
+
+    if (defaultAddr) {
+      applyAddressToCheckoutForm(defaultAddr);
+    }
+  } catch (err) {
+    console.error("Error loading checkout addresses:", err);
+    prefillGuestCheckoutLocation();
+  }
+}
+
+function selectSavedAddressForCheckout(addrId) {
+  const addr = (window.checkoutSavedAddressesList || []).find(a => a.id === addrId);
+  if (!addr) return;
+
+  document.querySelectorAll(".checkout-addr-radio-label").forEach(el => {
+    el.style.borderColor = "var(--color-border)";
+    el.style.background = "var(--color-bg-base)";
+  });
+  const selectedCard = document.getElementById(`checkout-addr-card-${addrId}`);
+  if (selectedCard) {
+    selectedCard.style.borderColor = "var(--color-primary)";
+    selectedCard.style.background = "var(--color-primary-light)";
+  }
+
+  applyAddressToCheckoutForm(addr);
+}
+
+function applyAddressToCheckoutForm(addr) {
+  const nameEl = document.getElementById("checkout-customer-name");
+  const phoneEl = document.getElementById("checkout-customer-phone");
+  const addrEl = document.getElementById("checkout-shipping-address");
+  const cityEl = document.getElementById("checkout-shipping-city");
+  const pinEl = document.getElementById("checkout-pincode");
+
+  if (nameEl) nameEl.value = addr.full_name;
+  if (phoneEl) phoneEl.value = addr.phone;
+  if (addrEl) {
+    addrEl.value = `${addr.address_line1}${addr.address_line2 ? ', ' + addr.address_line2 : ''}${addr.landmark ? ' (' + addr.landmark + ')' : ''}`;
+  }
+  if (cityEl) {
+    cityEl.value = addr.city;
+    updateCheckoutCity(addr.city);
+  }
+  if (pinEl) pinEl.value = addr.pincode;
+}
+
+function selectNewAddressOption() {
+  document.querySelectorAll('input[name="checkout_saved_addr"]').forEach(r => r.checked = false);
+  document.querySelectorAll(".checkout-addr-radio-label").forEach(el => {
+    el.style.borderColor = "var(--color-border)";
+    el.style.background = "var(--color-bg-base)";
+  });
+  const nameEl = document.getElementById("checkout-customer-name");
+  const addrEl = document.getElementById("checkout-shipping-address");
+  const pinEl = document.getElementById("checkout-pincode");
+  if (nameEl) nameEl.focus();
+  if (addrEl) addrEl.value = "";
+  if (pinEl) pinEl.value = "";
+  showToast("Enter your delivery address below.");
+}
+
+async function prefillGuestCheckoutLocation() {
+  try {
+    const res = await fetch("/api/location/current");
+    const data = await res.json();
+    if (data.success && data.location) {
+      const loc = data.location;
+      const cityEl = document.getElementById("checkout-shipping-city");
+      const pinEl = document.getElementById("checkout-pincode");
+      const addrEl = document.getElementById("checkout-shipping-address");
+      if (cityEl && loc.city) {
+        cityEl.value = loc.city;
+        updateCheckoutCity(loc.city);
+      }
+      if (pinEl && loc.pincode) pinEl.value = loc.pincode;
+      if (addrEl && loc.address_line) addrEl.value = loc.address_line;
+    }
+  } catch (e) {}
 }
 
 function updateCheckoutCity(cityName) {

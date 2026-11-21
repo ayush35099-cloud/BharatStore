@@ -294,7 +294,7 @@ SAMPLE_PRODUCTS = [
         "stock": 35,
         "rating": 4.9,
         "rating_count": 4820,
-        "image_url": "https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=500&auto=format&fit=crop&q=80",
+        "image_url": "https://images.unsplash.com/photo-1573812461383-e5f8b759d12e?w=500&auto=format&fit=crop&q=80",
         "description": "Hand-churned bilona ghee crafted from the curd of grass-fed indigenous Gir cows. Rich in CLA, butyric acid, and essential fat-soluble vitamins.",
         "cities": ["Mumbai", "Bengaluru", "Delhi", "Hyderabad", "Chennai", "Kolkata"]
     },

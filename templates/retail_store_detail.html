@@ -143,7 +143,7 @@
         <div class="product-card" data-category="Dairy & Breakfast" data-title="{{ item.title|lower }}" data-product-id="{{ item.product_id }}">
           <div class="product-card-visual">
             <a href="/product/{{ item.product_id }}">
-              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
             </a>
             {% if item.is_available and item.stock_quantity > 0 %}
               <span class="retail-stock-pill in-stock"><i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})</span>
@@ -198,7 +198,7 @@
         <div class="product-card" data-category="Rice & Grains" data-title="{{ item.title|lower }}" data-product-id="{{ item.product_id }}">
           <div class="product-card-visual">
             <a href="/product/{{ item.product_id }}">
-              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
             </a>
             {% if item.is_available and item.stock_quantity > 0 %}
               <span class="retail-stock-pill in-stock"><i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})</span>
@@ -253,7 +253,7 @@
         <div class="product-card" data-category="Cooking Essentials" data-title="{{ item.title|lower }}" data-product-id="{{ item.product_id }}">
           <div class="product-card-visual">
             <a href="/product/{{ item.product_id }}">
-              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
             </a>
             {% if item.is_available and item.stock_quantity > 0 %}
               <span class="retail-stock-pill in-stock"><i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})</span>
@@ -308,7 +308,7 @@
         <div class="product-card" data-category="Fresh Produce" data-title="{{ item.title|lower }}" data-product-id="{{ item.product_id }}">
           <div class="product-card-visual">
             <a href="/product/{{ item.product_id }}">
-              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
             </a>
             {% if item.is_available and item.stock_quantity > 0 %}
               <span class="retail-stock-pill in-stock"><i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})</span>
@@ -363,7 +363,7 @@
         <div class="product-card" data-category="Household Essentials" data-title="{{ item.title|lower }}" data-product-id="{{ item.product_id }}">
           <div class="product-card-visual">
             <a href="/product/{{ item.product_id }}">
-              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+              <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
             </a>
             {% if item.is_available and item.stock_quantity > 0 %}
               <span class="retail-stock-pill in-stock"><i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})</span>
@@ -609,7 +609,7 @@
 
       content.innerHTML = `
         <div style="display:flex; gap:14px; align-items:center; padding:12px; background:var(--color-bg-subtle); border-radius:var(--radius-md); margin-bottom:16px;">
-          <img src="${p.image_url}" alt="${p.title}" style="width:60px; height:60px; object-fit:contain; background:#fff; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:4px;">
+          <img src="${p.image_url}" alt="${p.title}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';" style="width:60px; height:60px; object-fit:contain; background:#fff; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:4px;">
           <div>
             <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700; color:var(--color-text-main);">${p.title}</h4>
             <div style="font-size:12px; color:var(--color-text-muted);">

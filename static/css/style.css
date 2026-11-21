@@ -700,6 +700,7 @@ button, input, select, textarea {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 20%;
   transition: transform 1.2s ease;
 }
 
@@ -2725,7 +2726,13 @@ body.cart-drawer-open {
 /* --- Responsive Breakpoints --- */
 @media (max-width: 1024px) {
   .hero-slider-card { grid-template-columns: 1fr; }
-  .hero-visual { display: none; }
+  .hero-visual {
+    display: block;
+    width: 100%;
+    min-height: 320px;
+    height: 360px;
+    order: 2;
+  }
   .features-strip { grid-template-columns: repeat(2, 1fr); }
   .category-grid { grid-template-columns: repeat(3, 1fr); }
   .promo-banners-grid { grid-template-columns: 1fr; }
@@ -2760,6 +2767,7 @@ body.cart-drawer-open {
 }
 
 @media (max-width: 768px) {
+  .hero-visual { min-height: 250px; height: 280px; }
   .header-inner { flex-wrap: wrap; }
   .header-search-form { order: 3; max-width: 100%; width: 100%; margin-top: 8px; }
   .category-grid { grid-template-columns: repeat(2, 1fr); }

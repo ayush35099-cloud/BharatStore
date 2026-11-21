@@ -295,6 +295,24 @@ CITIES_AND_AREAS_DATA = [
             {"name": "Ballygunge", "pincode": "700019", "lat": 22.5280, "lng": 88.3655, "distance_km": 3.1},
             {"name": "Alipore", "pincode": "700027", "lat": 22.5333, "lng": 88.3333, "distance_km": 3.0}
         ]
+    },
+    {
+        "city": "Pune",
+        "state": "Maharashtra",
+        "hub_code": "HUB-PUN-01",
+        "hub_name": "BharatStore Pune Hub",
+        "hub_address": "FC Road, Shivaji Nagar, Pune 411005",
+        "hub_lat": 18.5204,
+        "hub_lng": 73.8567,
+        "default_pincode": "411005",
+        "areas": [
+            {"name": "Shivaji Nagar", "pincode": "411005", "lat": 18.5204, "lng": 73.8567, "distance_km": 0.4},
+            {"name": "Kothrud", "pincode": "411038", "lat": 18.5074, "lng": 73.8077, "distance_km": 4.8},
+            {"name": "Koregaon Park", "pincode": "411001", "lat": 18.5362, "lng": 73.8940, "distance_km": 4.2},
+            {"name": "Viman Nagar", "pincode": "411014", "lat": 18.5679, "lng": 73.9143, "distance_km": 7.5},
+            {"name": "Baner", "pincode": "411045", "lat": 18.5590, "lng": 73.7868, "distance_km": 8.1},
+            {"name": "Hinjawadi", "pincode": "411057", "lat": 18.5913, "lng": 73.7389, "distance_km": 14.5}
+        ]
     }
 ]
 
@@ -311,21 +329,44 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
     return round(R * c, 1)
 
 def get_current_delivery_location() -> Dict[str, Any]:
-    """Retrieves current delivery location from session or returns default Mumbai location."""
-    loc = session.get("customer_location")
+    """Retrieves current delivery location from session or cookies or returns default location."""
+    loc = session.get("customer_location") or session.get("delivery_location")
     if loc and isinstance(loc, dict) and loc.get("city"):
-        return loc
+        normalized = dict(loc)
+        lat = normalized.get("lat") if normalized.get("lat") is not None else normalized.get("latitude")
+        lng = normalized.get("lng") if normalized.get("lng") is not None else normalized.get("longitude")
+        if lat is not None:
+            normalized["lat"] = float(lat)
+            normalized["latitude"] = float(lat)
+        if lng is not None:
+            normalized["lng"] = float(lng)
+            normalized["longitude"] = float(lng)
+        return normalized
+
+    # Check cookie fallback
+    cookie_city = request.cookies.get("bharatstore_city") if request else None
+    matched = None
+    if cookie_city:
+        matched = next((c for c in CITIES_AND_AREAS_DATA if c["city"].lower() == cookie_city.lower()), None)
+    if not matched:
+        matched = CITIES_AND_AREAS_DATA[0]  # Mumbai default
+
+    area0 = matched["areas"][0] if matched.get("areas") else {}
+    lat_val = area0.get("lat", matched.get("hub_lat", 19.0596))
+    lng_val = area0.get("lng", matched.get("hub_lng", 72.8295))
     return {
-        "city": "Mumbai",
-        "area": "Bandra West",
-        "pincode": "400050",
-        "address_line": "Flat 402, Sea Green Apts, Worli Sea Face",
-        "latitude": 19.0178,
-        "longitude": 72.8178,
+        "city": matched["city"],
+        "area": area0.get("name", "Bandra West"),
+        "pincode": area0.get("pincode", matched.get("default_pincode", "400050")),
+        "address_line": f"Linking Road, {area0.get('name', 'Bandra West')}, {matched['city']} {matched.get('default_pincode', '400050')}",
+        "latitude": lat_val,
+        "longitude": lng_val,
+        "lat": lat_val,
+        "lng": lng_val,
         "source": "default",
-        "formatted": "Bandra West, Mumbai",
-        "nearest_hub": "BharatStore Mumbai MegaHub",
-        "distance_km": 0.5,
+        "formatted": f"{area0.get('name', 'Bandra West')}, {matched['city']}",
+        "nearest_hub": matched.get("hub_name", "BharatStore Mumbai MegaHub"),
+        "distance_km": area0.get("distance_km", 0.5),
         "is_within_delivery_radius": True,
         "is_fallback": True
     }
@@ -352,10 +393,16 @@ def build_retail_context() -> Dict[str, Any]:
     hubs = db_service.get_store_hubs()
 
     # Resolve delivery city
-    loc = session.get("delivery_location") or {}
-    city = (loc.get("city") or request.cookies.get("bharatstore_city") or "Bengaluru").strip()
+    loc = session.get("customer_location") or session.get("delivery_location") or {}
+    cookie_city = request.cookies.get("bharatstore_city") if request else None
+    if loc and loc.get("city"):
+        city = loc["city"].strip()
+    elif cookie_city:
+        city = cookie_city.strip()
+    else:
+        city = "Bengaluru"
 
-    # Get active retail stores for city (5 Bengaluru shops by default)
+    # Get active retail stores for city
     stores = db_service.get_retail_stores(city)
     if not stores:
         stores = db_service.get_retail_stores("Bengaluru")
@@ -376,6 +423,12 @@ def build_retail_context() -> Dict[str, Any]:
                 selected_store = db_service.get_store_by_id(int(sess_store_id))
             except (ValueError, TypeError):
                 selected_store = None
+
+    # CRITICAL: Verify selected_store belongs to the active city!
+    if selected_store and stores:
+        st_city = selected_store.get("city", "").lower()
+        if city.lower() not in st_city and st_city not in city.lower():
+            selected_store = stores[0]
 
     if not selected_store:
         selected_store = stores[0] if stores else None
@@ -503,7 +556,7 @@ def retail_stores_page():
     """
     set_current_shopping_mode("RETAIL_NEAR_ME")
     
-    loc = session.get("delivery_location") or {}
+    loc = get_current_delivery_location()
     lat_param = request.args.get("lat")
     lng_param = request.args.get("lng")
     
@@ -512,11 +565,11 @@ def retail_stores_page():
             cust_lat = float(lat_param)
             cust_lng = float(lng_param)
         except (ValueError, TypeError):
-            cust_lat = float(loc.get("lat", 12.9716))
-            cust_lng = float(loc.get("lng", 77.5946))
+            cust_lat = float(loc.get("lat") or 12.9716)
+            cust_lng = float(loc.get("lng") or 77.5946)
     else:
-        cust_lat = float(loc.get("lat", 12.9716))
-        cust_lng = float(loc.get("lng", 77.5946))
+        cust_lat = float(loc.get("lat") or 12.9716)
+        cust_lng = float(loc.get("lng") or 77.5946)
         
     sort_by = request.args.get("sort", "nearest")
     cat_filter = request.args.get("filter", "all")
@@ -563,7 +616,7 @@ def retail_store_front_page(store_id: int):
     """
     set_current_shopping_mode("RETAIL_NEAR_ME")
     
-    loc = session.get("delivery_location") or {}
+    loc = get_current_delivery_location()
     cust_lat = loc.get("lat")
     cust_lng = loc.get("lng")
     
@@ -626,7 +679,7 @@ def get_nearby_retail_stores_api():
     pickup_only = request.args.get("pickup", "").lower() in ["true", "1", "yes"]
 
     if not lat_param or not lng_param:
-        loc = session.get("delivery_location") or {}
+        loc = get_current_delivery_location()
         if loc.get("lat") and loc.get("lng"):
             lat_param = loc["lat"]
             lng_param = loc["lng"]
@@ -690,7 +743,7 @@ def get_retail_store_by_id_api(store_id: int):
     user_lat = request.args.get("lat")
     user_lng = request.args.get("lng")
     if not user_lat or not user_lng:
-        loc = session.get("delivery_location") or {}
+        loc = get_current_delivery_location()
         user_lat = loc.get("lat")
         user_lng = loc.get("lng")
 
@@ -1069,9 +1122,12 @@ def get_cart_online_api():
 def get_cart_retail_api():
     """Returns central Retail master cart grouped by shop."""
     cust_id, sess_id = _get_cart_auth()
-    loc = session.get("delivery_location") or {}
-    cust_lat = request.args.get("lat", loc.get("lat"))
-    cust_lng = request.args.get("lng", loc.get("lng"))
+    loc = session.get("customer_location") or session.get("delivery_location") or {}
+    cust_lat = request.args.get("lat")
+    cust_lng = request.args.get("lng")
+    if not cust_lat and not loc.get("is_fallback") and loc.get("lat"):
+        cust_lat = loc.get("lat")
+        cust_lng = loc.get("lng")
     retail_carts = db_service.get_all_retail_carts(cust_id, sess_id, customer_lat=cust_lat, customer_lng=cust_lng)
     return jsonify(retail_carts)
 
@@ -1338,12 +1394,33 @@ def checkout_retail_multi_store_api():
         "address": "Flat 402, Sea Green Apts, Worli Sea Face",
         "city": "Bengaluru"
     }
-    delivery_address = data.get("delivery_address") or session.get("delivery_location") or {
-        "latitude": 12.9784,
-        "longitude": 77.6408,
-        "city": "Bengaluru",
-        "formatted": "CMH Road, Indiranagar, Bengaluru"
-    }
+    
+    loc = session.get("customer_location") or session.get("delivery_location") or {}
+    if data.get("delivery_address"):
+        delivery_address = data["delivery_address"]
+    elif loc and not loc.get("is_fallback") and (loc.get("latitude") or loc.get("lat")):
+        delivery_address = loc
+    else:
+        # Derive local delivery coordinates based on store being checked out
+        first_store = db_service.get_store_by_id(selected_store_ids[0]) if selected_store_ids else None
+        if first_store and first_store.get("latitude") and first_store.get("longitude"):
+            delivery_address = {
+                "latitude": float(first_store["latitude"]),
+                "longitude": float(first_store["longitude"]),
+                "city": first_store.get("city", "Bengaluru"),
+                "area": first_store.get("area", "Indiranagar"),
+                "pincode": first_store.get("pincode", "560038"),
+                "formatted": first_store.get("full_address", f"{first_store.get('area')}, {first_store.get('city')}")
+            }
+        else:
+            delivery_address = {
+                "latitude": 12.9784,
+                "longitude": 77.6408,
+                "city": "Bengaluru",
+                "area": "Indiranagar",
+                "pincode": "560038",
+                "formatted": "CMH Road, Indiranagar, Bengaluru"
+            }
     payment_method = data.get("payment_method", "UPI")
 
     try:
@@ -1802,6 +1879,8 @@ def set_current_location_api():
         "address_line": address_line,
         "latitude": lat_f,
         "longitude": lng_f,
+        "lat": lat_f,
+        "lng": lng_f,
         "source": source,
         "formatted": formatted,
         "nearest_hub": hub_name,
@@ -1812,22 +1891,29 @@ def set_current_location_api():
     }
 
     session["customer_location"] = location_data
+    session["delivery_location"] = location_data
     session["shopping_city"] = city
     session.permanent = True
 
-    return jsonify({
+    city_stores = db_service.get_retail_stores(city)
+    if city_stores:
+        session["retail_store_id"] = city_stores[0]["id"]
+
+    resp = jsonify({
         "success": True,
         "location": location_data,
         "message": f"Delivery location set to {formatted}."
     })
+    resp.set_cookie("bharatstore_city", city, max_age=30*86400, path="/")
+    return resp
 
 @main_bp.route("/api/location/current", methods=["GET"])
 def get_current_location_api():
     """
     Returns the active delivery location for the session.
     """
-    loc = session.get("customer_location")
-    if loc:
+    loc = session.get("customer_location") or session.get("delivery_location")
+    if loc and isinstance(loc, dict) and loc.get("city"):
         return jsonify({"success": True, "location": loc, "is_fallback": False})
     fallback = get_current_delivery_location()
     return jsonify({"success": True, "location": fallback, "is_fallback": True})

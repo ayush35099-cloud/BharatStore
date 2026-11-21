@@ -424,6 +424,21 @@ async function confirmSelectedDeliveryLocation() {
       updateDeliveryLocationUI(data.location);
       closeLocationSelectorModal();
       showToast(`📍 Delivery location set: ${data.location.formatted}`);
+
+      // If user is on a retail storefront, directory, or checkout, reload to reflect active stores
+      if (
+        window.location.pathname.startsWith("/retail") ||
+        window.location.pathname.startsWith("/checkout") ||
+        document.getElementById("nearby-stores-section") ||
+        document.getElementById("retail-stores-list")
+      ) {
+        setTimeout(() => { window.location.reload(); }, 350);
+      } else {
+        const drawer = document.getElementById("cart-drawer");
+        if (drawer && drawer.classList.contains("open")) {
+          fetchAndRenderCartDrawer();
+        }
+      }
     } else {
       showToast(data.error || "Could not set delivery location.", "error");
     }

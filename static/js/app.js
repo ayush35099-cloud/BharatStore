@@ -118,12 +118,36 @@ async function addToCart(productId, qty = 1) {
     try {
       const res = await fetch(`/api/products/${productId}`);
       const data = await res.json();
-      if (data.product) product = data.product;
+      product = data.product || (data.id ? data : null);
     } catch (e) {
-      console.error(e);
+      console.error("Error fetching product details for cart:", e);
     }
   }
-  if (!product) return;
+  if (!product) {
+    showToast("Product details could not be retrieved", true);
+    return;
+  }
+
+  if (product.stock <= 0) {
+    showToast(`Sorry, ${product.title} is currently Out of Stock`, true);
+    return;
+  }
+
+  // Backend stock validation guard
+  try {
+    const valRes = await fetch("/api/cart/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ product_id: productId, quantity: qty })
+    });
+    const valData = await valRes.json();
+    if (!valRes.ok || !valData.valid) {
+      showToast(valData.error || "Requested quantity exceeds available stock", true);
+      return;
+    }
+  } catch (err) {
+    console.warn("Backend validation note:", err);
+  }
 
   if (!appState.cart[productId]) {
     appState.cart[productId] = { product, qty: 0 };
@@ -131,10 +155,11 @@ async function addToCart(productId, qty = 1) {
   appState.cart[productId].qty += qty;
   if (appState.cart[productId].qty > product.stock) {
     appState.cart[productId].qty = product.stock;
-    showToast(`Maximum stock reached for ${product.title}`);
+    showToast(`Maximum available stock (${product.stock}) reached for ${product.title}`);
+  } else {
+    showToast(`Added ${qty > 1 ? qty + ' units of ' : ''}${product.title} to your cart`);
   }
   saveCart();
-  showToast(`Added ${product.title} to cart`);
 }
 
 function updateCartItemQty(productId, delta) {
@@ -251,10 +276,17 @@ function toggleWishlist(productId) {
   }
   saveWishlist();
 
-  // Update button visual if present on screen
-  document.querySelectorAll(`.wishlist-float-btn[data-product-id="${productId}"]`).forEach(btn => {
-    btn.classList.toggle("active", appState.wishlist.has(productId));
-    btn.innerHTML = appState.wishlist.has(productId) ? '<i class="fa-solid fa-heart" style="color:#E03131;"></i>' : '<i class="fa-regular fa-heart"></i>';
+  // Update button visual if present on screen (both catalog cards and product details page)
+  document.querySelectorAll(`.wishlist-float-btn[data-product-id="${productId}"], .detail-wishlist-action-btn[data-product-id="${productId}"]`).forEach(btn => {
+    const isSaved = appState.wishlist.has(productId);
+    btn.classList.toggle("active", isSaved);
+    if (btn.classList.contains("detail-wishlist-action-btn")) {
+      btn.innerHTML = isSaved
+        ? '<i class="fa-solid fa-heart" style="color:#E03131;"></i> Saved in Wishlist'
+        : '<i class="fa-regular fa-heart"></i> Add to Wishlist';
+    } else {
+      btn.innerHTML = isSaved ? '<i class="fa-solid fa-heart" style="color:#E03131;"></i>' : '<i class="fa-regular fa-heart"></i>';
+    }
   });
 
   if (document.getElementById("wishlist-products-grid")) {
@@ -494,15 +526,22 @@ async function initCatalogPage() {
   }
 
   try {
-    const res = await fetch("/api/products");
-    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products catalog`);
-    const data = await res.json();
-    appState.products = data.products || [];
-
-    // Check URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const catParam = urlParams.get("category") || window.ACTIVE_CATEGORY_PARAM || "";
-    const qParam = urlParams.get("q") || window.SEARCH_QUERY_PARAM || "";
+    const qParam = (urlParams.get("q") || window.SEARCH_QUERY_PARAM || "").trim();
+
+    let endpoint = "/api/products";
+    if (qParam) {
+      endpoint = `/api/search?q=${encodeURIComponent(qParam)}`;
+      window.CATALOG_LOADED_VIA_OPENSEARCH = true;
+    } else {
+      window.CATALOG_LOADED_VIA_OPENSEARCH = false;
+    }
+
+    const res = await fetch(endpoint);
+    if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch products catalog`);
+    const data = await res.json();
+    appState.products = data.products || data.results || [];
 
     if (catParam) {
       const radio = document.querySelector(`input[name="cat_filter"][value="${catParam}"]`);
@@ -515,7 +554,10 @@ async function initCatalogPage() {
 
     if (qParam) {
       const title = document.getElementById("catalog-title");
-      if (title) title.innerHTML = `Search Results for "${qParam}"`;
+      if (title) {
+        const engineLabel = data.engine || "Aiven OpenSearch";
+        title.innerHTML = `Search Results for "${qParam}" <span class="badge-opensearch" style="display:inline-block; margin-left:10px; font-size:12px; font-weight:600; padding:3px 10px; border-radius:20px; background:rgba(0,75,141,0.1); color:var(--color-navy); border:1px solid rgba(0,75,141,0.2);"><i class="fa-solid fa-bolt"></i> ${engineLabel}</span>`;
+      }
     }
 
     applyFilters();
@@ -552,8 +594,8 @@ function applyFilters() {
     // 1. Category
     if (selectedCategory && p.category !== selectedCategory) return false;
 
-    // 2. Search Query (typo-tolerant matching fallback)
-    if (qParam) {
+    // 2. Search Query (typo-tolerant matching fallback if not pre-fetched via OpenSearch)
+    if (qParam && !window.CATALOG_LOADED_VIA_OPENSEARCH) {
       const matchText = `${p.title} ${p.brand} ${p.category} ${p.description}`.toLowerCase();
       if (!matchText.includes(qParam)) return false;
     }
@@ -1611,3 +1653,120 @@ function showToast(message, icon = "fa-solid fa-circle-check") {
     setTimeout(() => toast.remove(), 300);
   }, 2800);
 }
+
+// -----------------------------------------------------------------------------
+// 15. Product Details Page (/product/<id>) Interactive Operations
+// -----------------------------------------------------------------------------
+let detailProductQty = 1;
+
+function switchDetailImage(newUrl, thumbElement) {
+  const mainImg = document.getElementById("main-detail-img");
+  if (mainImg) {
+    mainImg.style.opacity = "0.4";
+    mainImg.src = newUrl;
+    setTimeout(() => { mainImg.style.opacity = "1"; }, 150);
+  }
+  document.querySelectorAll(".detail-thumb-item").forEach(item => item.classList.remove("active"));
+  if (thumbElement) thumbElement.classList.add("active");
+}
+
+function openImageLightbox(imageUrl) {
+  const modal = document.getElementById("image-lightbox-modal");
+  const modalImg = document.getElementById("lightbox-expanded-img");
+  if (modal && modalImg) {
+    modalImg.src = imageUrl || document.getElementById("main-detail-img")?.src || "";
+    modal.classList.add("open");
+  }
+}
+
+function closeImageLightbox() {
+  const modal = document.getElementById("image-lightbox-modal");
+  if (modal) modal.classList.remove("open");
+}
+
+function incrementDetailQty(maxStock, unitPrice) {
+  const maxAllowed = Math.min(maxStock, 10);
+  if (detailProductQty < maxAllowed) {
+    detailProductQty++;
+    updateDetailQtyDOM(unitPrice);
+  } else {
+    showToast(`Maximum allowable quantity is ${maxAllowed}`);
+  }
+}
+
+function decrementDetailQty(unitPrice) {
+  if (detailProductQty > 1) {
+    detailProductQty--;
+    updateDetailQtyDOM(unitPrice);
+  }
+}
+
+function updateDetailQtyDOM(unitPrice) {
+  const qtyEl = document.getElementById("detail-qty-input");
+  if (qtyEl) qtyEl.textContent = detailProductQty;
+
+  const subtotalEl = document.getElementById("detail-dynamic-subtotal");
+  if (subtotalEl && unitPrice) {
+    const total = detailProductQty * unitPrice;
+    subtotalEl.textContent = `₹${total.toLocaleString('en-IN')}`;
+  }
+}
+
+async function addCurrentProductToCart(productId) {
+  await addToCart(productId, detailProductQty);
+}
+
+async function buyNowProduct(productId) {
+  await addToCart(productId, detailProductQty);
+  window.location.href = "/checkout";
+}
+
+function openReviewModal() {
+  const modal = document.getElementById("write-review-modal");
+  if (modal) modal.classList.add("open");
+}
+
+function closeReviewModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  const modal = document.getElementById("write-review-modal");
+  if (modal) modal.classList.remove("open");
+}
+
+async function submitProductReview(e, productId) {
+  e.preventDefault();
+  const rating = document.getElementById("review-rating-select")?.value;
+  const title = document.getElementById("review-title-input")?.value;
+  const comment = document.getElementById("review-comment-input")?.value;
+  const customerId = document.getElementById("review-customer-select")?.value || 1;
+
+  try {
+    const res = await fetch(`/api/products/${productId}/reviews`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: parseInt(rating), title, comment, customer_id: parseInt(customerId) })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast("Thank you! Your verified review has been published.");
+      closeReviewModal();
+      setTimeout(() => location.reload(), 900);
+    } else {
+      alert(data.error || "Failed to submit review.");
+    }
+  } catch (err) {
+    console.error("Review submission error:", err);
+    alert("Connection error while submitting review.");
+  }
+}
+
+function initProductDetailPage(productId) {
+  const wishlistBtn = document.querySelector(`.detail-wishlist-action-btn[data-product-id="${productId}"]`);
+  if (wishlistBtn) {
+    const isSaved = appState.wishlist.has(productId);
+    wishlistBtn.classList.toggle("active", isSaved);
+    wishlistBtn.innerHTML = isSaved
+      ? '<i class="fa-solid fa-heart" style="color:#E03131;"></i> Saved in Wishlist'
+      : '<i class="fa-regular fa-heart"></i> Add to Wishlist';
+  }
+}
+

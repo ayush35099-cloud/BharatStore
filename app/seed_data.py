@@ -821,3 +821,238 @@ SAMPLE_CUSTOMERS = [
         "address": "C-4/12, Safdarjung Development Area, New Delhi 110016"
     }
 ]
+
+# -----------------------------------------------------------------------------
+# Phase 2: Authentic Product Gallery Images by Category
+# -----------------------------------------------------------------------------
+CATEGORY_GALLERY_IMAGES = {
+    "Daily Essentials & Groceries": [
+        "https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1542838132-92c53300491e?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1506484381205-f7945653044d?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Mobiles & Tablets": [
+        "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1565849904461-04a58ad377e0?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Laptops & Computers": [
+        "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Audio & Wearables": [
+        "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Home & Kitchen": [
+        "https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1585515320310-259814833e62?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Fashion & Apparel": [
+        "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1445205170230-053b83016050?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Beauty & Personal Care": [
+        "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1608248597359-2e7837b0d4f3?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=700&auto=format&fit=crop&q=80"
+    ],
+    "Electronics": [
+        "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=700&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700&auto=format&fit=crop&q=80"
+    ]
+}
+
+def get_product_gallery_seed_data(product: dict) -> list:
+    """Returns 4 ordered images: 1 primary + 3 category angle shots"""
+    primary_img = product.get("image_url") or "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=700"
+    cat = product.get("category", "")
+    angles = CATEGORY_GALLERY_IMAGES.get(cat, CATEGORY_GALLERY_IMAGES["Electronics"])
+    return [
+        {"image_url": primary_img, "is_primary": True, "display_order": 1},
+        {"image_url": angles[0], "is_primary": False, "display_order": 2},
+        {"image_url": angles[1], "is_primary": False, "display_order": 3},
+        {"image_url": angles[2], "is_primary": False, "display_order": 4}
+    ]
+
+def get_product_specifications_seed_data(product: dict) -> list:
+    """Generates structured specifications grouped into General, Technical/Purity, and Fulfillment"""
+    cat = product.get("category", "")
+    cities = product.get("cities", ["Mumbai", "Bengaluru", "Delhi"])
+    hubs_str = ", ".join(cities) if isinstance(cities, list) else str(cities)
+
+    specs = [
+        {"spec_group": "General", "spec_key": "Brand", "spec_value": product.get("brand", "BharatStore")},
+        {"spec_group": "General", "spec_key": "Category", "spec_value": cat},
+        {"spec_group": "General", "spec_key": "Model Title", "spec_value": product.get("title", "")},
+        {"spec_group": "General", "spec_key": "SKU Identifier", "spec_value": product.get("sku", "")}
+    ]
+
+    if cat == "Daily Essentials & Groceries":
+        specs.extend([
+            {"spec_group": "Purity & Quality", "spec_key": "Organic Certification", "spec_value": "100% NPOP & FSSAI Certified"},
+            {"spec_group": "Purity & Quality", "spec_key": "Preservatives", "spec_value": "Zero Chemical Preservatives or Additives"},
+            {"spec_group": "Purity & Quality", "spec_key": "Shelf Life", "spec_value": "12 Months from Manufacturing"},
+            {"spec_group": "Purity & Quality", "spec_key": "Storage Advice", "spec_value": "Store in a cool, dry place away from moisture"}
+        ])
+    elif cat in ("Mobiles & Tablets", "Electronics"):
+        specs.extend([
+            {"spec_group": "Hardware & Performance", "spec_key": "Network Connectivity", "spec_value": "5G Dual SIM VoLTE Supported"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Display Tech", "spec_value": "High Refresh Rate OLED / Super Retina HDR"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Charging & Port", "spec_value": "Fast Charging Supported (USB-C)"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Security", "spec_value": "Biometric Authentication (Fingerprint / Face ID)"}
+        ])
+    elif cat == "Laptops & Computers":
+        specs.extend([
+            {"spec_group": "Hardware & Performance", "spec_key": "System Architecture", "spec_value": "Multi-Core High Efficiency Processor"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Storage Drive", "spec_value": "Ultra-Fast NVMe Solid State Drive (SSD)"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Display Screen", "spec_value": "Anti-Glare IPS Display, 100% sRGB Color Space"},
+            {"spec_group": "Hardware & Performance", "spec_key": "Wireless Connectivity", "spec_value": "Wi-Fi 6 (802.11ax) + Bluetooth 5.2"}
+        ])
+    elif cat == "Audio & Wearables":
+        specs.extend([
+            {"spec_group": "Acoustics & Battery", "spec_key": "Driver Architecture", "spec_value": "High Fidelity Dynamic Neodymium Drivers"},
+            {"spec_group": "Acoustics & Battery", "spec_key": "Noise Cancellation", "spec_value": "Active Noise Cancellation (ANC) with Ambient Mode"},
+            {"spec_group": "Acoustics & Battery", "spec_key": "Total Playtime", "spec_value": "Up to 30+ Hours Battery Life with Fast Charge"},
+            {"spec_group": "Acoustics & Battery", "spec_key": "Ingress Protection", "spec_value": "IPX4 Sweat & Splash Resistant"}
+        ])
+    elif cat == "Home & Kitchen":
+        specs.extend([
+            {"spec_group": "Material & Build", "spec_key": "Construction Material", "spec_value": "Food-Grade Stainless Steel / Heavy Anodized Aluminum"},
+            {"spec_group": "Material & Build", "spec_key": "Dishwasher Safe", "spec_value": "Yes, Dishwasher & Oven Safe"},
+            {"spec_group": "Material & Build", "spec_key": "Safety Standards", "spec_value": "ISI Certified Thermal Safety Valve"}
+        ])
+    elif cat == "Fashion & Apparel":
+        specs.extend([
+            {"spec_group": "Fabric & Fit", "spec_key": "Material Composition", "spec_value": "100% Breathable Combed Cotton Bio-Washed"},
+            {"spec_group": "Fabric & Fit", "spec_key": "Silhouette", "spec_value": "Contemporary Tailored Comfort Fit"},
+            {"spec_group": "Fabric & Fit", "spec_key": "Wash Care", "spec_value": "Machine Wash Cold, Gentle Cycle, Warm Iron"}
+        ])
+    elif cat == "Beauty & Personal Care":
+        specs.extend([
+            {"spec_group": "Formulation", "spec_key": "Skin Compatibility", "spec_value": "Dermatologically Tested for All Skin Types"},
+            {"spec_group": "Formulation", "spec_key": "Key Actives", "spec_value": "100% Vegan, Cruelty-Free, Paraben-Free"},
+            {"spec_group": "Formulation", "spec_key": "Application", "spec_value": "Apply daily on cleansed skin for maximum radiance"}
+        ])
+
+    specs.extend([
+        {"spec_group": "Fulfillment & Guarantee", "spec_key": "Physical Store Hubs", "spec_value": hubs_str},
+        {"spec_group": "Fulfillment & Guarantee", "spec_key": "Delivery Commitment", "spec_value": "Instant 2-Hour Express Delivery or Same-Day Pickup"},
+        {"spec_group": "Fulfillment & Guarantee", "spec_key": "Return Policy", "spec_value": "7-Day No-Questions-Asked Hub Replacement Guarantee"}
+    ])
+
+    return specs
+
+SEED_CUSTOMER_REVIEWS = [
+    {
+        "product_id": 1,
+        "customer_id": 1,
+        "rating": 5,
+        "title": "Superb Build Quality and Battery Life!",
+        "comment": "Upgraded from my older phone. The dynamic island and battery life are phenomenal. Received via Bengaluru hub in under 90 minutes with sealed packaging!"
+    },
+    {
+        "product_id": 1,
+        "customer_id": 2,
+        "rating": 5,
+        "title": "Flawless Performance & Camera",
+        "comment": "The portrait mode and low-light photography are unmatched. Picked up from the physical store counter without waiting in line."
+    },
+    {
+        "product_id": 1,
+        "customer_id": 3,
+        "rating": 4,
+        "title": "Great device, premium feel in hand",
+        "comment": "Lightweight titanium-feel edges and vibrant display. Charging speed is good, and customer support was very helpful."
+    },
+    {
+        "product_id": 2,
+        "customer_id": 2,
+        "rating": 5,
+        "title": "Galaxy AI features are very practical",
+        "comment": "Live translate and circle to search work seamlessly. Gorgeous 120Hz display with incredible outdoor brightness."
+    },
+    {
+        "product_id": 2,
+        "customer_id": 1,
+        "rating": 4,
+        "title": "Excellent Android flagship",
+        "comment": "Camera quality is top-tier. Battery easily lasts 1.5 days under heavy usage. Fast dispatch from Mumbai MegaHub."
+    },
+    {
+        "product_id": 4,
+        "customer_id": 1,
+        "rating": 5,
+        "title": "Silent, Fast, and Unbeatable Battery",
+        "comment": "The M2 processor is a dream. Fanless design means complete silence during compiling and rendering. Battery lasts two full days!"
+    },
+    {
+        "product_id": 4,
+        "customer_id": 2,
+        "rating": 5,
+        "title": "Best Laptop for Software Development",
+        "comment": "Handles Docker, VS Code, and dozens of tabs without breaking a sweat. Liquid Retina screen is easy on the eyes."
+    },
+    {
+        "product_id": 5,
+        "customer_id": 3,
+        "rating": 5,
+        "title": "Compact Powerhouse for Windows",
+        "comment": "Dell XPS keyboard is the best in class. Super slim bezels and bright 4K-like display. Very pleased with this purchase."
+    },
+    {
+        "product_id": 9,
+        "customer_id": 2,
+        "rating": 5,
+        "title": "Industry Leading Noise Cancellation",
+        "comment": "Cuts out train and office noise completely. Sound stage is wide and microphone is crystal clear on Zoom calls."
+    },
+    {
+        "product_id": 9,
+        "customer_id": 1,
+        "rating": 4,
+        "title": "Comfortable for all-day wearing",
+        "comment": "Extremely soft cushions that don't press on glasses. Companion app offers deep EQ customization."
+    },
+    {
+        "product_id": 14,
+        "customer_id": 3,
+        "rating": 5,
+        "title": "Authentic Bilona Aroma and Pure Taste",
+        "comment": "Reminds me of traditional homemade ghee from our village. Danedar texture and heavenly aroma. Will be reordering regularly!"
+    },
+    {
+        "product_id": 14,
+        "customer_id": 1,
+        "rating": 5,
+        "title": "Gold standard of pure organic ghee",
+        "comment": "Certified organic with verifiable batch laboratory reports. Delivered in heavy glass jar safe from damage."
+    },
+    {
+        "product_id": 15,
+        "customer_id": 2,
+        "rating": 5,
+        "title": "Rich Wild Forest Honey",
+        "comment": "Raw, unpasteurized, and full of natural pollen. You can taste the purity compared to supermarket processed honey."
+    },
+    {
+        "product_id": 20,
+        "customer_id": 1,
+        "rating": 5,
+        "title": "Induction base and heavy build",
+        "comment": "Prestige cooker cooks evenly on both gas and induction. Pressure indicator gives complete peace of mind."
+    },
+    {
+        "product_id": 25,
+        "customer_id": 3,
+        "rating": 5,
+        "title": "100% Breathable Cotton Fabric",
+        "comment": "Perfect fit, does not shrink after washing. Stitching is solid and color stays vibrant."
+    }
+]
+

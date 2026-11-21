@@ -134,9 +134,17 @@ def category_page(category_slug: str):
 def product_detail_page(product_id: int):
     product = db_service.get_product_by_id(product_id)
     if not product:
-        return render_template("products.html", error="Product not found"), 404
+        return render_template("products.html", error=f"Product #{product_id} was not found in our catalog.", not_found_id=product_id), 404
+    related_products = db_service.get_related_products(product_id, product.get("category"), limit=4)
     reviews = db_service.get_product_reviews(product_id)
-    return render_template("product_detail.html", product=product, reviews=reviews)
+    review_stats = db_service.get_review_statistics(product_id)
+    return render_template(
+        "product_detail.html",
+        product=product,
+        related_products=related_products,
+        reviews=reviews,
+        review_stats=review_stats
+    )
 
 @main_bp.route("/cart")
 def cart_page():
@@ -244,7 +252,60 @@ def get_product(product_id: int):
     prod = db_service.get_product_by_id(product_id)
     if not prod:
         return jsonify({"error": "Product not found"}), 404
+    prod["related_products"] = db_service.get_related_products(product_id, prod.get("category"), limit=4)
     return jsonify(prod)
+
+@main_bp.route("/api/cart/validate", methods=["POST"])
+def api_validate_cart_item():
+    """
+    Validates cart item against real backend database stock.
+    Prevents adding out-of-stock items or exceeding available inventory.
+    """
+    data = request.get_json() or {}
+    product_id = data.get("product_id")
+    quantity = data.get("quantity", 1)
+
+    if not product_id:
+        return jsonify({"valid": False, "error": "Product ID is required"}), 400
+    try:
+        quantity = int(quantity)
+    except (ValueError, TypeError):
+        return jsonify({"valid": False, "error": "Quantity must be an integer"}), 400
+
+    if quantity <= 0:
+        return jsonify({"valid": False, "error": "Quantity must be at least 1"}), 400
+
+    product = db_service.get_product_by_id(product_id)
+    if not product:
+        return jsonify({"valid": False, "error": f"Product #{product_id} does not exist"}), 404
+
+    available_stock = int(product.get("stock", 0))
+    if available_stock <= 0:
+        return jsonify({
+            "valid": False,
+            "error": f"'{product['title']}' is currently Out of Stock",
+            "available_stock": 0,
+            "product_id": product_id
+        }), 400
+
+    if quantity > available_stock:
+        return jsonify({
+            "valid": False,
+            "error": f"Requested quantity ({quantity}) exceeds available stock ({available_stock})",
+            "available_stock": available_stock,
+            "product_id": product_id
+        }), 400
+
+    return jsonify({
+        "valid": True,
+        "product_id": product_id,
+        "title": product["title"],
+        "price": float(product["price"]),
+        "requested_quantity": quantity,
+        "available_stock": available_stock,
+        "subtotal": float(product["price"]) * quantity
+    })
+
 
 @main_bp.route("/api/search", methods=["GET"])
 def search_catalog():
@@ -758,17 +819,40 @@ def api_update_order_status(order_id: int):
 
 @main_bp.route("/api/products/<int:product_id>/reviews", methods=["POST"])
 def api_add_review(product_id: int):
-    """Customer submits a verified product review"""
+    """Customer submits a verified product review with duplicate prevention"""
     data = request.get_json() or {}
     customer_id = data.get("customer_id")
-    rating = int(data.get("rating", 5))
-    title = data.get("title", "Great product")
-    comment = data.get("comment", "")
-    review = db_service.add_product_review(product_id, customer_id, rating, title, comment)
-    return jsonify({"success": True, "review": review}), 201
+    try:
+        rating = int(data.get("rating", 5))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid rating format"}), 400
+
+    title = (data.get("title") or "").strip()
+    comment = (data.get("comment") or "").strip()
+
+    if not title:
+        return jsonify({"success": False, "error": "Review headline/title is required"}), 400
+    if not comment:
+        return jsonify({"success": False, "error": "Review feedback comment is required"}), 400
+    if rating < 1 or rating > 5:
+        return jsonify({"success": False, "error": "Rating must be between 1 and 5 stars"}), 400
+
+    prod = db_service.get_product_by_id(product_id)
+    if not prod:
+        return jsonify({"success": False, "error": "Product not found"}), 404
+
+    try:
+        review = db_service.add_product_review(product_id, customer_id, rating, title, comment, check_duplicate=True)
+        return jsonify({"success": True, "review": review}), 201
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error submitting review for product #{product_id}: {e}")
+        return jsonify({"success": False, "error": "Failed to submit review"}), 500
 
 @main_bp.route("/api/products/<int:product_id>/reviews", methods=["GET"])
 def api_get_reviews(product_id: int):
-    """Retrieves customer reviews for a product"""
+    """Retrieves customer reviews and rating statistics for a product"""
     reviews = db_service.get_product_reviews(product_id)
-    return jsonify({"success": True, "reviews": reviews})
+    stats = db_service.get_review_statistics(product_id)
+    return jsonify({"success": True, "reviews": reviews, "stats": stats})

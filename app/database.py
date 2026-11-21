@@ -13,7 +13,14 @@ import sqlite3
 import threading
 from typing import Dict, List, Any, Optional, Tuple
 from app.config import Config
-from app.seed_data import SAMPLE_PRODUCTS, SAMPLE_CUSTOMERS, FULFILLMENT_HUBS
+from app.seed_data import (
+    SAMPLE_PRODUCTS,
+    SAMPLE_CUSTOMERS,
+    FULFILLMENT_HUBS,
+    get_product_gallery_seed_data,
+    get_product_specifications_seed_data,
+    SEED_CUSTOMER_REVIEWS
+)
 from app.schema import (
     run_migrations,
     atomic_reserve_stock,
@@ -198,6 +205,7 @@ class DatabaseService:
                     ON CONFLICT (id) DO NOTHING;
                     """, (c["id"], c["name"], c["email"], c["phone"], c["city"], c["address"]))
 
+                self._seed_phase2_metadata(conn, is_postgres=True)
                 conn.commit()
             conn.close()
             logger.info("PostgreSQL schema initialization verified.")
@@ -235,9 +243,75 @@ class DatabaseService:
             VALUES (?, ?, ?, ?, ?, ?)
             """, (c["id"], c["name"], c["email"], c["phone"], c["city"], c["address"]))
 
+        self._seed_phase2_metadata(conn, is_postgres=False)
         conn.commit()
         conn.close()
         logger.info("SQLite schema initialization verified.")
+
+    def _seed_phase2_metadata(self, conn, is_postgres=False):
+        """Seeds product_images, product_specifications, and product_reviews if not populated"""
+        try:
+            cur = conn.cursor()
+            for p in SAMPLE_PRODUCTS:
+                pid = p["id"]
+                # 1. Product Images
+                if is_postgres:
+                    cur.execute("SELECT COUNT(*) FROM product_images WHERE product_id = %s", (pid,))
+                else:
+                    cur.execute("SELECT COUNT(*) FROM product_images WHERE product_id = ?", (pid,))
+                count_imgs = cur.fetchone()[0]
+                if count_imgs == 0:
+                    gallery = get_product_gallery_seed_data(p)
+                    for img in gallery:
+                        if is_postgres:
+                            cur.execute("""
+                            INSERT INTO product_images (product_id, image_url, is_primary, display_order)
+                            VALUES (%s, %s, %s, %s)
+                            """, (pid, img["image_url"], img["is_primary"], img["display_order"]))
+                        else:
+                            cur.execute("""
+                            INSERT INTO product_images (product_id, image_url, is_primary, display_order)
+                            VALUES (?, ?, ?, ?)
+                            """, (pid, img["image_url"], 1 if img["is_primary"] else 0, img["display_order"]))
+
+                # 2. Product Specifications
+                if is_postgres:
+                    cur.execute("SELECT COUNT(*) FROM product_specifications WHERE product_id = %s", (pid,))
+                else:
+                    cur.execute("SELECT COUNT(*) FROM product_specifications WHERE product_id = ?", (pid,))
+                count_specs = cur.fetchone()[0]
+                if count_specs == 0:
+                    specs = get_product_specifications_seed_data(p)
+                    for sp in specs:
+                        if is_postgres:
+                            cur.execute("""
+                            INSERT INTO product_specifications (product_id, spec_group, spec_key, spec_value)
+                            VALUES (%s, %s, %s, %s)
+                            """, (pid, sp["spec_group"], sp["spec_key"], sp["spec_value"]))
+                        else:
+                            cur.execute("""
+                            INSERT INTO product_specifications (product_id, spec_group, spec_key, spec_value)
+                            VALUES (?, ?, ?, ?)
+                            """, (pid, sp["spec_group"], sp["spec_key"], sp["spec_value"]))
+
+            # 3. Product Reviews
+            cur.execute("SELECT COUNT(*) FROM product_reviews")
+            rev_count = cur.fetchone()[0]
+            if rev_count <= 5:
+                for rev in SEED_CUSTOMER_REVIEWS:
+                    if is_postgres:
+                        cur.execute("""
+                        INSERT INTO product_reviews (product_id, customer_id, rating, title, comment, is_verified_purchase)
+                        VALUES (%s, %s, %s, %s, %s, TRUE)
+                        """, (rev["product_id"], rev["customer_id"], rev["rating"], rev["title"], rev["comment"]))
+                    else:
+                        cur.execute("""
+                        INSERT INTO product_reviews (product_id, customer_id, rating, title, comment, is_verified_purchase)
+                        VALUES (?, ?, ?, ?, ?, 1)
+                        """, (rev["product_id"], rev["customer_id"], rev["rating"], rev["title"], rev["comment"]))
+        except Exception as e:
+            logger.warning(f"Note on seeding Phase 2 metadata: {e}")
+
 
     # -------------------------------------------------------------------------
     # Catalog Queries
@@ -305,7 +379,10 @@ class DatabaseService:
             item = dict(row)
             item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
             item["price"] = float(item["price"])
-            item["original_price"] = float(item["original_price"]) if item["original_price"] else None
+            item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
+            item["images"] = self.get_product_images(product_id, item)
+            item["specifications"] = self.get_product_specifications(product_id, item)
+            item["review_stats"] = self.get_review_statistics(product_id)
             return item
         else:
             conn = self._get_sqlite_connection()
@@ -322,7 +399,165 @@ class DatabaseService:
                 return None
             item = dict(row)
             item["cities"] = json.loads(item["cities_json"]) if item.get("cities_json") else []
+            item["price"] = float(item["price"])
+            item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
+            item["images"] = self.get_product_images(product_id, item)
+            item["specifications"] = self.get_product_specifications(product_id, item)
+            item["review_stats"] = self.get_review_statistics(product_id)
             return item
+
+    def get_product_images(self, product_id: int, product: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Returns ordered gallery images for a product, falling back to seed generator if not in database"""
+        images = []
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                SELECT id, product_id, image_url, is_primary, display_order
+                FROM product_images
+                WHERE product_id = %s
+                ORDER BY display_order ASC, id ASC;
+                """, (product_id,))
+                images = [dict(r) for r in cur.fetchall()]
+            conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT id, product_id, image_url, is_primary, display_order
+            FROM product_images
+            WHERE product_id = ?
+            ORDER BY display_order ASC, id ASC;
+            """, (product_id,))
+            images = [dict(r) for r in cur.fetchall()]
+            conn.close()
+
+        if images:
+            return images
+
+        # Fallback to category angles template
+        prod = product or {"id": product_id, "image_url": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=700", "category": "Electronics"}
+        return get_product_gallery_seed_data(prod)
+
+    def get_product_specifications(self, product_id: int, product: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Returns structured specifications grouped by category, falling back to seed generator"""
+        specs = []
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                SELECT id, product_id, spec_group, spec_key, spec_value
+                FROM product_specifications
+                WHERE product_id = %s
+                ORDER BY id ASC;
+                """, (product_id,))
+                specs = [dict(r) for r in cur.fetchall()]
+            conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT id, product_id, spec_group, spec_key, spec_value
+            FROM product_specifications
+            WHERE product_id = ?
+            ORDER BY id ASC;
+            """, (product_id,))
+            specs = [dict(r) for r in cur.fetchall()]
+            conn.close()
+
+        if specs:
+            return specs
+
+        prod = product or {"id": product_id, "brand": "BharatStore", "title": "Product", "category": "Daily Essentials & Groceries", "sku": f"BK-{product_id}"}
+        return get_product_specifications_seed_data(prod)
+
+    def get_related_products(self, product_id: int, category: Optional[str] = None, limit: int = 4) -> List[Dict[str, Any]]:
+        """Returns active catalog items from the same category (or top rated), excluding current product"""
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if category:
+                    cur.execute("""
+                    SELECT p.*, i.stock_quantity as stock
+                    FROM products p
+                    JOIN inventory i ON p.id = i.product_id
+                    WHERE p.id != %s AND p.category = %s
+                    ORDER BY p.rating DESC, p.rating_count DESC
+                    LIMIT %s;
+                    """, (product_id, category, limit))
+                    rows = [dict(r) for r in cur.fetchall()]
+                else:
+                    rows = []
+                if len(rows) < limit:
+                    exclude_ids = [product_id] + [r["id"] for r in rows]
+                    cur.execute("""
+                    SELECT p.*, i.stock_quantity as stock
+                    FROM products p
+                    JOIN inventory i ON p.id = i.product_id
+                    WHERE p.id NOT IN %s
+                    ORDER BY p.rating DESC
+                    LIMIT %s;
+                    """, (tuple(exclude_ids), limit - len(rows)))
+                    rows.extend([dict(r) for r in cur.fetchall()])
+            conn.close()
+            for r in rows:
+                r["cities"] = json.loads(r["cities_json"]) if r.get("cities_json") else []
+                r["price"] = float(r["price"])
+                r["original_price"] = float(r["original_price"]) if r.get("original_price") else None
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            rows = []
+            if category:
+                cur.execute("""
+                SELECT p.*, i.stock_quantity as stock
+                FROM products p
+                JOIN inventory i ON p.id = i.product_id
+                WHERE p.id != ? AND p.category = ?
+                ORDER BY p.rating DESC, p.rating_count DESC
+                LIMIT ?;
+                """, (product_id, category, limit))
+                rows = [dict(r) for r in cur.fetchall()]
+            if len(rows) < limit:
+                exclude_ids = [product_id] + [r["id"] for r in rows]
+                placeholders = ",".join("?" * len(exclude_ids))
+                cur.execute(f"""
+                SELECT p.*, i.stock_quantity as stock
+                FROM products p
+                JOIN inventory i ON p.id = i.product_id
+                WHERE p.id NOT IN ({placeholders})
+                ORDER BY p.rating DESC
+                LIMIT ?;
+                """, (*exclude_ids, limit - len(rows)))
+                rows.extend([dict(r) for r in cur.fetchall()])
+            conn.close()
+            for r in rows:
+                r["cities"] = json.loads(r["cities_json"]) if r.get("cities_json") else []
+                r["price"] = float(r["price"])
+                r["original_price"] = float(r["original_price"]) if r.get("original_price") else None
+            return rows
+
+    def get_review_statistics(self, product_id: int) -> Dict[str, Any]:
+        """Calculates star distribution, percentages, and verified review score"""
+        reviews = self.get_product_reviews(product_id)
+        total = len(reviews)
+        dist = {5: 0, 4: 0, 3: 0, 2: 0, 1: 0}
+        for r in reviews:
+            star = max(1, min(5, int(r.get("rating", 5))))
+            dist[star] += 1
+        percentages = {star: round((count / total * 100) if total > 0 else 0) for star, count in dist.items()}
+        avg = round(sum(star * count for star, count in dist.items()) / total, 1) if total > 0 else 4.5
+        return {
+            "average_rating": avg,
+            "total_reviews": total,
+            "distribution": dist,
+            "percentages": percentages
+        }
+
 
     # -------------------------------------------------------------------------
     # Core Requirement: Transactional Checkout with Row-Level Stock Locking
@@ -1160,33 +1395,86 @@ class DatabaseService:
             conn.close()
             return shipment
 
-    def add_product_review(self, product_id: int, customer_id: Optional[int], rating: int, title: str, comment: str) -> Dict[str, Any]:
-        """Creates a verified product review and rating"""
+    def get_customer_product_review(self, product_id: int, customer_id: int) -> Optional[Dict[str, Any]]:
+        """Returns customer review for product if exists"""
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM product_reviews WHERE product_id = %s AND customer_id = %s;", (product_id, customer_id))
+                row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM product_reviews WHERE product_id = ? AND customer_id = ?;", (product_id, customer_id))
+            row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+
+    def add_product_review(
+        self,
+        product_id: int,
+        customer_id: Optional[int],
+        rating: int,
+        title: str,
+        comment: str,
+        check_duplicate: bool = False
+    ) -> Dict[str, Any]:
+        """Creates a verified product review and updates overall product rating"""
         if rating < 1 or rating > 5:
             raise ValueError(f"Rating must be between 1 and 5 stars, got {rating}")
-        if not title:
+        if not title or not title.strip():
             raise ValueError("Review title cannot be empty")
+        if not comment or not comment.strip():
+            raise ValueError("Review comment cannot be empty")
+
+        if check_duplicate and customer_id:
+            if self.get_customer_product_review(product_id, customer_id):
+                raise ValueError("Customer has already submitted a verified review for this product.")
+
+        avg_rating = float(rating)
+        total_count = 1
 
         if self.is_live_postgres:
             conn = self._get_pg_connection()
             with conn.cursor() as cur:
                 cur.execute("""
-                INSERT INTO product_reviews (product_id, customer_id, rating, title, comment)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO product_reviews (product_id, customer_id, rating, title, comment, is_verified_purchase)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
                 RETURNING id, created_at;
-                """, (product_id, customer_id, rating, title, comment))
+                """, (product_id, customer_id, rating, title.strip(), comment.strip()))
                 row = cur.fetchone()
                 review_id = row[0]
+
+                # Recalculate average rating & review count
+                cur.execute("SELECT AVG(rating), COUNT(*) FROM product_reviews WHERE product_id = %s", (product_id,))
+                stats_row = cur.fetchone()
+                if stats_row and stats_row[0] is not None:
+                    avg_rating = round(float(stats_row[0]), 1)
+                    total_count = int(stats_row[1])
+                    cur.execute("UPDATE products SET rating = %s, rating_count = %s WHERE id = %s", (avg_rating, total_count, product_id))
+
             conn.commit()
             conn.close()
         else:
             conn = self._get_sqlite_connection()
             cur = conn.cursor()
             cur.execute("""
-            INSERT INTO product_reviews (product_id, customer_id, rating, title, comment)
-            VALUES (?, ?, ?, ?, ?);
-            """, (product_id, customer_id, rating, title, comment))
+            INSERT INTO product_reviews (product_id, customer_id, rating, title, comment, is_verified_purchase)
+            VALUES (?, ?, ?, ?, ?, 1);
+            """, (product_id, customer_id, rating, title.strip(), comment.strip()))
             review_id = cur.lastrowid
+
+            # Recalculate average rating & review count
+            cur.execute("SELECT AVG(rating), COUNT(*) FROM product_reviews WHERE product_id = ?", (product_id,))
+            stats_row = cur.fetchone()
+            if stats_row and stats_row[0] is not None:
+                avg_rating = round(float(stats_row[0]), 1)
+                total_count = int(stats_row[1])
+                cur.execute("UPDATE products SET rating = ?, rating_count = ? WHERE id = ?", (avg_rating, total_count, product_id))
+
             conn.commit()
             conn.close()
 
@@ -1195,8 +1483,10 @@ class DatabaseService:
             "review_id": review_id,
             "product_id": product_id,
             "rating": rating,
-            "title": title,
-            "comment": comment
+            "title": title.strip(),
+            "comment": comment.strip(),
+            "updated_product_rating": avg_rating,
+            "updated_rating_count": total_count
         }
 
     def get_product_reviews(self, product_id: int) -> List[Dict[str, Any]]:

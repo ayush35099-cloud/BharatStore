@@ -12,6 +12,15 @@
     <span id="breadcrumb-category">Products Catalog</span>
   </div>
 
+  {% if error %}
+  <div style="background:rgba(224,49,49,0.08); border:1px solid rgba(224,49,49,0.3); border-radius:var(--radius-md); padding:14px 20px; margin: 12px 0 20px 0; display:flex; align-items:center; gap:12px; color:#E03131;">
+    <i class="fa-solid fa-circle-exclamation" style="font-size:18px;"></i>
+    <div>
+      <strong>Notice:</strong> {{ error }} &mdash; browsing our full active store catalog below.
+    </div>
+  </div>
+  {% endif %}
+
   <div class="catalog-page-layout">
     
     <!-- Filter Sidebar -->

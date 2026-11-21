@@ -6,119 +6,236 @@
 <div class="container">
   
   <!-- Breadcrumbs -->
-  <div style="padding: 16px 0 12px 0; font-size: 12.5px; color: var(--color-text-muted);">
-    <a href="/" style="color: var(--color-primary); font-weight:600;"><i class="fa-solid fa-house"></i> Home</a> 
-    <span style="margin: 0 6px;">/</span> 
-    <a href="/products?category={{ product.category | urlencode }}" style="color: var(--color-primary); font-weight:600;">{{ product.category }}</a>
-    <span style="margin: 0 6px;">/</span> 
-    <span>{{ product.title }}</span>
-  </div>
+  <nav class="detail-breadcrumbs" aria-label="Breadcrumb">
+    <a href="/"><i class="fa-solid fa-house"></i> Home</a> 
+    <span class="breadcrumb-separator">/</span> 
+    <a href="/products?category={{ product.category | urlencode }}">{{ product.category }}</a>
+    <span class="breadcrumb-separator">/</span> 
+    <span class="breadcrumb-current">{{ product.title }}</span>
+  </nav>
 
   <div class="product-detail-layout">
     
-    <!-- Left: Gallery -->
+    <!-- Left Column: Image Gallery -->
     <div class="detail-gallery-pane">
-      <div class="detail-gallery-main">
-        <img id="main-detail-img" src="{{ product.image_url }}" alt="{{ product.title }}">
-      </div>
-      <div class="detail-thumbs-row">
-        <div class="detail-thumb-item active" onclick="switchDetailImage('{{ product.image_url }}', this)">
-          <img src="{{ product.image_url }}" alt="Primary" style="width:100%; height:100%; object-fit:cover;">
+      <div class="detail-gallery-main" onclick="openImageLightbox()" title="Click to view high-resolution enlarged preview">
+        <span class="gallery-badge-trust"><i class="fa-solid fa-certificate"></i> 100% Genuine Physical Store Stock</span>
+        <img 
+          id="main-detail-img" 
+          src="{{ product.image_url }}" 
+          alt="{{ product.title }}"
+          onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=700';"
+        >
+        <div class="gallery-zoom-hint">
+          <i class="fa-solid fa-magnifying-glass-plus"></i> Click to enlarge
         </div>
       </div>
-    </div>
 
-    <!-- Right: Information & Purchasing -->
-    <div class="detail-info-pane">
-      <div class="product-card-brand" style="font-size: 13px;">{{ product.brand }}</div>
-      <h1>{{ product.title }}</h1>
-      
-      <div style="display:flex; align-items:center; gap:16px; margin: 10px 0 16px 0; font-size: 13px;">
-        <div class="star-rating">
-          <i class="fa-solid fa-star"></i> {{ product.rating }}
-        </div>
-        <span style="color: var(--color-text-muted);">({{ product.rating_count }} Verified Ratings)</span>
-        <span style="color: var(--color-border-strong);">|</span>
-        <span style="color: var(--color-text-muted); font-family: var(--font-mono); font-size: 11.5px;">SKU: {{ product.sku }}</span>
-      </div>
-
-      <!-- Pricing Box -->
-      <div class="detail-price-box">
-        <span class="current-price" style="font-size: 32px;">₹{{ "{:,}".format(product.price | int) }}</span>
-        {% if product.original_price and product.original_price > product.price %}
-        <span class="original-price" style="font-size: 18px;">₹{{ "{:,}".format(product.original_price | int) }}</span>
-        <span class="discount-percentage" style="font-size: 14px; padding: 2px 10px;">
-          Save {{ ((product.original_price - product.price) / product.original_price * 100) | round | int }}%
-        </span>
+      <!-- Thumbnails Strip -->
+      <div class="detail-thumbs-row" id="detail-thumbnails-container">
+        {% if product.images and product.images | length > 0 %}
+          {% for img in product.images %}
+          <div 
+            class="detail-thumb-item {% if loop.first %}active{% endif %}" 
+            onclick="switchDetailImage('{{ img.image_url }}', this)"
+            onmouseover="switchDetailImage('{{ img.image_url }}', this)"
+          >
+            <img 
+              src="{{ img.image_url }}" 
+              alt="Angle {{ loop.index }}"
+              onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200';"
+            >
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="detail-thumb-item active" onclick="switchDetailImage('{{ product.image_url }}', this)">
+            <img src="{{ product.image_url }}" alt="Primary View">
+          </div>
         {% endif %}
       </div>
 
-      <!-- Hub Availability -->
-      <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:14px 18px; margin-bottom: 20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <span style="font-size: 13px; font-weight:700; color:var(--color-text-main);">
-            <i class="fa-solid fa-store" style="color:var(--color-primary); margin-right:6px;"></i> Physical Store Hub Fulfillment
-          </span>
-          <span class="badge-status badge-confirmed" style="font-size:11px;">
-            <i class="fa-solid fa-check"></i> In Stock ({{ product.stock }} units)
-          </span>
+      <!-- Trust Badges Strip -->
+      <div class="detail-trust-strip">
+        <div class="trust-strip-item">
+          <i class="fa-solid fa-truck-fast"></i>
+          <div>
+            <strong>Instant 2-Hour Dispatch</strong>
+            <span>From your nearest physical hub</span>
+          </div>
         </div>
-        <p style="font-size: 12px; color: var(--color-text-muted); line-height: 1.4;">
-          Available for instant 2-hour delivery or in-store pickup across hubs: 
-          <strong>{{ product.cities | join(", ") if product.cities else "Mumbai, Bengaluru, Delhi" }}</strong>.
+        <div class="trust-strip-item">
+          <i class="fa-solid fa-rotate-left"></i>
+          <div>
+            <strong>7-Day Replacement</strong>
+            <span>Hassle-free hub return or exchange</span>
+          </div>
+        </div>
+        <div class="trust-strip-item">
+          <i class="fa-solid fa-shield-halved"></i>
+          <div>
+            <strong>Verified Merchant Purity</strong>
+            <span>Physical store authentic guarantee</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Information, Pricing & Purchasing -->
+    <div class="detail-info-pane">
+      <div class="detail-brand-kicker">
+        <a href="/products?category={{ product.category | urlencode }}">{{ product.category }}</a>
+        <span style="color:var(--color-border-strong); margin:0 6px;">•</span>
+        <span>Brand: <strong>{{ product.brand }}</strong></span>
+      </div>
+
+      <h1 class="detail-product-title">{{ product.title }}</h1>
+      
+      <!-- Ratings & SKU Meta -->
+      <div class="detail-meta-bar">
+        <a href="#reviews-section" class="detail-rating-pill" title="Jump to Customer Reviews">
+          <span class="star-rating"><i class="fa-solid fa-star"></i> {{ product.rating }}</span>
+          <span class="detail-review-count">({{ product.rating_count }} Customer Reviews)</span>
+        </a>
+        <span class="meta-divider">|</span>
+        <span class="detail-sku-badge">SKU: {{ product.sku }}</span>
+        <span class="meta-divider">|</span>
+        <span style="color:var(--color-text-muted); font-size:12px;">ID: #BK-{{ product.id }}</span>
+      </div>
+
+      <!-- Pricing Card -->
+      <div class="detail-price-box">
+        <div class="price-main-row">
+          <span class="current-price" style="font-size:32px;">₹{{ "{:,}".format(product.price | int) }}</span>
+          {% if product.original_price and product.original_price > product.price %}
+            <span class="original-price" style="font-size:18px;">₹{{ "{:,}".format(product.original_price | int) }}</span>
+            <span class="discount-percentage" style="font-size:13.5px; padding:3px 10px;">
+              Save ₹{{ "{:,}".format((product.original_price - product.price) | int) }} ({{ (((product.original_price - product.price) / product.original_price) * 100) | round | int }}% OFF)
+            </span>
+          {% endif %}
+        </div>
+        <div class="price-sub-note">
+          <i class="fa-solid fa-circle-info" style="color:var(--color-primary); margin-right:4px;"></i>
+          <span>Inclusive of all taxes • Free express physical hub shipping on this order</span>
+        </div>
+      </div>
+
+      <!-- Physical Store Hub Inventory Status -->
+      <div class="detail-hub-card">
+        <div class="hub-card-header">
+          <span class="hub-header-title">
+            <i class="fa-solid fa-store" style="color:var(--color-primary);"></i> Physical Store Hub Fulfillment
+          </span>
+          {% if product.stock > 5 %}
+            <span class="badge-status badge-confirmed">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ product.stock }} units)
+            </span>
+          {% elif product.stock > 0 %}
+            <span class="badge-status badge-warning" style="background:#FFF3BF; color:#D9480F; border:1px solid #FFD43B;">
+              <i class="fa-solid fa-triangle-exclamation"></i> Only {{ product.stock }} left in stock!
+            </span>
+          {% else %}
+            <span class="badge-status badge-cancelled" style="background:#FFE3E3; color:#C92A2A; border:1px solid #FFA8A8;">
+              <i class="fa-solid fa-circle-xmark"></i> Currently Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <p class="hub-dispatch-desc">
+          Dispatched from our nearest regional network hubs across 
+          <strong>{{ product.cities | join(", ") if product.cities else "Mumbai, Bengaluru, Delhi, Hyderabad" }}</strong>.
+          Order now for same-day store pickup or 2-hour doorstep courier.
         </p>
       </div>
 
-      <!-- Quantity & Action Buttons -->
-      <div style="display:flex; gap:16px; align-items:center; margin-bottom: 24px;">
-        <div style="display:flex; align-items:center; border:1.5px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden; background:var(--color-bg-base);">
-          <button style="border:none; background:transparent; padding:10px 16px; cursor:pointer; font-weight:800;" onclick="decrementDetailQty()">-</button>
-          <span id="detail-qty-input" style="padding:10px 14px; font-size:14px; font-weight:700;">1</span>
-          <button style="border:none; background:transparent; padding:10px 16px; cursor:pointer; font-weight:800;" onclick="incrementDetailQty({{ product.stock }})">+</button>
-        </div>
+      <!-- Purchasing & Action Controls -->
+      <div class="detail-actions-box">
+        {% if product.stock > 0 %}
+          <div class="quantity-control-group">
+            <label class="qty-label">Quantity:</label>
+            <div class="qty-stepper">
+              <button type="button" class="qty-btn" onclick="decrementDetailQty({{ product.price }})" aria-label="Decrease quantity">-</button>
+              <span id="detail-qty-input" class="qty-number">1</span>
+              <button type="button" class="qty-btn" onclick="incrementDetailQty({{ product.stock }}, {{ product.price }})" aria-label="Increase quantity">+</button>
+            </div>
+            <div class="detail-subtotal-indicator">
+              Total: <strong id="detail-dynamic-subtotal">₹{{ "{:,}".format(product.price | int) }}</strong>
+            </div>
+          </div>
 
-        <button class="btn-primary" style="flex:1; padding:14px 24px; font-size:15px; justify-content:center;" onclick="addCurrentProductToCart({{ product.id }})">
-          <i class="fa-solid fa-bag-shopping"></i> Add to Cart
-        </button>
-
-        <button class="btn-secondary" style="padding:14px 20px; font-size:15px;" onclick="toggleWishlist({{ product.id }})" title="Add to Wishlist">
-          <i class="fa-regular fa-heart"></i>
-        </button>
+          <div class="detail-buttons-row">
+            <button class="btn-primary detail-cart-btn" onclick="addCurrentProductToCart({{ product.id }})">
+              <i class="fa-solid fa-bag-shopping"></i> Add to Cart
+            </button>
+            <button class="btn-primary detail-buynow-btn" onclick="buyNowProduct({{ product.id }})" style="background:var(--color-secondary);">
+              <i class="fa-solid fa-bolt"></i> Buy Now
+            </button>
+            <button 
+              class="btn-secondary detail-wishlist-action-btn" 
+              data-product-id="{{ product.id }}" 
+              onclick="toggleWishlist({{ product.id }})"
+              title="Save to your wishlist"
+            >
+              <i class="fa-regular fa-heart"></i> Add to Wishlist
+            </button>
+          </div>
+        {% else %}
+          <div class="out-of-stock-notice">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size:24px; color:#C92A2A; margin-bottom:8px;"></i>
+            <h4>Item Temporarily Unavailable</h4>
+            <p>This product is presently sold out across our physical store network. Save it to your wishlist to receive a restock notification.</p>
+            <div style="margin-top:14px;">
+              <button 
+                class="btn-secondary detail-wishlist-action-btn" 
+                data-product-id="{{ product.id }}" 
+                onclick="toggleWishlist({{ product.id }})"
+              >
+                <i class="fa-regular fa-heart"></i> Add to Wishlist for Restock Alert
+              </button>
+            </div>
+          </div>
+        {% endif %}
       </div>
 
-      <!-- Description -->
-      <div style="margin-top: 24px;">
-        <h3 style="font-size:16px; margin-bottom:8px;">About This Product</h3>
-        <p style="font-size:13.5px; line-height:1.7; color:var(--color-text-body);">
-          {{ product.description }}
-        </p>
+      <!-- Description Section -->
+      <div class="detail-section-block">
+        <h3 class="detail-block-title">About This Product</h3>
+        <p class="detail-description-text">{{ product.description }}</p>
       </div>
 
-      <!-- Specifications Table -->
-      <div style="margin-top: 24px;">
-        <h3 style="font-size:16px; margin-bottom:12px;">Product Specifications</h3>
+      <!-- Detailed Specifications Table -->
+      <div class="detail-section-block">
+        <h3 class="detail-block-title">Product Specifications</h3>
         <table class="detail-specs-table">
           <tbody>
-            <tr>
-              <th>Brand</th>
-              <td>{{ product.brand }}</td>
-            </tr>
-            <tr>
-              <th>Category</th>
-              <td>{{ product.category }}</td>
-            </tr>
-            <tr>
-              <th>SKU Reference</th>
-              <td>{{ product.sku }}</td>
-            </tr>
-            <tr>
-              <th>Fulfillment Mode</th>
-              <td>Hyperlocal Physical Hub Express (BlueDart / Hub Courier)</td>
-            </tr>
-            <tr>
-              <th>Return Policy</th>
-              <td>7-Day Replacement or Hub Return Guaranteed</td>
-            </tr>
+            {% if product.specifications and product.specifications | length > 0 %}
+              {% for spec in product.specifications %}
+              <tr>
+                <th>{{ spec.spec_key }}</th>
+                <td>{{ spec.spec_value }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <th>Brand</th>
+                <td>{{ product.brand }}</td>
+              </tr>
+              <tr>
+                <th>Category</th>
+                <td>{{ product.category }}</td>
+              </tr>
+              <tr>
+                <th>SKU Identifier</th>
+                <td>{{ product.sku }}</td>
+              </tr>
+              <tr>
+                <th>Fulfillment Hubs</th>
+                <td>{{ product.cities | join(", ") if product.cities else "All Major Physical Hubs" }}</td>
+              </tr>
+              <tr>
+                <th>Return Policy</th>
+                <td>7-Day Physical Store Replacement or Hub Return Guaranteed</td>
+              </tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
@@ -127,36 +244,168 @@
 
   </div>
 
-  <!-- Customer Reviews Section -->
-  <section style="margin-top: 48px; padding-top: 36px; border-top: 1px solid var(--color-border);">
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px;">
+  <!-- Related Products Section -->
+  {% if related_products and related_products | length > 0 %}
+  <section class="detail-related-section">
+    <div class="section-header-row" style="margin-bottom:20px;">
       <div>
-        <span class="section-kicker">Verified Feedback</span>
-        <h2 style="font-size:24px;">Customer Reviews & Ratings</h2>
+        <span class="section-kicker">Curated Recommendations</span>
+        <h2 style="font-size:22px;">Similar Products in {{ product.category }}</h2>
       </div>
-      <button class="btn-secondary" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> Write a Review</button>
+      <a href="/products?category={{ product.category | urlencode }}" class="view-all-link">
+        Explore {{ product.category }} <i class="fa-solid fa-arrow-right"></i>
+      </a>
     </div>
 
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;" id="reviews-list-container">
-      {% if reviews and reviews | length > 0 %}
-        {% for r in reviews %}
-        <div style="background:var(--color-bg-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:20px; box-shadow:var(--shadow-sm);">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div class="star-rating">
-              {% for i in range(r.rating) %}<i class="fa-solid fa-star"></i>{% endfor %}
-            </div>
-            <span style="font-size:11px; color:var(--color-text-muted);">Verified Buyer</span>
+    <div class="products-grid">
+      {% for rel in related_products %}
+      <div class="product-card">
+        <div class="product-card-image-box">
+          <a href="/product/{{ rel.id }}">
+            <img 
+              src="{{ rel.image_url }}" 
+              alt="{{ rel.title }}" 
+              class="product-card-img"
+              onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500';"
+            >
+          </a>
+          <button 
+            class="wishlist-float-btn" 
+            data-product-id="{{ rel.id }}" 
+            onclick="toggleWishlist({{ rel.id }})" 
+            title="Wishlist"
+          >
+            <i class="fa-regular fa-heart"></i>
+          </button>
+          {% if rel.original_price and rel.original_price > rel.price %}
+            <span class="discount-ribbon">
+              {{ (((rel.original_price - rel.price) / rel.original_price) * 100) | round | int }}% OFF
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-content">
+          <div class="product-card-brand">{{ rel.brand }}</div>
+          <h4 class="product-card-title">
+            <a href="/product/{{ rel.id }}">{{ rel.title }}</a>
+          </h4>
+          <div class="product-card-rating">
+            <span class="star-rating"><i class="fa-solid fa-star"></i> {{ rel.rating }}</span>
+            <span class="rating-count">({{ rel.rating_count }})</span>
           </div>
-          <h4 style="font-size:14px; font-weight:700; margin-bottom:6px;">{{ r.title }}</h4>
-          <p style="font-size:13px; color:var(--color-text-body); line-height:1.6; margin-bottom:12px;">{{ r.comment }}</p>
-          <span style="font-size:11.5px; font-weight:600; color:var(--color-text-muted);">&mdash; {{ r.customer_name or "Verified Customer" }}</span>
+          <div class="product-card-price-row">
+            <span class="current-price">₹{{ "{:,}".format(rel.price | int) }}</span>
+            {% if rel.original_price and rel.original_price > rel.price %}
+              <span class="original-price">₹{{ "{:,}".format(rel.original_price | int) }}</span>
+            {% endif %}
+          </div>
+          <div class="product-card-actions">
+            <button class="btn-primary" style="flex:1; padding:8px 12px; font-size:12.5px;" onclick="addToCart({{ rel.id }}, 1)">
+              <i class="fa-solid fa-bag-shopping"></i> Add
+            </button>
+            <button class="btn-secondary" style="padding:8px 10px; font-size:12.5px;" onclick="openQuickView({{ rel.id }})" title="Quick View">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
         </div>
-        {% endfor %}
-      {% else %}
-        <div style="grid-column: 1 / -1; padding:32px; text-align:center; background:var(--color-bg-surface); border-radius:var(--radius-lg); border:1px solid var(--color-border);">
-          <p style="color:var(--color-text-muted);">No reviews written yet. Be the first to share your experience with this physical store product!</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Customer Reviews & Ratings Section -->
+  <section class="detail-reviews-section" id="reviews-section">
+    <div class="section-header-row" style="margin-bottom:28px;">
+      <div>
+        <span class="section-kicker">Verified Customer Opinions</span>
+        <h2 style="font-size:24px;">Customer Reviews & Ratings</h2>
+      </div>
+      <button class="btn-secondary" onclick="openReviewModal()">
+        <i class="fa-solid fa-pen-to-square"></i> Write a Verified Review
+      </button>
+    </div>
+
+    <div class="reviews-split-layout">
+      
+      <!-- Left Column: Score & Distribution -->
+      <div class="reviews-score-card">
+        <div class="score-overall-num">{{ review_stats.average_rating or product.rating }}</div>
+        <div class="star-rating" style="font-size:18px; margin-bottom:4px;">
+          {% for i in range(5) %}
+            <i class="fa-solid fa-star" style="color:{% if i < (review_stats.average_rating or product.rating) | int %}#F59E0B{% else %}var(--color-border-strong){% endif %};"></i>
+          {% endfor %}
         </div>
-      {% endif %}
+        <div class="score-overall-sub">
+          Based on <strong>{{ review_stats.total_reviews or reviews | length or product.rating_count }}</strong> verified customer reviews
+        </div>
+
+        <!-- Rating Distribution Bars -->
+        <div class="rating-dist-wrapper">
+          {% for star in [5, 4, 3, 2, 1] %}
+          <div class="rating-dist-row">
+            <span class="rating-dist-label">{{ star }}★</span>
+            <div class="rating-dist-track">
+              <div 
+                class="rating-dist-fill" 
+                style="width: {{ review_stats.percentages[star] if review_stats and review_stats.percentages else (80 if star == 5 else (15 if star == 4 else 5)) }}%;"
+              ></div>
+            </div>
+            <span class="rating-dist-count">
+              {{ review_stats.percentages[star] if review_stats and review_stats.percentages else (80 if star == 5 else (15 if star == 4 else 5)) }}%
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="review-guarantee-note">
+          <i class="fa-solid fa-circle-check" style="color:var(--color-primary);"></i>
+          <span>100% of reviews are from customers who fulfilled their orders from our physical stores.</span>
+        </div>
+      </div>
+
+      <!-- Right Column: Reviews List -->
+      <div class="reviews-feed-container">
+        {% if reviews and reviews | length > 0 %}
+          {% for r in reviews %}
+          <div class="review-comment-card">
+            <div class="review-card-header">
+              <div class="reviewer-avatar">
+                {{ (r.customer_name or "Verified Customer")[:1] | upper }}
+              </div>
+              <div class="reviewer-meta">
+                <span class="reviewer-name">{{ r.customer_name or "Verified Customer" }}</span>
+                <span class="badge-status badge-confirmed" style="font-size:10.5px; padding:2px 8px;">
+                  <i class="fa-solid fa-shield-check"></i> Verified Buyer
+                </span>
+              </div>
+              <div class="star-rating" style="margin-left:auto;">
+                {% for i in range(r.rating) %}
+                  <i class="fa-solid fa-star" style="color:#F59E0B;"></i>
+                {% endfor %}
+              </div>
+            </div>
+            <h4 class="review-card-title">{{ r.title }}</h4>
+            <p class="review-card-body">{{ r.comment }}</p>
+            <div class="review-card-footer">
+              <span class="review-date"><i class="fa-regular fa-clock"></i> {{ r.created_at or "Recent Purchase" }}</span>
+              <button class="review-helpful-btn" onclick="showToast('Thank you for voting this review helpful!')">
+                <i class="fa-regular fa-thumbs-up"></i> Helpful ({{ r.helpful_count or 1 }})
+              </button>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-reviews-state">
+            <i class="fa-regular fa-comments empty-reviews-icon"></i>
+            <h3>No Reviews Yet</h3>
+            <p>Be the first customer to share your physical store purchase experience with this product!</p>
+            <button class="btn-primary" onclick="openReviewModal()" style="margin-top:14px;">
+              <i class="fa-solid fa-pen"></i> Write the First Review
+            </button>
+          </div>
+        {% endif %}
+      </div>
+
     </div>
   </section>
 
@@ -164,32 +413,51 @@
 
 <!-- Write Review Modal -->
 <div class="cart-drawer-overlay" id="write-review-modal" onclick="closeReviewModal(event)">
-  <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-xl); max-width:500px; width:90%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);" onclick="event.stopPropagation()">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
-      <h3 style="font-size:18px;"><i class="fa-solid fa-star" style="color:#F59E0B;"></i> Write a Customer Review</h3>
-      <button onclick="closeReviewModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+  <div class="modal-dialog-box" onclick="event.stopPropagation()">
+    <div class="modal-dialog-header">
+      <h3><i class="fa-solid fa-star" style="color:#F59E0B;"></i> Write a Customer Review</h3>
+      <button class="modal-close-btn" onclick="closeReviewModal()">&times;</button>
     </div>
     <form onsubmit="submitProductReview(event, {{ product.id }})">
       <div class="form-group">
-        <label>Your Rating (1 to 5 Stars)</label>
-        <select id="review-rating-select" class="form-control">
-          <option value="5">5 Stars — Outstanding Quality</option>
-          <option value="4">4 Stars — Very Good</option>
-          <option value="3">3 Stars — Average</option>
-          <option value="2">2 Stars — Below Expectations</option>
-          <option value="1">1 Star — Poor</option>
+        <label>Reviewing Customer Profile</label>
+        <select id="review-customer-select" class="form-control">
+          <option value="1">Priya Sharma (Worli, Mumbai MegaHub)</option>
+          <option value="2">Arjun Patel (Indiranagar, Bengaluru Central)</option>
+          <option value="3">Simran Kaur (Connaught Place, Delhi NCR)</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Review Headline</label>
-        <input type="text" id="review-title-input" class="form-control" placeholder="e.g. Excellent purity and packaging!" required>
+        <label>Your Overall Rating</label>
+        <select id="review-rating-select" class="form-control">
+          <option value="5">5 Stars — Outstanding Quality & Packaging</option>
+          <option value="4">4 Stars — Very Good Product</option>
+          <option value="3">3 Stars — Average Quality</option>
+          <option value="2">2 Stars — Below Expectations</option>
+          <option value="1">1 Star — Poor Experience</option>
+        </select>
       </div>
       <div class="form-group">
-        <label>Detailed Feedback</label>
-        <textarea id="review-comment-input" class="form-control" rows="4" placeholder="Describe your experience with the item..." required></textarea>
+        <label>Review Headline / Title</label>
+        <input type="text" id="review-title-input" class="form-control" placeholder="e.g. Authentic aroma, delivered within 90 minutes!" required>
       </div>
-      <button type="submit" class="btn-primary" style="width:100%; justify-content:center; padding:12px;">Submit Verified Review</button>
+      <div class="form-group">
+        <label>Detailed Feedback & Experience</label>
+        <textarea id="review-comment-input" class="form-control" rows="4" placeholder="Share your experience regarding purity, physical store pickup, packaging, or performance..." required></textarea>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%; justify-content:center; padding:12px 20px; font-size:14px;">
+        <i class="fa-solid fa-check"></i> Submit Verified Review
+      </button>
     </form>
+  </div>
+</div>
+
+<!-- Image Lightbox Modal -->
+<div class="image-lightbox-overlay" id="image-lightbox-modal" onclick="closeImageLightbox()">
+  <div class="lightbox-container" onclick="event.stopPropagation()">
+    <button class="lightbox-close-btn" onclick="closeImageLightbox()">&times;</button>
+    <img id="lightbox-expanded-img" src="{{ product.image_url }}" alt="{{ product.title }}">
+    <div class="lightbox-caption">{{ product.title }} &mdash; High-Resolution Store View</div>
   </div>
 </div>
 
@@ -197,46 +465,8 @@
 
 {% block scripts %}
 <script>
-  let detailQty = 1;
-  function incrementDetailQty(maxStock) {
-    if (detailQty < maxStock) {
-      detailQty++;
-      document.getElementById("detail-qty-input").textContent = detailQty;
-    }
-  }
-  function decrementDetailQty() {
-    if (detailQty > 1) {
-      detailQty--;
-      document.getElementById("detail-qty-input").textContent = detailQty;
-    }
-  }
-  function addCurrentProductToCart(productId) {
-    addToCart(productId, detailQty);
-    showToast("Added to your cart!");
-  }
-  function openReviewModal() {
-    document.getElementById("write-review-modal").classList.add("open");
-  }
-  function closeReviewModal() {
-    document.getElementById("write-review-modal").classList.remove("open");
-  }
-  async function submitProductReview(e, productId) {
-    e.preventDefault();
-    const rating = document.getElementById("review-rating-select").value;
-    const title = document.getElementById("review-title-input").value;
-    const comment = document.getElementById("review-comment-input").value;
-
-    const res = await fetch(`/api/products/${productId}/reviews`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rating: parseInt(rating), title, comment, customer_id: 1 })
-    });
-    const data = await res.json();
-    if (data.success) {
-      showToast("Thank you for your verified review!");
-      closeReviewModal();
-      setTimeout(() => location.reload(), 800);
-    }
-  }
+  document.addEventListener("DOMContentLoaded", function() {
+    initProductDetailPage({{ product.id }});
+  });
 </script>
 {% endblock %}

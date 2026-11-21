@@ -36,7 +36,7 @@
   <div class="announcement-bar">
     <div class="announcement-inner">
       <div class="announcement-left">
-        <span><i class="fa-solid fa-truck-fast"></i> <strong>FREE 2-HOUR DELIVERY</strong> from local physical hubs across 6 metro cities on orders over ₹499</span>
+        <span><i class="fa-solid fa-store"></i> <strong>DIRECT STORE INVENTORY</strong> from verified neighbourhood retail stores across India</span>
       </div>
       <div class="announcement-right">
         <span>Use code <strong>BHARAT10</strong> for 10% instant off</span>
@@ -112,21 +112,33 @@
       <div class="header-search-form">
         <form action="/products" method="GET" class="search-input-wrapper">
           <select name="category" class="search-category-select" id="header-search-category">
-            <option value="">All Categories</option>
-            <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
-            <option value="Mobiles & Tablets">Mobiles & Tablets</option>
-            <option value="Laptops & Computers">Laptops & Tech</option>
-            <option value="Audio & Wearables">Audio & Wearables</option>
-            <option value="Home & Kitchen">Home & Kitchen</option>
-            <option value="Fashion & Apparel">Fashion & Apparel</option>
-            <option value="Beauty & Personal Care">Beauty & Wellness</option>
+            {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+              <option value="">All Groceries</option>
+              <option value="Dairy & Breakfast">Dairy & Breakfast</option>
+              <option value="Rice & Grains">Rice & Grains</option>
+              <option value="Cooking Essentials">Cooking Essentials</option>
+              <option value="Fresh Produce">Fresh Produce</option>
+              <option value="Snacks & Beverages">Snacks & Beverages</option>
+              <option value="Household Essentials">Household Essentials</option>
+              <option value="Personal Care">Personal Care</option>
+              <option value="Packaged Foods">Packaged Foods</option>
+            {% else %}
+              <option value="">All Categories</option>
+              <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
+              <option value="Mobiles & Tablets">Mobiles & Tablets</option>
+              <option value="Laptops & Computers">Laptops & Tech</option>
+              <option value="Audio & Wearables">Audio & Wearables</option>
+              <option value="Home & Kitchen">Home & Kitchen</option>
+              <option value="Fashion & Apparel">Fashion & Apparel</option>
+              <option value="Beauty & Personal Care">Beauty & Wellness</option>
+            {% endif %}
           </select>
           <input 
             type="text" 
             name="q" 
             id="header-search-input" 
             class="search-input-field" 
-            placeholder="Search 50+ authentic products (e.g. 'A2 ghee', 'lapop', 'iphone', 'kurta')..."
+            placeholder="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}Search grocery essentials across nearby shops (e.g. 'milk', 'atta', 'ghee', 'oil', 'paneer')...{% else %}Search 50+ authentic products (e.g. 'A2 ghee', 'lapop', 'iphone', 'kurta')...{% endif %}"
             autocomplete="off"
             oninput="handleSearchAutocomplete(this.value)"
           >
@@ -209,25 +221,52 @@
 
       <span class="category-nav-separator"></span>
 
-      <!-- Fast Category Shortcuts -->
-      <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-nav-link">
-        <i class="fa-solid fa-jar"></i> Pure Organic & Foods
-      </a>
-      <a href="/products?category=Mobiles+%26+Tablets" class="category-nav-link">
-        <i class="fa-solid fa-mobile-screen"></i> Mobiles & Tablets
-      </a>
-      <a href="/products?category=Laptops+%26+Computers" class="category-nav-link">
-        <i class="fa-solid fa-laptop"></i> Laptops & Tech
-      </a>
-      <a href="/products?category=Audio+%26+Wearables" class="category-nav-link">
-        <i class="fa-solid fa-headphones"></i> Audio & Wearables
-      </a>
-      <a href="/products?category=Home+%26+Kitchen" class="category-nav-link">
-        <i class="fa-solid fa-blender"></i> Home & Kitchen
-      </a>
-      <a href="/products?category=Fashion+%26+Apparel" class="category-nav-link">
-        <i class="fa-solid fa-shirt"></i> Fashion & Apparel
-      </a>
+      <!-- Fast Category Shortcuts (Mode-Aware) -->
+      {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+        <a href="/retail#dairy-section" class="category-nav-link">
+          <i class="fa-solid fa-cow"></i> Dairy & Breakfast
+        </a>
+        <a href="/retail#grains-section" class="category-nav-link">
+          <i class="fa-solid fa-seedling"></i> Rice & Grains
+        </a>
+        <a href="/retail#essentials-section" class="category-nav-link">
+          <i class="fa-solid fa-bottle-droplet"></i> Cooking Essentials
+        </a>
+        <a href="/retail#produce-section" class="category-nav-link">
+          <i class="fa-solid fa-apple-whole"></i> Fresh Produce
+        </a>
+        <a href="/retail#household-section" class="category-nav-link">
+          <i class="fa-solid fa-spray-can-sparkles"></i> Household Essentials
+        </a>
+        <a href="/products?category=Personal+Care" class="category-nav-link">
+          <i class="fa-solid fa-pump-soap"></i> Personal Care
+        </a>
+        <a href="/products?category=Packaged+Foods" class="category-nav-link">
+          <i class="fa-solid fa-box"></i> Packaged Foods
+        </a>
+        <a href="/products?category=Snacks+%26+Beverages" class="category-nav-link">
+          <i class="fa-solid fa-mug-hot"></i> Snacks & Beverages
+        </a>
+      {% else %}
+        <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-nav-link">
+          <i class="fa-solid fa-jar"></i> Pure Organic & Foods
+        </a>
+        <a href="/products?category=Mobiles+%26+Tablets" class="category-nav-link">
+          <i class="fa-solid fa-mobile-screen"></i> Mobiles & Tablets
+        </a>
+        <a href="/products?category=Laptops+%26+Computers" class="category-nav-link">
+          <i class="fa-solid fa-laptop"></i> Laptops & Tech
+        </a>
+        <a href="/products?category=Audio+%26+Wearables" class="category-nav-link">
+          <i class="fa-solid fa-headphones"></i> Audio & Wearables
+        </a>
+        <a href="/products?category=Home+%26+Kitchen" class="category-nav-link">
+          <i class="fa-solid fa-blender"></i> Home & Kitchen
+        </a>
+        <a href="/products?category=Fashion+%26+Apparel" class="category-nav-link">
+          <i class="fa-solid fa-shirt"></i> Fashion & Apparel
+        </a>
+      {% endif %}
       <span class="category-nav-separator"></span>
       <a href="/admin" class="category-nav-link" style="color: var(--color-primary);">
         <i class="fa-solid fa-shield-halved"></i> Admin
@@ -270,16 +309,25 @@
           </div>
         </div>
 
-        <!-- Col 2: Categories -->
+        <!-- Col 2: Categories (Mode-Aware) -->
         <div class="footer-col">
           <h4>Explore Catalog</h4>
           <ul class="footer-links">
-            <li><a href="/products?category=Daily+Essentials+%26+Groceries">Pure Organic & Foods</a></li>
-            <li><a href="/products?category=Mobiles+%26+Tablets">Smartphones & Tablets</a></li>
-            <li><a href="/products?category=Laptops+%26+Computers">Laptops & Workstations</a></li>
-            <li><a href="/products?category=Audio+%26+Wearables">Headphones & Smartwatches</a></li>
-            <li><a href="/products?category=Home+%26+Kitchen">Kitchen Appliances</a></li>
-            <li><a href="/products?category=Fashion+%26+Apparel">Handloom & Apparel</a></li>
+            {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+              <li><a href="/retail#dairy-section">Dairy & Breakfast</a></li>
+              <li><a href="/retail#grains-section">Rice & Grains</a></li>
+              <li><a href="/retail#essentials-section">Cooking Essentials</a></li>
+              <li><a href="/retail#produce-section">Fresh Produce</a></li>
+              <li><a href="/retail#household-section">Household Essentials</a></li>
+              <li><a href="/products?category=Personal+Care">Personal Care</a></li>
+            {% else %}
+              <li><a href="/products?category=Daily+Essentials+%26+Groceries">Pure Organic & Foods</a></li>
+              <li><a href="/products?category=Mobiles+%26+Tablets">Smartphones & Tablets</a></li>
+              <li><a href="/products?category=Laptops+%26+Computers">Laptops & Workstations</a></li>
+              <li><a href="/products?category=Audio+%26+Wearables">Headphones & Smartwatches</a></li>
+              <li><a href="/products?category=Home+%26+Kitchen">Kitchen Appliances</a></li>
+              <li><a href="/products?category=Fashion+%26+Apparel">Handloom & Apparel</a></li>
+            {% endif %}
           </ul>
         </div>
 

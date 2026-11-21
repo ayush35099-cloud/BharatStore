@@ -23,17 +23,18 @@
 - [4. Five-Shop Retail Grocery Marketplace & Price Comparison](#4-five-shop-retail-grocery-marketplace--price-comparison)
 - [5. Multi-Store Inventory Foundation](#5-multi-store-inventory-foundation)
 - [6. Multi-Store Cart & Checkout Architecture (Phase 7)](#6-multi-store-cart--checkout-architecture-phase-7)
-- [7. Technology Stack](#7-technology-stack)
-- [8. Architecture Diagram](#8-architecture-diagram)
-- [9. Database Schema & Relational Design](#9-database-schema--relational-design)
-- [10. Installation & Local Setup (Windows PowerShell)](#10-installation--local-setup-windows-powershell)
-- [11. Environment Configuration](#11-environment-configuration)
-- [12. REST API Documentation](#12-rest-api-documentation)
-- [13. Automated Testing & Verification](#13-automated-testing--verification)
-- [14. Project Roadmap](#14-project-roadmap)
-- [15. Security & Concurrency Controls](#15-security--concurrency-controls)
-- [16. Contributors & Collaboration](#16-contributors--collaboration)
-- [17. License](#17-license)
+- [7. Store-Specific Inventory & Stock Management (Phase 8)](#7-store-specific-inventory--stock-management-phase-8)
+- [8. Technology Stack](#8-technology-stack)
+- [9. Architecture Diagram](#9-architecture-diagram)
+- [10. Database Schema & Relational Design](#10-database-schema--relational-design)
+- [11. Installation & Local Setup (Windows PowerShell)](#11-installation--local-setup-windows-powershell)
+- [12. Environment Configuration](#12-environment-configuration)
+- [13. REST API Documentation](#13-rest-api-documentation)
+- [14. Automated Testing & Verification](#14-automated-testing--verification)
+- [15. Project Roadmap](#15-project-roadmap)
+- [16. Security & Concurrency Controls](#16-security--concurrency-controls)
+- [17. Contributors & Collaboration](#17-contributors--collaboration)
+- [18. License](#18-license)
 
 ---
 
@@ -180,7 +181,29 @@ Delivery fees for physical grocery stores are calculated using Haversine distanc
 
 ---
 
-## 7. Technology Stack
+## 7. Store-Specific Inventory & Stock Management (Phase 8)
+
+Phase 8 introduces enterprise-grade physical store inventory and stock management, strict grocery isolation for Retail Near Me, and permanent resolution of the ₹NaN price comparison bug.
+
+### 1. Strict Retail Grocery Isolation
+- **8 Exact Grocery Categories Allowed:** `Dairy & Breakfast`, `Rice & Grains`, `Cooking Essentials`, `Fresh Produce`, `Snacks & Beverages`, `Household Essentials`, `Personal Care`, `Packaged Foods`.
+- **Complete Elimination of Non-Grocery Products in Retail Mode:** Electronics, Laptops, Mobiles, Fashion, Audio, and Home Appliances are strictly blocked in Retail Near Me navigation, search suggestions, catalog APIs (`/api/products`), search endpoint (`/api/search`), and direct product lookups (`/api/products/<id>`).
+- **Preserved Online Shopping Catalog:** Online Shopping continues to offer the full cross-category national marketplace catalog without modification.
+
+### 2. Resolution of ₹NaN Price Comparison Bug
+- Corrected backend API key mapping (`db_service.get_product_price_comparison` now consistently provides both `price` and `selling_price` numeric floats).
+- Comprehensive frontend numerical sanitization: handles missing prices gracefully ("Price unavailable"), excludes out-of-stock shops from being marked as the lowest price, and prevents `NaN`, `null`, `undefined`, or `Infinity` from ever rendering in the UI.
+
+### 3. Store-Specific Stock Management & Immutable Audit Ledger
+- **Independent Inventory:** Every physical store manages its own stock quantities, selling prices, and low-stock thresholds independently. Altering stock in Store 1 has zero effect on Store 2.
+- **Stock Movement Ledger (`inventory_movements`):** All inventory events (`RESTOCKED`, `ADJUSTED`, `SOLD`) are recorded in an append-only audit trail with `quantity`, `balance_after`, `reference_type`, and store-specific metadata.
+- **Live Stock Tracking:** Real-time identification of out-of-stock items (`stock_quantity <= 0` or `is_available = false`) and low-stock alerts when inventory drops below threshold.
+- **Row-Level ACID Checkout Decrements:** When orders are committed, store stock is decremented using database row locks (`FOR UPDATE`), rolling back atomically on any stock shortfall.
+- **Timing-Safe Admin Security:** All store inventory management endpoints are strictly guarded with `require_admin_auth` HMAC token verification.
+
+---
+
+## 8. Technology Stack
 
 - **Backend Framework:** Python 3.10+, Flask 3.0.0, Flask-CORS 4.0.0
 - **Database Engine:**
@@ -193,7 +216,7 @@ Delivery fees for physical grocery stores are calculated using Haversine distanc
 
 ---
 
-## 8. Architecture Diagram
+## 9. Architecture Diagram
 
 ```mermaid
 flowchart TD
@@ -235,7 +258,7 @@ flowchart TD
 
 ---
 
-## 9. Database Schema & Relational Design
+## 10. Database Schema & Relational Design
 
 The system implements relational tables with strict referential integrity:
 
@@ -271,7 +294,7 @@ The system implements relational tables with strict referential integrity:
 
 ---
 
-## 10. Installation & Local Setup (Windows PowerShell)
+## 11. Installation & Local Setup (Windows PowerShell)
 
 Follow these steps to run BharatStore locally:
 
@@ -323,7 +346,7 @@ Open your browser to:
 
 ---
 
-## 11. Environment Configuration
+## 12. Environment Configuration
 
 | Variable | Required | Default / Fallback | Description |
 | :--- | :---: | :--- | :--- |
@@ -339,7 +362,7 @@ Open your browser to:
 
 ---
 
-## 12. REST API Documentation
+## 13. REST API Documentation
 
 ### Retail Near Me & Price Comparison Endpoints
 
@@ -507,11 +530,22 @@ Dynamic individual store front displaying the physical store's verified grocery 
 - `POST /api/auth/login`: Logs in a customer, migrates guest cart items to the customer account, and updates session.
 - `POST /api/auth/logout`: Logs out the user and clears server session. Instructs client to wipe `localStorage`.
 
+### Phase 8: Store-Specific Inventory & Stock Management Endpoints
+
+#### Store Inventory & Ledger APIs (Admin Protected via `require_admin_auth`)
+- `GET /api/stores/<store_id>/inventory/out-of-stock`: Returns all products at the store where stock is zero or availability is toggled off.
+- `GET /api/stores/<store_id>/inventory/low-stock`: Returns products running below store threshold (`stock_quantity <= low_stock_threshold`).
+- `GET /api/stores/<store_id>/inventory/movements`: Returns chronological immutable stock movement ledger entries (`RESTOCKED`, `ADJUSTED`, `SOLD`) for the store.
+- `GET /api/stores/<store_id>/inventory/<product_id>/movements`: Returns stock movement audit history for a specific product at the store.
+- `POST /api/stores/<store_id>/inventory`: Registers a product in the store's inventory with independent price and stock.
+- `PUT /api/stores/<store_id>/inventory/<product_id>`: Updates price, stock quantity, or threshold. Automatically appends audit record to `inventory_movements`.
+- `DELETE /api/stores/<store_id>/inventory/<product_id>`: Removes product from the physical store inventory.
+
 ---
 
-## 13. Automated Testing & Verification
+## 14. Automated Testing & Verification
 
-All 151 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, and Retail Price Comparison are executed and verified:
+All 169 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Retail 5-Shop Price Comparison, and Grocery Catalog are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -521,11 +555,23 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 151 tests in 12.146s
+Ran 169 tests in 10.303s
 
 OK (100% Passed)
 ```
 
+- **Phase 8 Store-Specific Inventory & Retail Bug Fixes Suite (`tests/test_phase8_store_inventory.py`):** 18 / 18 PASS
+  - Price comparison for Product 76 (Amul Gold Milk – 500 ml) verified returning valid numeric prices across all 5 shops (no ₹NaN, no null, no Infinity).
+  - Out-of-stock shop (Store 4) excluded from being selected as the lowest-priced option.
+  - Strict Retail Near Me grocery-only isolation enforced: 100% of products returned in Retail mode belong strictly to allowed grocery categories.
+  - Non-grocery categories (`Mobiles & Tablets`, `Laptops & Computers`, `Audio & Wearables`, `Home & Kitchen`, `Fashion & Apparel`, `Electronics`) strictly blocked in Retail catalog, search, and direct product APIs.
+  - Online Shopping marketplace catalog preserved with full cross-category national availability.
+  - Independent store inventory confirmed: modifying stock at Store 1 does not affect Store 2 or Store 3.
+  - Negative stock and negative price mutations strictly rejected with HTTP 400.
+  - Out-of-stock and low-stock endpoints verified (`/api/stores/<id>/inventory/out-of-stock` and `/api/stores/<id>/inventory/low-stock`).
+  - Immutable stock movement audit ledger verified recording `RESTOCKED`, `ADJUSTED`, and `SOLD` transactions.
+  - Live add-to-cart stock check verified rejecting quantities exceeding store stock without altering physical inventory.
+  - Timing-safe admin authentication protection verified on all inventory mutation and audit endpoints.
 - **Phase 7 Multi-Store Cart & Checkout Suite (`tests/test_phase7_multi_store_cart_checkout.py`):** 38 / 38 PASS
   - Online cart strictly accepts marketplace items and isolates groceries (HTTP 400 rejection).
   - Retail cart store-specific pricing verified (Amul Milk ₹60 at Store 1 vs ₹62 at Store 2).
@@ -595,7 +641,7 @@ OK (100% Passed)
 
 ---
 
-## 14. Project Roadmap
+## 15. Project Roadmap
 
 - [x] **Phase 1: Platform Foundation & Core E-Commerce** (18 modules, Aiven Cloud integrations, dual SQLite/PG engine).
 - [x] **Phase 2: Dual Shopping Mode Selection Engine** (Retail Near Me ⇄ Online Shopping, isolated carts).
@@ -605,11 +651,11 @@ OK (100% Passed)
 - [x] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Engine** (Haversine math, 15 km cap, directory `/retail/stores`, dynamic storefronts `/retail/store/<id>`, automatic scroll bug fix).
 - [x] **Phase 6: Retail Storefronts & Five-Shop Price Comparison** (Dynamic storefronts `/retail/store/<id>`, 5 grocery departments, real-time comparison modal, shop-aware multi-store cart, delivery/pickup toggle).
 - [x] **Phase 7: Advanced Multi-Store Cart & Checkout System** (3 independent cart scopes, permanent fix for stale cart preview bug, distance-based tiered delivery fees, atomic ACID row-locking multi-store checkout, 38/38 automated tests).
-- [ ] **Phase 8: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
+- [x] **Phase 8: Store-Specific Inventory & Stock Management & Retail Grocery Isolation** (Strict 8-category grocery isolation, fix ₹NaN 5-shop price comparison bug, independent store stock management, stock movement ledger, live out-of-stock and low-stock endpoints, admin auth protection, atomic stock sales).
 
 ---
 
-## 15. Security & Concurrency Controls
+## 16. Security & Concurrency Controls
 
 1. **Timing-Safe HMAC Authentication:** Administrative API endpoints verify credentials using `hmac.compare_digest` to prevent side-channel timing attacks.
 2. **ACID Concurrency & Row Locking:** Store stock reservations use atomic decrements and row-level locks (`FOR UPDATE` on PostgreSQL; immediate transactions on SQLite) to prevent overselling under high concurrency.
@@ -619,14 +665,14 @@ OK (100% Passed)
 
 ---
 
-## 16. Contributors & Collaboration
+## 17. Contributors & Collaboration
 
 - **Ayush Anjan Choudhary** ([@ayush35099-cloud](https://github.com/ayush35099-cloud)) — *Full-Stack Architecture, Database Engineering & Cloud Infrastructure*
 - **Team Collaborators** — *Frontend UI/UX, Component Theming & Voice Search Integrations*
 
 ---
 
-## 17. License
+## 18. License
 
 This project is licensed under the terms of the [MIT License](LICENSE).
 

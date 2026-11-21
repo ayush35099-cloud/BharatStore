@@ -2240,6 +2240,22 @@ def atomic_commit_store_sale(cur, is_postgres: bool, store_id: int, product_id: 
         WHERE store_id = ? AND product_id = ?;
         """, (new_stock, new_reserved, is_avail, store_id, product_id))
 
+    try:
+        ref_id_str = f"store_{store_id}:{reference_id}"
+        detailed_notes = f"[Store #{store_id}] Customer Order Sale"
+        if is_postgres:
+            cur.execute("""
+                INSERT INTO inventory_movements (product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes)
+                VALUES (%s, 'SOLD', %s, %s, %s, %s, %s);
+            """, (product_id, -quantity, new_stock, reference_type, ref_id_str, detailed_notes))
+        else:
+            cur.execute("""
+                INSERT INTO inventory_movements (product_id, movement_type, quantity, balance_after, reference_type, reference_id, notes)
+                VALUES (?, 'SOLD', ?, ?, ?, ?, ?);
+            """, (product_id, -quantity, new_stock, reference_type, ref_id_str, detailed_notes))
+    except Exception as me:
+        logger.warning(f"Failed to record inventory movement in store sale: {me}")
+
     return {
         "store_id": store_id,
         "product_id": product_id,

@@ -1350,10 +1350,13 @@ async function initCatalogPage() {
     const qParam = (urlParams.get("q") || window.SEARCH_QUERY_PARAM || "").trim();
 
     let endpoint = "/api/products";
+    const isRetailMode = (appState.shoppingMode === "RETAIL_NEAR_ME" || window.CURRENT_SHOPPING_MODE === "RETAIL_NEAR_ME");
     if (qParam) {
       endpoint = `/api/search?q=${encodeURIComponent(qParam)}`;
+      if (isRetailMode) endpoint += "&mode=RETAIL_NEAR_ME";
       window.CATALOG_LOADED_VIA_OPENSEARCH = true;
     } else {
+      if (isRetailMode) endpoint += "?mode=RETAIL_NEAR_ME";
       window.CATALOG_LOADED_VIA_OPENSEARCH = false;
     }
 
@@ -1409,9 +1412,40 @@ function applyFilters() {
   const urlParams = new URLSearchParams(window.location.search);
   const qParam = (urlParams.get("q") || "").toLowerCase().trim();
 
+  const isRetail = (appState.shoppingMode === "RETAIL_NEAR_ME" || window.CURRENT_SHOPPING_MODE === "RETAIL_NEAR_ME");
+  const ALLOWED_GROCERY_CATEGORIES = [
+    "Daily Essentials & Groceries",
+    "Dairy & Breakfast",
+    "Rice & Grains",
+    "Cooking Essentials",
+    "Fresh Produce",
+    "Snacks & Beverages",
+    "Household Essentials",
+    "Personal Care",
+    "Packaged Foods"
+  ];
+  const NON_GROCERY_CATS = [
+    "Mobiles & Tablets",
+    "Laptops & Computers",
+    "Audio & Wearables",
+    "Home & Kitchen",
+    "Fashion & Apparel",
+    "Electronics"
+  ];
+
   catalogFilteredProducts = appState.products.filter(p => {
-    // 1. Category
-    if (selectedCategory && p.category !== selectedCategory) return false;
+    // Mode Isolation: Retail Near Me must be grocery-only
+    if (isRetail) {
+      if (NON_GROCERY_CATS.includes(p.category) || NON_GROCERY_CATS.includes(p.sub_category)) return false;
+      const isGrocery = (p.category === "Daily Essentials & Groceries" || ALLOWED_GROCERY_CATEGORIES.includes(p.sub_category) || ALLOWED_GROCERY_CATEGORIES.includes(p.category));
+      if (!isGrocery) return false;
+    }
+
+    // 1. Category / Sub-Category
+    if (selectedCategory) {
+      const matchCat = (p.category === selectedCategory || p.sub_category === selectedCategory);
+      if (!matchCat) return false;
+    }
 
     // 2. Search Query (typo-tolerant matching fallback if not pre-fetched via OpenSearch)
     if (qParam && !window.CATALOG_LOADED_VIA_OPENSEARCH) {

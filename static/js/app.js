@@ -704,7 +704,7 @@ function updateHeaderBadges() {
   if (wishlistBadge) wishlistBadge.textContent = appState.wishlist.size;
 }
 
-async function addToCart(productId, qty = 1) {
+async function addToCart(productId, qty = 1, storeId = null, storeName = null) {
   let product = appState.products.find(p => p.id === productId);
   if (!product) {
     try {
@@ -720,17 +720,19 @@ async function addToCart(productId, qty = 1) {
     return;
   }
 
-  if (product.stock <= 0) {
-    showToast(`Sorry, ${product.title} is currently Out of Stock`, true);
-    return;
-  }
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  const sId = storeId || (isRetail ? parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1") : null);
 
   // Backend stock validation guard
   try {
+    const valPayload = { product_id: productId, quantity: qty };
+    if (isRetail && sId) {
+      valPayload.store_id = sId;
+    }
     const valRes = await fetch("/api/cart/validate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product_id: productId, quantity: qty })
+      body: JSON.stringify(valPayload)
     });
     const valData = await valRes.json();
     if (!valRes.ok || !valData.valid) {
@@ -741,27 +743,56 @@ async function addToCart(productId, qty = 1) {
     console.warn("Backend validation note:", err);
   }
 
-  if (!appState.cart[productId]) {
-    appState.cart[productId] = { product, qty: 0 };
+  // If in retail mode, also sync with retail cart session API
+  if (isRetail && sId) {
+    const activeHeroStore = document.getElementById("retail-hero-store-name");
+    const heroStoreName = activeHeroStore ? activeHeroStore.textContent.trim() : "Bharat Fresh Mart";
+    const sName = storeName || heroStoreName;
+    try {
+      await fetch("/api/retail/cart/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: productId, store_id: sId, quantity: qty, store_name: sName })
+      });
+    } catch (e) {
+      console.warn("Retail cart sync warning:", e);
+    }
   }
-  appState.cart[productId].qty += qty;
-  if (appState.cart[productId].qty > product.stock) {
-    appState.cart[productId].qty = product.stock;
-    showToast(`Maximum available stock (${product.stock}) reached for ${product.title}`);
+
+  const cartKey = isRetail && sId ? `${sId}_${productId}` : productId;
+  if (!appState.cart[cartKey]) {
+    appState.cart[cartKey] = {
+      product,
+      qty: 0,
+      store_id: sId,
+      store_name: storeName || (document.getElementById("retail-hero-store-name")?.textContent.trim() || "Bharat Fresh Mart"),
+      fulfillment: "delivery"
+    };
+  }
+  appState.cart[cartKey].qty += qty;
+  const maxStock = product.stock || 20;
+  if (appState.cart[cartKey].qty > maxStock) {
+    appState.cart[cartKey].qty = maxStock;
+    showToast(`Maximum available stock (${maxStock}) reached for ${product.title}`);
   } else {
-    showToast(`Added ${qty > 1 ? qty + ' units of ' : ''}${product.title} to your cart`);
+    showToast(`Added ${qty > 1 ? qty + ' units of ' : ''}${product.title} to your basket`);
   }
   saveCart();
 }
 
-function updateCartItemQty(productId, delta) {
-  if (appState.cart[productId]) {
-    appState.cart[productId].qty += delta;
-    if (appState.cart[productId].qty <= 0) {
-      delete appState.cart[productId];
-    } else if (appState.cart[productId].qty > appState.cart[productId].product.stock) {
-      appState.cart[productId].qty = appState.cart[productId].product.stock;
-      showToast("Cannot exceed available physical store hub stock");
+function updateCartItemQty(key, delta) {
+  let itemKey = key;
+  if (!appState.cart[itemKey]) {
+    const found = Object.keys(appState.cart).find(k => appState.cart[k].product && appState.cart[k].product.id === Number(key));
+    if (found) itemKey = found;
+  }
+  if (appState.cart[itemKey]) {
+    appState.cart[itemKey].qty += delta;
+    if (appState.cart[itemKey].qty <= 0) {
+      delete appState.cart[itemKey];
+    } else if (appState.cart[itemKey].qty > (appState.cart[itemKey].product.stock || 20)) {
+      appState.cart[itemKey].qty = (appState.cart[itemKey].product.stock || 20);
+      showToast("Cannot exceed available physical store stock");
     }
     saveCart();
     if (document.getElementById("cart-page-items-list")) {
@@ -770,9 +801,14 @@ function updateCartItemQty(productId, delta) {
   }
 }
 
-function removeCartItem(productId) {
-  if (appState.cart[productId]) {
-    delete appState.cart[productId];
+function removeCartItem(key) {
+  let itemKey = key;
+  if (!appState.cart[itemKey]) {
+    const found = Object.keys(appState.cart).find(k => appState.cart[k].product && appState.cart[k].product.id === Number(key));
+    if (found) itemKey = found;
+  }
+  if (appState.cart[itemKey]) {
+    delete appState.cart[itemKey];
     saveCart();
     if (document.getElementById("cart-page-items-list")) {
       renderCartPage();
@@ -790,6 +826,14 @@ function clearCart() {
   showToast("Basket cleared.");
 }
 
+function openCartDrawer() {
+  const drawer = document.getElementById("cart-drawer-overlay");
+  if (drawer && !drawer.classList.contains("open")) {
+    drawer.classList.add("open");
+    renderCartDrawer();
+  }
+}
+
 function toggleCartDrawer() {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer) {
@@ -803,6 +847,16 @@ function toggleCartDrawer() {
 function closeCartDrawer(e) {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer) drawer.classList.remove("open");
+}
+
+function updateShopFulfillment(shopName, value) {
+  Object.values(appState.cart).forEach(item => {
+    if ((item.store_name || "Bharat Fresh Mart") === shopName) {
+      item.fulfillment = value;
+    }
+  });
+  saveCart();
+  showToast(`Fulfillment updated for ${shopName}: ${value === 'pickup' ? 'Free Store Pickup' : '2-Hour Delivery'}`);
 }
 
 function renderCartDrawer() {
@@ -824,28 +878,96 @@ function renderCartDrawer() {
   }
 
   let subtotal = 0;
-  container.innerHTML = items.map(item => {
-    const p = item.product;
-    const itemTotal = p.price * item.qty;
-    subtotal += itemTotal;
-    return `
-      <div class="drawer-item">
-        <img src="${p.image_url}" alt="${p.title}">
-        <div>
-          <div class="drawer-item-title">${p.title}</div>
-          <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
-          <div class="drawer-qty-control">
-            <button onclick="updateCartItemQty(${p.id}, -1)">-</button>
-            <span>${item.qty}</span>
-            <button onclick="updateCartItemQty(${p.id}, 1)">+</button>
-          </div>
+
+  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+    // Group by physical grocery shop
+    const shopGroups = {};
+    items.forEach(item => {
+      const p = item.product;
+      const sName = item.store_name || "Bharat Fresh Mart";
+      if (!shopGroups[sName]) {
+        shopGroups[sName] = {
+          name: sName,
+          store_id: item.store_id || 1,
+          fulfillment: item.fulfillment || 'delivery',
+          items: [],
+          subtotal: 0
+        };
+      }
+      shopGroups[sName].items.push(item);
+      shopGroups[sName].subtotal += p.price * item.qty;
+      subtotal += p.price * item.qty;
+    });
+
+    container.innerHTML = Object.values(shopGroups).map(group => `
+      <div class="shop-cart-group">
+        <div class="shop-cart-group-header">
+          <span class="shop-cart-group-title"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${group.name}</span>
+          <span style="font-size:12px; font-weight:700; color:var(--color-primary);">₹${group.subtotal.toLocaleString('en-IN')}</span>
         </div>
-        <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer;" title="Remove">
-          <i class="fa-solid fa-trash-can"></i>
-        </button>
+
+        <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+          <span style="font-weight:600; color:var(--color-text-muted);"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
+          <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer;">
+            <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>2-Hour Delivery (₹20)</option>
+            <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup (FREE)</option>
+          </select>
+        </div>
+
+        <div class="shop-cart-items-list">
+          ${group.items.map(item => {
+            const p = item.product;
+            return `
+              <div class="drawer-item" style="padding:8px 0; border-bottom:1px solid var(--color-border-subtle);">
+                <img src="${p.image_url}" alt="${p.title}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
+                <div style="flex:1;">
+                  <div class="drawer-item-title" style="font-size:12.5px;">${p.title}</div>
+                  <div class="drawer-item-price" style="font-size:13px;">₹${p.price.toLocaleString('en-IN')}</div>
+                  <div class="drawer-qty-control" style="margin-top:4px;">
+                    <button onclick="updateCartItemQty(${p.id}, -1)">-</button>
+                    <span>${item.qty}</span>
+                    <button onclick="updateCartItemQty(${p.id}, 1)">+</button>
+                  </div>
+                </div>
+                <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            `;
+          }).join("")}
+        </div>
+
+        <div class="shop-cart-subtotal-bar">
+          <span style="color:var(--color-text-muted);">Shop Items: ${group.items.reduce((s, i) => s + i.qty, 0)}</span>
+          <span>Shop Subtotal: ₹${group.subtotal.toLocaleString('en-IN')}</span>
+        </div>
       </div>
-    `;
-  }).join("");
+    `).join("");
+  } else {
+    // Online Shopping Mode standard rendering
+    container.innerHTML = items.map(item => {
+      const p = item.product;
+      const itemTotal = p.price * item.qty;
+      subtotal += itemTotal;
+      return `
+        <div class="drawer-item">
+          <img src="${p.image_url}" alt="${p.title}">
+          <div>
+            <div class="drawer-item-title">${p.title}</div>
+            <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
+            <div class="drawer-qty-control">
+              <button onclick="updateCartItemQty(${p.id}, -1)">-</button>
+              <span>${item.qty}</span>
+              <button onclick="updateCartItemQty(${p.id}, 1)">+</button>
+            </div>
+          </div>
+          <button onclick="removeCartItem(${p.id})" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer;" title="Remove">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
 
   if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
 }
@@ -1514,7 +1636,7 @@ function renderCartPage() {
         <div>
           <span style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--color-primary);">${p.brand}</span>
           <h4 style="font-size:14.5px; font-weight:600; margin-bottom:4px;"><a href="/product/${p.id}">${p.title}</a></h4>
-          <span style="font-size:11.5px; color:var(--color-sage);"><i class="fa-solid fa-check"></i> Physical Hub Stock: ${p.stock} units</span>
+          <span style="font-size:11.5px; color:var(--color-sage);"><i class="fa-solid fa-shop"></i> ${item.store_name ? `Fulfillment Store: ${item.store_name}` : `Physical Hub Stock: ${p.stock || 20} units`}</span>
         </div>
         <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
           <button onclick="updateCartItemQty(${p.id}, -1)" style="padding:6px 12px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>

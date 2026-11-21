@@ -5,6 +5,14 @@
  * OpenSearch typo-tolerant search & suggestions, ACID row locking checkout, and Admin portal.
  */
 
+// Global Image Error Fallback: ensures no broken image icons ever show up
+window.addEventListener("error", function(e) {
+  if (e.target && e.target.tagName === "IMG" && !e.target.dataset.fallbackApplied) {
+    e.target.dataset.fallbackApplied = "true";
+    e.target.src = "/static/images/placeholder-product.svg";
+  }
+}, true);
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
@@ -1143,7 +1151,7 @@ function renderCartDrawer() {
               const p = item.product;
               return `
                 <div class="drawer-item">
-                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}">
+                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
                   <div style="min-width:0; width:100%;">
                     <div class="drawer-item-title">${escapeHtml(p.title)}</div>
                     <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
@@ -1189,7 +1197,7 @@ function renderCartDrawer() {
       subtotal += itemTotal;
       return `
         <div class="drawer-item">
-          <img src="${p.image_url}" alt="${escapeHtml(p.title)}">
+          <img src="${p.image_url}" alt="${escapeHtml(p.title)}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
           <div style="min-width:0; width:100%;">
             <div class="drawer-item-title">${escapeHtml(p.title)}</div>
             <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
@@ -1321,7 +1329,7 @@ function createProductCardHTML(p) {
           <i class="${isWishlisted ? 'fa-solid fa-heart' : 'fa-regular fa-heart'}" style="${isWishlisted ? 'color:#E03131;' : ''}"></i>
         </button>
         <a href="/product/${p.id}" style="width:100%; height:100%;">
-          <img src="${p.image_url}" alt="${p.title}" loading="lazy">
+          <img src="${p.image_url}" alt="${p.title}" loading="lazy" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
         </a>
       </div>
 
@@ -2092,7 +2100,7 @@ function renderCartPage() {
                   const itTotal = (p.price || 0) * it.qty;
                   return `
                     <div style="display:grid; grid-template-columns:64px 1fr auto auto; gap:16px; align-items:center; padding:10px 0; border-bottom:1px solid var(--color-border-subtle);">
-                      <img src="${p.image_url}" alt="${p.title}" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:2px;">
+                      <img src="${p.image_url}" alt="${p.title}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:2px;">
                       <div>
                         <h4 style="font-size:13.5px; margin:0 0 4px 0;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>
                         <span style="font-size:12px; color:var(--color-primary); font-weight:700;">₹${(p.price || 0).toLocaleString('en-IN')} / unit</span>
@@ -2160,7 +2168,7 @@ function renderCartPage() {
       subtotal += itemTotal;
       return `
         <div style="display:grid; grid-template-columns:80px 1fr auto auto; gap:20px; align-items:center; padding-bottom:18px; margin-bottom:18px; border-bottom:1px solid var(--color-border-subtle);">
-          <img src="${p.image_url}" alt="${p.title}" style="width:80px; height:80px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--color-border);">
+          <img src="${p.image_url}" alt="${p.title}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';" style="width:80px; height:80px; object-fit:cover; border-radius:var(--radius-md); border:1px solid var(--color-border);">
           <div>
             <span style="font-size:11px; text-transform:uppercase; font-weight:700; color:var(--color-primary);">${p.brand || 'Authentic'}</span>
             <h4 style="font-size:14.5px; font-weight:600; margin-bottom:4px;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>

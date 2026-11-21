@@ -24,7 +24,7 @@
           id="main-detail-img" 
           src="{{ product.image_url }}" 
           alt="{{ product.title }}"
-          onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=700';"
+          onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';"
         >
         <div class="gallery-zoom-hint">
           <i class="fa-solid fa-magnifying-glass-plus"></i> Click to enlarge
@@ -43,13 +43,13 @@
             <img 
               src="{{ img.image_url }}" 
               alt="Angle {{ loop.index }}"
-              onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200';"
+              onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';"
             >
           </div>
           {% endfor %}
         {% else %}
           <div class="detail-thumb-item active" onclick="switchDetailImage('{{ product.image_url }}', this)">
-            <img src="{{ product.image_url }}" alt="Primary View">
+            <img src="{{ product.image_url }}" alt="Primary View" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
           </div>
         {% endif %}
       </div>
@@ -456,7 +456,7 @@
 <div class="image-lightbox-overlay" id="image-lightbox-modal" onclick="closeImageLightbox()">
   <div class="lightbox-container" onclick="event.stopPropagation()">
     <button class="lightbox-close-btn" onclick="closeImageLightbox()">&times;</button>
-    <img id="lightbox-expanded-img" src="{{ product.image_url }}" alt="{{ product.title }}">
+    <img id="lightbox-expanded-img" src="{{ product.image_url }}" alt="{{ product.title }}" onerror="this.onerror=null; this.src='/static/images/placeholder-product.svg';">
     <div class="lightbox-caption">{{ product.title }} &mdash; High-Resolution Store View</div>
   </div>
 </div>

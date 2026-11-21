@@ -70,7 +70,7 @@
       </div>
     </div>
     <div style="font-size:12px; color:var(--color-text-muted); background:var(--color-bg-subtle); padding:10px 16px; border-radius:var(--radius-sm);">
-      Courier: <strong>{{ tracking.shipment.courier_name }}</strong> &bull; Tracking ID: <strong>{{ tracking.shipment.tracking_number }}</strong>
+      Courier: <strong>{{ (tracking.shipment.courier_name if tracking.shipment is defined else tracking.courier_name) or 'BharatStore Logistics' }}</strong> &bull; Tracking ID: <strong>{{ (tracking.shipment.tracking_number if tracking.shipment is defined else tracking.tracking_number) or 'Awaiting Pickup' }}</strong>
     </div>
     {% else %}
     <p style="font-size:13px; color:var(--color-text-muted);">Tracking events being initialized via regional Kafka broker...</p>

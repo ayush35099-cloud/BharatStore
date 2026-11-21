@@ -140,6 +140,8 @@ def orders_page():
 def order_detail_page(order_id: int):
     order = db_service.get_order_by_id(order_id)
     tracking = db_service.get_shipment_tracking(order_id)
+    if tracking and "shipment" not in tracking:
+        tracking["shipment"] = tracking
     return render_template("order_detail.html", order=order, tracking=tracking)
 
 @main_bp.route("/products")

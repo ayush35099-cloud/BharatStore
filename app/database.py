@@ -2011,3 +2011,589 @@ class DatabaseService:
             conn.commit()
             conn.close()
             return True
+
+    # -------------------------------------------------------------------------
+    # Phase 4: Physical Stores Management
+    # -------------------------------------------------------------------------
+
+    def create_store(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates a new physical retail store with strict input validation.
+        """
+        store_name = str(data.get("store_name") or "").strip()
+        store_slug = str(data.get("store_slug") or "").strip().lower()
+        store_description = str(data.get("store_description") or "").strip() or None
+        store_logo = str(data.get("store_logo") or "").strip() or None
+        store_banner = str(data.get("store_banner") or "").strip() or None
+        owner_name = str(data.get("owner_name") or "").strip() or None
+        contact_phone = str(data.get("contact_phone") or "").strip() or None
+        email = str(data.get("email") or "").strip() or None
+        full_address = str(data.get("full_address") or "").strip()
+        city = str(data.get("city") or "").strip()
+        area = str(data.get("area") or "").strip()
+        pincode = str(data.get("pincode") or "").strip()
+        opening_time = str(data.get("opening_time") or "07:00 AM").strip()
+        closing_time = str(data.get("closing_time") or "11:00 PM").strip()
+        is_active = bool(data.get("is_active", True))
+        accepts_delivery = bool(data.get("accepts_delivery", True))
+        accepts_pickup = bool(data.get("accepts_pickup", True))
+
+        if not store_name:
+            raise ValueError("Store name cannot be empty.")
+        if not store_slug:
+            store_slug = re.sub(r"[^a-z0-9]+", "-", store_name.lower()).strip("-")
+        if not full_address:
+            raise ValueError("Full address is required.")
+        if not city:
+            raise ValueError("City is required.")
+        if not area:
+            raise ValueError("Area / neighbourhood is required.")
+        if not pincode or not self.validate_pincode(pincode):
+            raise ValueError("Invalid Indian postal PIN code.")
+        if contact_phone and not self.validate_phone(contact_phone):
+            raise ValueError("Invalid phone number format.")
+
+        lat = data.get("latitude")
+        lng = data.get("longitude")
+        if lat is not None and lng is not None and str(lat).strip() != "" and str(lng).strip() != "":
+            if not self.validate_coordinates(lat, lng):
+                raise ValueError("Coordinates out of range (-90 to 90 lat, -180 to 180 lng).")
+            lat_f = float(lat)
+            lng_f = float(lng)
+        else:
+            lat_f = None
+            lng_f = None
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO stores (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, latitude, longitude, opening_time, closing_time, is_active, accepts_delivery, accepts_pickup)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *;
+                """, (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, lat_f, lng_f, opening_time, closing_time, is_active, accepts_delivery, accepts_pickup))
+                created = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return created
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO stores (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, latitude, longitude, opening_time, closing_time, is_active, accepts_delivery, accepts_pickup)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, lat_f, lng_f, opening_time, closing_time, 1 if is_active else 0, 1 if accepts_delivery else 0, 1 if accepts_pickup else 0))
+            new_id = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT * FROM stores WHERE id = ?;", (new_id,))
+            row = dict(cur.fetchone())
+            row["is_active"] = bool(row.get("is_active"))
+            row["accepts_delivery"] = bool(row.get("accepts_delivery"))
+            row["accepts_pickup"] = bool(row.get("accepts_pickup"))
+            conn.close()
+            return row
+
+    def get_store_by_id(self, store_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieves a store by ID."""
+        if not isinstance(store_id, (int, str)) or str(store_id).strip() == "":
+            return None
+        try:
+            s_id = int(store_id)
+        except (ValueError, TypeError):
+            return None
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM stores WHERE id = %s;", (s_id,))
+                row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM stores WHERE id = ?;", (s_id,))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_active"] = bool(d.get("is_active"))
+            d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+            d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            return d
+
+    def get_store_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a store by unique slug."""
+        if not slug or not isinstance(slug, str):
+            return None
+        slug_clean = slug.strip().lower()
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM stores WHERE store_slug = %s;", (slug_clean,))
+                row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM stores WHERE store_slug = ?;", (slug_clean,))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_active"] = bool(d.get("is_active"))
+            d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+            d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            return d
+
+    def get_all_stores(self, active_only: bool = True, city: Optional[str] = None, area: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves physical stores with optional city/area/active filtering."""
+        where_clauses = []
+        params = []
+        if active_only:
+            where_clauses.append("is_active = TRUE" if self.is_live_postgres else "is_active = 1")
+        if city:
+            where_clauses.append("LOWER(city) = LOWER(%s)" if self.is_live_postgres else "LOWER(city) = LOWER(?)")
+            params.append(city.strip())
+        if area:
+            where_clauses.append("LOWER(area) = LOWER(%s)" if self.is_live_postgres else "LOWER(area) = LOWER(?)")
+            params.append(area.strip())
+
+        where_str = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        sql = f"SELECT * FROM stores{where_str} ORDER BY id ASC;"
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, tuple(params))
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute(sql, tuple(params))
+            rows = []
+            for r in cur.fetchall():
+                d = dict(r)
+                d["is_active"] = bool(d.get("is_active"))
+                d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+                d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+                rows.append(d)
+            conn.close()
+            return rows
+
+    def update_store(self, store_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Updates physical store details."""
+        existing = self.get_store_by_id(store_id)
+        if not existing:
+            return None
+
+        store_name = str(data.get("store_name") if "store_name" in data else existing["store_name"]).strip()
+        store_slug = str(data.get("store_slug") if "store_slug" in data else existing["store_slug"]).strip().lower()
+        store_description = data.get("store_description") if "store_description" in data else existing.get("store_description")
+        store_logo = data.get("store_logo") if "store_logo" in data else existing.get("store_logo")
+        store_banner = data.get("store_banner") if "store_banner" in data else existing.get("store_banner")
+        owner_name = data.get("owner_name") if "owner_name" in data else existing.get("owner_name")
+        contact_phone = data.get("contact_phone") if "contact_phone" in data else existing.get("contact_phone")
+        email = data.get("email") if "email" in data else existing.get("email")
+        full_address = str(data.get("full_address") if "full_address" in data else existing["full_address"]).strip()
+        city = str(data.get("city") if "city" in data else existing["city"]).strip()
+        area = str(data.get("area") if "area" in data else existing["area"]).strip()
+        pincode = str(data.get("pincode") if "pincode" in data else existing["pincode"]).strip()
+        opening_time = str(data.get("opening_time") if "opening_time" in data else existing.get("opening_time", "07:00 AM")).strip()
+        closing_time = str(data.get("closing_time") if "closing_time" in data else existing.get("closing_time", "11:00 PM")).strip()
+        is_active = bool(data.get("is_active") if "is_active" in data else existing["is_active"])
+        accepts_delivery = bool(data.get("accepts_delivery") if "accepts_delivery" in data else existing["accepts_delivery"])
+        accepts_pickup = bool(data.get("accepts_pickup") if "accepts_pickup" in data else existing["accepts_pickup"])
+
+        if not store_name:
+            raise ValueError("Store name cannot be empty.")
+        if not full_address:
+            raise ValueError("Full address is required.")
+        if not city:
+            raise ValueError("City is required.")
+        if not pincode or not self.validate_pincode(pincode):
+            raise ValueError("Invalid Indian postal PIN code.")
+        if contact_phone and not self.validate_phone(str(contact_phone)):
+            raise ValueError("Invalid phone number format.")
+
+        lat = data.get("latitude") if "latitude" in data else existing.get("latitude")
+        lng = data.get("longitude") if "longitude" in data else existing.get("longitude")
+        if lat is not None and lng is not None and str(lat).strip() != "" and str(lng).strip() != "":
+            if not self.validate_coordinates(lat, lng):
+                raise ValueError("Coordinates out of range (-90 to 90 lat, -180 to 180 lng).")
+            lat_f = float(lat)
+            lng_f = float(lng)
+        else:
+            lat_f = None
+            lng_f = None
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    UPDATE stores
+                    SET store_name = %s, store_slug = %s, store_description = %s, store_logo = %s, store_banner = %s,
+                        owner_name = %s, contact_phone = %s, email = %s, full_address = %s, city = %s, area = %s,
+                        pincode = %s, latitude = %s, longitude = %s, opening_time = %s, closing_time = %s,
+                        is_active = %s, accepts_delivery = %s, accepts_pickup = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                    RETURNING *;
+                """, (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, lat_f, lng_f, opening_time, closing_time, is_active, accepts_delivery, accepts_pickup, store_id))
+                updated = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return updated
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE stores
+                SET store_name = ?, store_slug = ?, store_description = ?, store_logo = ?, store_banner = ?,
+                    owner_name = ?, contact_phone = ?, email = ?, full_address = ?, city = ?, area = ?,
+                    pincode = ?, latitude = ?, longitude = ?, opening_time = ?, closing_time = ?,
+                    is_active = ?, accepts_delivery = ?, accepts_pickup = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?;
+            """, (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, lat_f, lng_f, opening_time, closing_time, 1 if is_active else 0, 1 if accepts_delivery else 0, 1 if accepts_pickup else 0, store_id))
+            conn.commit()
+            conn.close()
+            return self.get_store_by_id(store_id)
+
+    def deactivate_store(self, store_id: int) -> bool:
+        """Deactivates a store."""
+        return self._set_store_active(store_id, False)
+
+    def activate_store(self, store_id: int) -> bool:
+        """Activates a store."""
+        return self._set_store_active(store_id, True)
+
+    def _set_store_active(self, store_id: int, is_active: bool) -> bool:
+        existing = self.get_store_by_id(store_id)
+        if not existing:
+            return False
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE stores SET is_active = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (is_active, store_id))
+                affected = cur.rowcount
+                conn.commit()
+            conn.close()
+            return affected > 0
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE stores SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (1 if is_active else 0, store_id))
+            affected = cur.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+
+    # -------------------------------------------------------------------------
+    # Phase 4: Store Inventory & Pricing Management
+    # -------------------------------------------------------------------------
+
+    def add_store_inventory(self, store_id: int, product_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Adds a product to a physical store's inventory with store-specific price and stock.
+        """
+        store = self.get_store_by_id(store_id)
+        if not store:
+            raise ValueError(f"Store #{store_id} does not exist.")
+
+        product = self.get_product_by_id(product_id)
+        if not product:
+            raise ValueError(f"Product #{product_id} does not exist.")
+
+        selling_price = float(data.get("selling_price", product.get("price", 0)))
+        original_price = float(data["original_price"]) if data.get("original_price") is not None else (float(product["original_price"]) if product.get("original_price") is not None else None)
+        stock_quantity = int(data.get("stock_quantity", 0))
+        low_stock_threshold = int(data.get("low_stock_threshold", 5))
+
+        if selling_price < 0:
+            raise ValueError("Selling price cannot be negative.")
+        if original_price is not None and original_price < selling_price:
+            raise ValueError("Original price cannot be lower than selling price.")
+        if stock_quantity < 0:
+            raise ValueError("Stock quantity cannot be negative.")
+        if low_stock_threshold < 0:
+            raise ValueError("Low stock threshold cannot be negative.")
+
+        is_available = bool(data.get("is_available", stock_quantity > 0))
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    INSERT INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
+                    VALUES (%s, %s, %s, %s, %s, 0, %s, %s)
+                    RETURNING *;
+                """, (store_id, product_id, selling_price, original_price, stock_quantity, low_stock_threshold, is_available))
+                created = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return created
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO store_inventory (store_id, product_id, selling_price, original_price, stock_quantity, reserved_quantity, low_stock_threshold, is_available)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?);
+            """, (store_id, product_id, selling_price, original_price, stock_quantity, low_stock_threshold, 1 if is_available else 0))
+            new_id = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT * FROM store_inventory WHERE id = ?;", (new_id,))
+            row = dict(cur.fetchone())
+            row["is_available"] = bool(row.get("is_available"))
+            conn.close()
+            return row
+
+    def get_store_inventory(self, store_id: int) -> List[Dict[str, Any]]:
+        """
+        Retrieves all inventory items for a store joined with product details.
+        """
+        store = self.get_store_by_id(store_id)
+        if not store:
+            return []
+
+        sql = """
+            SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
+                   si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
+                   si.low_stock_threshold, si.is_available, si.updated_at,
+                   p.sku, p.title, p.brand, p.category, p.image_url, p.rating, p.rating_count
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.store_id = %s
+            ORDER BY p.title ASC;
+        """ if self.is_live_postgres else """
+            SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
+                   si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
+                   si.low_stock_threshold, si.is_available, si.updated_at,
+                   p.sku, p.title, p.brand, p.category, p.image_url, p.rating, p.rating_count
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.store_id = ?
+            ORDER BY p.title ASC;
+        """
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (store_id,))
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute(sql, (store_id,))
+            rows = []
+            for r in cur.fetchall():
+                d = dict(r)
+                d["is_available"] = bool(d.get("is_available"))
+                rows.append(d)
+            conn.close()
+            return rows
+
+    def get_store_product(self, store_id: int, product_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves product availability, price, and stock for a specific physical store.
+        """
+        try:
+            s_id = int(store_id)
+            p_id = int(product_id)
+        except (ValueError, TypeError):
+            return None
+
+        sql = """
+            SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
+                   si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
+                   si.low_stock_threshold, si.is_available, si.updated_at,
+                   p.sku, p.title, p.brand, p.category, p.image_url, p.description, p.rating, p.rating_count
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.store_id = %s AND si.product_id = %s;
+        """ if self.is_live_postgres else """
+            SELECT si.id, si.store_id, si.product_id, si.selling_price, si.original_price,
+                   si.stock_quantity, si.reserved_quantity, (si.stock_quantity - si.reserved_quantity) AS available_quantity,
+                   si.low_stock_threshold, si.is_available, si.updated_at,
+                   p.sku, p.title, p.brand, p.category, p.image_url, p.description, p.rating, p.rating_count
+            FROM store_inventory si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.store_id = ? AND si.product_id = ?;
+        """
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (s_id, p_id))
+                row = cur.fetchone()
+            conn.close()
+            return dict(row) if row else None
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute(sql, (s_id, p_id))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_available"] = bool(d.get("is_available"))
+            return d
+
+    def update_store_inventory(self, store_id: int, product_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Updates store-specific selling price, stock quantity, or threshold.
+        """
+        existing = self.get_store_product(store_id, product_id)
+        if not existing:
+            return None
+
+        selling_price = float(data.get("selling_price") if "selling_price" in data else existing["selling_price"])
+        original_price = float(data["original_price"]) if "original_price" in data and data["original_price"] is not None else existing.get("original_price")
+        stock_quantity = int(data.get("stock_quantity") if "stock_quantity" in data else existing["stock_quantity"])
+        low_stock_threshold = int(data.get("low_stock_threshold") if "low_stock_threshold" in data else existing.get("low_stock_threshold", 5))
+
+        if selling_price < 0:
+            raise ValueError("Selling price cannot be negative.")
+        if original_price is not None and original_price < selling_price:
+            raise ValueError("Original price cannot be lower than selling price.")
+        if stock_quantity < 0:
+            raise ValueError("Stock quantity cannot be negative.")
+        if low_stock_threshold < 0:
+            raise ValueError("Low stock threshold cannot be negative.")
+
+        is_available = bool(data.get("is_available", stock_quantity > 0) if "is_available" in data else (stock_quantity > 0))
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    UPDATE store_inventory
+                    SET selling_price = %s, original_price = %s, stock_quantity = %s,
+                        low_stock_threshold = %s, is_available = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE store_id = %s AND product_id = %s
+                    RETURNING *;
+                """, (selling_price, original_price, stock_quantity, low_stock_threshold, is_available, store_id, product_id))
+                updated = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return updated
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE store_inventory
+                SET selling_price = ?, original_price = ?, stock_quantity = ?,
+                    low_stock_threshold = ?, is_available = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE store_id = ? AND product_id = ?;
+            """, (selling_price, original_price, stock_quantity, low_stock_threshold, 1 if is_available else 0, store_id, product_id))
+            conn.commit()
+            conn.close()
+            return self.get_store_product(store_id, product_id)
+
+    def remove_store_inventory(self, store_id: int, product_id: int) -> bool:
+        """Removes a product from a store's inventory."""
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM store_inventory WHERE store_id = %s AND product_id = %s;", (store_id, product_id))
+                affected = cur.rowcount
+                conn.commit()
+            conn.close()
+            return affected > 0
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM store_inventory WHERE store_id = ? AND product_id = ?;", (store_id, product_id))
+            affected = cur.rowcount
+            conn.commit()
+            conn.close()
+            return affected > 0
+
+    def get_available_store_products(self, store_id: int) -> List[Dict[str, Any]]:
+        """
+        Returns only products currently available (stock > 0 and is_available = TRUE) at the specified store.
+        """
+        all_items = self.get_store_inventory(store_id)
+        return [item for item in all_items if item.get("is_available") and item.get("stock_quantity", 0) > item.get("reserved_quantity", 0)]
+
+    def get_low_stock_products(self, store_id: int) -> List[Dict[str, Any]]:
+        """
+        Returns items at the specified store whose available stock is <= low_stock_threshold.
+        """
+        all_items = self.get_store_inventory(store_id)
+        return [item for item in all_items if (item.get("stock_quantity", 0) - item.get("reserved_quantity", 0)) <= item.get("low_stock_threshold", 5)]
+
+    # -------------------------------------------------------------------------
+    # Concurrency, Stock Reservation & Overselling Protection
+    # -------------------------------------------------------------------------
+
+    def reserve_store_stock(self, store_id: int, product_id: int, quantity: int, reference_type: str = "CART", reference_id: str = "0") -> Dict[str, Any]:
+        """Atomically reserves stock for a product at a physical store."""
+        from app.schema import atomic_reserve_store_stock
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                res = atomic_reserve_store_stock(cur, True, store_id, product_id, quantity, reference_type, reference_id)
+                conn.commit()
+            conn.close()
+            return res
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            res = atomic_reserve_store_stock(cur, False, store_id, product_id, quantity, reference_type, reference_id)
+            conn.commit()
+            conn.close()
+            return res
+
+    def release_store_stock(self, store_id: int, product_id: int, quantity: int, reference_type: str = "CART_ABANDON", reference_id: str = "0") -> Dict[str, Any]:
+        """Atomically releases reserved stock back to the store inventory."""
+        from app.schema import atomic_release_store_stock
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                res = atomic_release_store_stock(cur, True, store_id, product_id, quantity, reference_type, reference_id)
+                conn.commit()
+            conn.close()
+            return res
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            res = atomic_release_store_stock(cur, False, store_id, product_id, quantity, reference_type, reference_id)
+            conn.commit()
+            conn.close()
+            return res
+
+    def commit_store_sale(self, store_id: int, product_id: int, quantity: int, reference_type: str = "ORDER", reference_id: str = "0") -> Dict[str, Any]:
+        """Finalizes an order sale: decrements physical stock and releases reservation."""
+        from app.schema import atomic_commit_store_sale
+        if self.is_live_postgres:
+            conn = self._get_pg_connection()
+            with conn.cursor() as cur:
+                res = atomic_commit_store_sale(cur, True, store_id, product_id, quantity, reference_type, reference_id)
+                conn.commit()
+            conn.close()
+            return res
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            res = atomic_commit_store_sale(cur, False, store_id, product_id, quantity, reference_type, reference_id)
+            conn.commit()
+            conn.close()
+            return res
+

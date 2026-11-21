@@ -1394,3 +1394,290 @@ def api_get_reviews(product_id: int):
     reviews = db_service.get_product_reviews(product_id)
     stats = db_service.get_review_statistics(product_id)
     return jsonify({"success": True, "reviews": reviews, "stats": stats})
+
+# =============================================================================
+# Phase 4: Physical Stores & Multi-Store Inventory Endpoints
+# =============================================================================
+
+@main_bp.route("/api/stores", methods=["GET"])
+def api_get_stores():
+    """
+    Public customer API: Returns active physical retail stores with optional city/area filtering.
+    """
+    city = request.args.get("city")
+    area = request.args.get("area")
+    active_param = request.args.get("active_only", "true").lower()
+    active_only = active_param in ("true", "1", "yes")
+
+    stores = db_service.get_all_stores(active_only=active_only, city=city, area=area)
+    return jsonify({
+        "success": True,
+        "stores": stores,
+        "count": len(stores)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>", methods=["GET"])
+def api_get_store(store_id: int):
+    """
+    Public customer API: Returns details of a specific physical store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "store": store
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory", methods=["GET"])
+def api_get_store_inventory(store_id: int):
+    """
+    Public customer API: Returns full inventory list for a specific store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    items = db_service.get_store_inventory(store_id)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "store_name": store["store_name"],
+        "inventory": items,
+        "count": len(items)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/products", methods=["GET"])
+def api_get_store_products(store_id: int):
+    """
+    Public customer API: Returns only currently available products at the store (stock > 0).
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    products = db_service.get_available_store_products(store_id)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "store_name": store["store_name"],
+        "products": products,
+        "count": len(products)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/products/<int:product_id>", methods=["GET"])
+def api_get_store_product_detail(store_id: int, product_id: int):
+    """
+    Public customer API: Returns product availability, price and stock at a specific store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    product = db_service.get_store_product(store_id, product_id)
+    if not product:
+        return jsonify({
+            "success": False,
+            "error": f"Product #{product_id} is not stocked at Store #{store_id}."
+        }), 404
+
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "product": product
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/low-stock", methods=["GET"])
+@require_admin_auth
+def api_get_store_low_stock(store_id: int):
+    """
+    Admin API: Returns products running low on stock at a specific store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({
+            "success": False,
+            "error": f"Store #{store_id} not found."
+        }), 404
+
+    items = db_service.get_low_stock_products(store_id)
+    return jsonify({
+        "success": True,
+        "store_id": store_id,
+        "low_stock_products": items,
+        "count": len(items)
+    })
+
+@main_bp.route("/api/stores/<int:store_id>/inventory", methods=["POST"])
+@require_admin_auth
+def api_add_store_inventory(store_id: int):
+    """
+    Admin API: Adds a product to store inventory with custom selling price and stock.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    data = request.get_json() or {}
+    product_id = data.get("product_id")
+    if not product_id:
+        return jsonify({"success": False, "error": "product_id is required."}), 400
+
+    try:
+        p_id = int(product_id)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid product_id format."}), 400
+
+    product = db_service.get_product_by_id(p_id)
+    if not product:
+        return jsonify({"success": False, "error": f"Product #{p_id} not found in catalog."}), 404
+
+    # Check for existing inventory (duplicate prevention)
+    existing = db_service.get_store_product(store_id, p_id)
+    if existing:
+        return jsonify({
+            "success": False,
+            "error": f"Product #{p_id} is already registered in Store #{store_id} inventory. Use PUT to update."
+        }), 409
+
+    try:
+        created = db_service.add_store_inventory(store_id, p_id, data)
+        return jsonify({
+            "success": True,
+            "message": "Product successfully added to store inventory.",
+            "inventory": created
+        }), 201
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error adding store inventory: {e}")
+        return jsonify({"success": False, "error": "Failed to add store inventory."}), 500
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/<int:product_id>", methods=["PUT"])
+@require_admin_auth
+def api_update_store_inventory(store_id: int, product_id: int):
+    """
+    Admin API: Updates price, stock, or threshold for a product at a store.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    existing = db_service.get_store_product(store_id, product_id)
+    if not existing:
+        return jsonify({"success": False, "error": f"Product #{product_id} is not stocked at Store #{store_id}."}), 404
+
+    data = request.get_json() or {}
+    try:
+        updated = db_service.update_store_inventory(store_id, product_id, data)
+        return jsonify({
+            "success": True,
+            "message": "Store inventory updated successfully.",
+            "inventory": updated
+        })
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error updating store inventory: {e}")
+        return jsonify({"success": False, "error": "Failed to update store inventory."}), 500
+
+@main_bp.route("/api/stores/<int:store_id>/inventory/<int:product_id>", methods=["DELETE"])
+@require_admin_auth
+def api_remove_store_inventory(store_id: int, product_id: int):
+    """
+    Admin API: Removes a product from a store's inventory.
+    """
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    existing = db_service.get_store_product(store_id, product_id)
+    if not existing:
+        return jsonify({"success": False, "error": f"Product #{product_id} not found in Store #{store_id}."}), 404
+
+    deleted = db_service.remove_store_inventory(store_id, product_id)
+    if deleted:
+        return jsonify({
+            "success": True,
+            "message": f"Product #{product_id} successfully removed from Store #{store_id} inventory."
+        })
+    return jsonify({"success": False, "error": "Failed to remove product from store."}), 500
+
+# Admin Store Management Endpoints
+@main_bp.route("/api/admin/stores", methods=["POST"])
+@require_admin_auth
+def api_admin_create_store():
+    """Admin API: Creates a new physical retail store."""
+    data = request.get_json() or {}
+    try:
+        created = db_service.create_store(data)
+        return jsonify({
+            "success": True,
+            "message": "Store created successfully.",
+            "store": created
+        }), 201
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error creating store: {e}")
+        return jsonify({"success": False, "error": "Failed to create store."}), 500
+
+@main_bp.route("/api/admin/stores/<int:store_id>", methods=["PUT"])
+@require_admin_auth
+def api_admin_update_store(store_id: int):
+    """Admin API: Updates an existing physical store."""
+    data = request.get_json() or {}
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    try:
+        updated = db_service.update_store(store_id, data)
+        return jsonify({
+            "success": True,
+            "message": "Store updated successfully.",
+            "store": updated
+        })
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error updating store: {e}")
+        return jsonify({"success": False, "error": "Failed to update store."}), 500
+
+@main_bp.route("/api/admin/stores/<int:store_id>/status", methods=["POST"])
+@require_admin_auth
+def api_admin_set_store_status(store_id: int):
+    """Admin API: Activates or deactivates a physical store."""
+    data = request.get_json() or {}
+    is_active = bool(data.get("is_active", True))
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    if is_active:
+        ok = db_service.activate_store(store_id)
+    else:
+        ok = db_service.deactivate_store(store_id)
+
+    if ok:
+        status_str = "activated" if is_active else "deactivated"
+        return jsonify({
+            "success": True,
+            "message": f"Store #{store_id} has been {status_str}.",
+            "is_active": is_active
+        })
+    return jsonify({"success": False, "error": "Failed to update store status."}), 500
+

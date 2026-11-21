@@ -217,6 +217,7 @@ class DatabaseService:
     # PostgreSQL Schema Setup (Full 23-Table Relational Schema)
     # -------------------------------------------------------------------------
     def _init_pg_schema(self):
+        conn = None
         try:
             conn = self._get_pg_connection()
             # 1. Execute complete relational schema migration & indexes
@@ -250,10 +251,23 @@ class DatabaseService:
 
                 self._seed_phase2_metadata(conn, is_postgres=True)
                 conn.commit()
-            conn.close()
             logger.info("PostgreSQL schema initialization verified.")
         except Exception as e:
-            logger.error(f"Error initializing PG schema: {e}")
+            clean_err = self._sanitize_db_error(str(e))
+            logger.error(f"Error initializing PG schema: {clean_err}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            if Config.is_production():
+                raise RuntimeError(f"PostgreSQL schema initialization failed in production: {clean_err}")
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     # -------------------------------------------------------------------------
     # SQLite Schema Setup (ACID Local Fallback)
@@ -360,47 +374,50 @@ class DatabaseService:
     # Catalog Queries
     # -------------------------------------------------------------------------
     def get_all_products(self, category: Optional[str] = None, city: Optional[str] = None) -> List[Dict[str, Any]]:
+        products = []
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
+                    FROM products p
+                    LEFT JOIN inventory i ON p.id = i.product_id
+                    ORDER BY p.id ASC;
+                    """)
+                    rows = cur.fetchall()
+                for r in rows:
+                    item = dict(r)
+                    item["cities"] = self._parse_cities_json(item.get("cities_json"))
+                    item["price"] = float(item["price"]) if item.get("price") is not None else 0.0
+                    item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
+                    item["rating"] = float(item["rating"]) if item.get("rating") else None
+                    products.append(item)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 cur.execute("""
-                SELECT p.*, i.stock_quantity as stock
+                SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
                 FROM products p
-                JOIN inventory i ON p.id = i.product_id
+                LEFT JOIN inventory i ON p.id = i.product_id
                 ORDER BY p.id ASC;
                 """)
                 rows = cur.fetchall()
-            conn.close()
-            products = []
-            for r in rows:
-                item = dict(r)
-                item["cities"] = self._parse_cities_json(item.get("cities_json"))
-                item["price"] = float(item["price"])
-                item["original_price"] = float(item["original_price"]) if item["original_price"] else None
-                item["rating"] = float(item["rating"]) if item["rating"] else None
-                products.append(item)
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("""
-            SELECT p.*, i.stock_quantity as stock
-            FROM products p
-            JOIN inventory i ON p.id = i.product_id
-            ORDER BY p.id ASC;
-            """)
-            rows = cur.fetchall()
-            products = []
-            for r in rows:
-                item = dict(r)
-                item["cities"] = self._parse_cities_json(item.get("cities_json"))
-                products.append(item)
-            conn.close()
+                for r in rows:
+                    item = dict(r)
+                    item["cities"] = self._parse_cities_json(item.get("cities_json"))
+                    products.append(item)
+            finally:
+                conn.close()
 
         if category and category.lower() != "all":
-            products = [p for p in products if p["category"].lower() == category.lower()]
+            products = [p for p in products if (p.get("category") or "").lower() == category.lower()]
         if city and city.lower() != "all":
-            products = [p for p in products if city in p["cities"]]
+            products = [p for p in products if city in p.get("cities", [])]
 
         return products
 
@@ -408,20 +425,22 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                SELECT p.*, i.stock_quantity as stock
-                FROM products p
-                JOIN inventory i ON p.id = i.product_id
-                WHERE p.id = %s;
-                """, (product_id,))
-                row = cur.fetchone()
-            conn.close()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
+                    FROM products p
+                    LEFT JOIN inventory i ON p.id = i.product_id
+                    WHERE p.id = %s;
+                    """, (product_id,))
+                    row = cur.fetchone()
+            finally:
+                conn.close()
             if not row:
                 return None
             item = dict(row)
             item["cities"] = self._parse_cities_json(item.get("cities_json"))
-            item["price"] = float(item["price"])
+            item["price"] = float(item["price"]) if item.get("price") is not None else 0.0
             item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
             item["images"] = self.get_product_images(product_id, item)
             item["specifications"] = self.get_product_specifications(product_id, item)
@@ -429,20 +448,22 @@ class DatabaseService:
             return item
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("""
-            SELECT p.*, i.stock_quantity as stock
-            FROM products p
-            JOIN inventory i ON p.id = i.product_id
-            WHERE p.id = ?;
-            """, (product_id,))
-            row = cur.fetchone()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
+                FROM products p
+                LEFT JOIN inventory i ON p.id = i.product_id
+                WHERE p.id = ?;
+                """, (product_id,))
+                row = cur.fetchone()
+            finally:
+                conn.close()
             if not row:
                 return None
             item = dict(row)
             item["cities"] = self._parse_cities_json(item.get("cities_json"))
-            item["price"] = float(item["price"])
+            item["price"] = float(item["price"]) if item.get("price") is not None else 0.0
             item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
             item["images"] = self.get_product_images(product_id, item)
             item["specifications"] = self.get_product_specifications(product_id, item)
@@ -2571,17 +2592,27 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM stores WHERE id = %s;", (s_id,))
-                row = cur.fetchone()
-            conn.close()
-            return dict(row) if row else None
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM stores WHERE id = %s;", (s_id,))
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_active"] = bool(d.get("is_active"))
+            d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+            d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            return d
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM stores WHERE id = ?;", (s_id,))
-            row = cur.fetchone()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM stores WHERE id = ?;", (s_id,))
+                row = cur.fetchone()
+            finally:
+                conn.close()
             if not row:
                 return None
             d = dict(row)
@@ -2604,23 +2635,33 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT * FROM stores WHERE store_slug = %s;", (slug_clean,))
-                row = cur.fetchone()
-                if not row and slug_clean in alias_map:
-                    cur.execute("SELECT * FROM stores WHERE id = %s;", (alias_map[slug_clean],))
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM stores WHERE store_slug = %s;", (slug_clean,))
                     row = cur.fetchone()
-            conn.close()
-            return dict(row) if row else None
+                    if not row and slug_clean in alias_map:
+                        cur.execute("SELECT * FROM stores WHERE id = %s;", (alias_map[slug_clean],))
+                        row = cur.fetchone()
+            finally:
+                conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_active"] = bool(d.get("is_active"))
+            d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+            d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            return d
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM stores WHERE store_slug = ?;", (slug_clean,))
-            row = cur.fetchone()
-            if not row and slug_clean in alias_map:
-                cur.execute("SELECT * FROM stores WHERE id = ?;", (alias_map[slug_clean],))
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM stores WHERE store_slug = ?;", (slug_clean,))
                 row = cur.fetchone()
-            conn.close()
+                if not row and slug_clean in alias_map:
+                    cur.execute("SELECT * FROM stores WHERE id = ?;", (alias_map[slug_clean],))
+                    row = cur.fetchone()
+            finally:
+                conn.close()
             if not row:
                 return None
             d = dict(row)
@@ -2648,23 +2689,31 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, tuple(params))
-                rows = [dict(r) for r in cur.fetchall()]
-            conn.close()
-            return rows
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute(sql, tuple(params))
-            rows = []
-            for r in cur.fetchall():
-                d = dict(r)
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql, tuple(params))
+                    rows = [dict(r) for r in cur.fetchall()]
+            finally:
+                conn.close()
+            for d in rows:
                 d["is_active"] = bool(d.get("is_active"))
                 d["accepts_delivery"] = bool(d.get("accepts_delivery"))
                 d["accepts_pickup"] = bool(d.get("accepts_pickup"))
-                rows.append(d)
-            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(sql, tuple(params))
+                rows = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    d["is_active"] = bool(d.get("is_active"))
+                    d["accepts_delivery"] = bool(d.get("accepts_delivery"))
+                    d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+                    rows.append(d)
+            finally:
+                conn.close()
             return rows
 
     def update_store(self, store_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -2923,26 +2972,31 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql, (store_id,))
+                    rows = []
+                    for r in cur.fetchall():
+                        d = dict(r)
+                        d["is_available"] = bool(d.get("is_available"))
+                        d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
+                        rows.append(d)
+            finally:
+                conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 cur.execute(sql, (store_id,))
                 rows = []
                 for r in cur.fetchall():
                     d = dict(r)
+                    d["is_available"] = bool(d.get("is_available"))
                     d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
                     rows.append(d)
-            conn.close()
-            return rows
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute(sql, (store_id,))
-            rows = []
-            for r in cur.fetchall():
-                d = dict(r)
-                d["is_available"] = bool(d.get("is_available"))
-                d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
-                rows.append(d)
-            conn.close()
+            finally:
+                conn.close()
             return rows
 
     def get_store_product(self, store_id: int, product_id: int) -> Optional[Dict[str, Any]]:
@@ -2976,17 +3030,25 @@ class DatabaseService:
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, (s_id, p_id))
-                row = cur.fetchone()
-            conn.close()
-            return dict(row) if row else None
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(sql, (s_id, p_id))
+                    row = cur.fetchone()
+            finally:
+                conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            d["is_available"] = bool(d.get("is_available"))
+            return d
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute(sql, (s_id, p_id))
-            row = cur.fetchone()
-            conn.close()
+            try:
+                cur = conn.cursor()
+                cur.execute(sql, (s_id, p_id))
+                row = cur.fetchone()
+            finally:
+                conn.close()
             if not row:
                 return None
             d = dict(row)

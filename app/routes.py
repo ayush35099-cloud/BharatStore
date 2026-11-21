@@ -538,14 +538,23 @@ def build_retail_context() -> Dict[str, Any]:
 def index():
     mode = get_current_shopping_mode()
     if mode == "RETAIL_NEAR_ME" and request.args.get("view") != "online":
-        ctx = build_retail_context()
-        return render_template("retail.html", **ctx)
+        try:
+            ctx = build_retail_context()
+            return render_template("retail.html", **ctx)
+        except Exception as e:
+            logger.error(f"Error building retail context on index: {e}", exc_info=True)
+            return render_template("index.html")
     return render_template("index.html")
 
 @main_bp.route("/retail")
 def retail_page():
-    ctx = build_retail_context()
-    return render_template("retail.html", **ctx)
+    try:
+        ctx = build_retail_context()
+        return render_template("retail.html", **ctx)
+    except Exception as e:
+        logger.error(f"Error building retail context on /retail: {e}", exc_info=True)
+        stores = db_service.get_retail_stores("Bengaluru")
+        return render_template("retail.html", hubs=[], stores=stores, products=[], top_deals=[], current_store=stores[0] if stores else None, active_mode="RETAIL_NEAR_ME")
 
 @main_bp.route("/retail/stores")
 def retail_stores_page():
@@ -1656,6 +1665,34 @@ def download_zip():
 # -------------------------------------------------------------------------
 @main_bp.route("/api/health", methods=["GET"])
 def health_check():
+    product_count = 0
+    store_count = 0
+    query_error = None
+    try:
+        if db_service.is_live_postgres:
+            conn = db_service._get_pg_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM products;")
+                    product_count = cur.fetchone()[0]
+                    cur.execute("SELECT COUNT(*) FROM stores;")
+                    store_count = cur.fetchone()[0]
+            finally:
+                conn.close()
+        else:
+            conn = db_service._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM products;")
+                product_count = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM stores;")
+                store_count = cur.fetchone()[0]
+            finally:
+                conn.close()
+    except Exception as e:
+        query_error = str(e)
+        logger.warning(f"Health check query notice: {e}")
+
     return jsonify({
         "status": "healthy",
         "app": "BharatKart E-Commerce Platform",
@@ -1665,6 +1702,9 @@ def health_check():
                 "is_live": db_service.is_live_postgres,
                 "label": "PostgreSQL (Live)" if db_service.is_live_postgres else "Local ACID Engine (Row-Locked)",
                 "details": "PostgreSQL Relational Engine" if db_service.is_live_postgres else "SQLite in WAL/Immediate mode",
+                "product_count": product_count,
+                "store_count": store_count,
+                "query_error": query_error,
                 "error": db_service.connection_error
             },
             "kafka": {
@@ -2028,39 +2068,47 @@ def get_hubs():
 
 @main_bp.route("/api/products", methods=["GET"])
 def list_products():
-    category = request.args.get("category")
-    city = request.args.get("city")
-    mode = resolve_shopping_mode()
+    try:
+        category = request.args.get("category")
+        city = request.args.get("city")
+        mode = resolve_shopping_mode()
 
-    if mode == "RETAIL_NEAR_ME":
-        if category and category in NON_GROCERY_CATEGORIES:
-            return jsonify({"total": 0, "products": []})
+        if mode == "RETAIL_NEAR_ME":
+            if category and category in NON_GROCERY_CATEGORIES:
+                return jsonify({"total": 0, "products": []})
+            products = db_service.get_all_products(category=category, city=city)
+            filtered = [p for p in products if is_retail_grocery_product(p)]
+            if category and category in ALLOWED_RETAIL_CATEGORIES and category != "Daily Essentials & Groceries":
+                filtered = [
+                    p for p in filtered
+                    if (p.get("sub_category") == category) or (p.get("category") == category)
+                ]
+            return jsonify({"total": len(filtered), "products": filtered})
+
         products = db_service.get_all_products(category=category, city=city)
-        filtered = [p for p in products if is_retail_grocery_product(p)]
-        if category and category in ALLOWED_RETAIL_CATEGORIES and category != "Daily Essentials & Groceries":
-            filtered = [
-                p for p in filtered
-                if (p.get("sub_category") == category) or (p.get("category") == category)
-            ]
-        return jsonify({"total": len(filtered), "products": filtered})
-
-    products = db_service.get_all_products(category=category, city=city)
-    return jsonify({"total": len(products), "products": products})
+        return jsonify({"total": len(products), "products": products})
+    except Exception as e:
+        logger.error(f"Error in /api/products: {e}", exc_info=True)
+        return jsonify({"error": "Failed to retrieve products", "total": 0, "products": []}), 500
 
 @main_bp.route("/api/products/<int:product_id>", methods=["GET"])
 def get_product(product_id: int):
-    prod = db_service.get_product_by_id(product_id)
-    if not prod:
-        return jsonify({"error": "Product not found"}), 404
-    mode = resolve_shopping_mode()
-    if mode == "RETAIL_NEAR_ME" and not is_retail_grocery_product(prod):
-        return jsonify({"error": "Product not available in Retail Near Me mode"}), 404
+    try:
+        prod = db_service.get_product_by_id(product_id)
+        if not prod:
+            return jsonify({"error": "Product not found"}), 404
+        mode = resolve_shopping_mode()
+        if mode == "RETAIL_NEAR_ME" and not is_retail_grocery_product(prod):
+            return jsonify({"error": "Product not available in Retail Near Me mode"}), 404
 
-    related = db_service.get_related_products(product_id, prod.get("category"), limit=4)
-    if mode == "RETAIL_NEAR_ME":
-        related = [p for p in related if is_retail_grocery_product(p)]
-    prod["related_products"] = related
-    return jsonify(prod)
+        related = db_service.get_related_products(product_id, prod.get("category"), limit=4)
+        if mode == "RETAIL_NEAR_ME":
+            related = [p for p in related if is_retail_grocery_product(p)]
+        prod["related_products"] = related
+        return jsonify(prod)
+    except Exception as e:
+        logger.error(f"Error in /api/products/{product_id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to retrieve product details"}), 500
 
 @main_bp.route("/api/cart/validate", methods=["POST"])
 def api_validate_cart_item():

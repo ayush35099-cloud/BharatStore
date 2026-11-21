@@ -2,11 +2,14 @@ import os
 import sys
 import socket
 
-# Ensure root directory is in sys.path regardless of execution directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import create_app
 from app.config import Config
+
+# Gunicorn needs this at module level
+app = create_app()
+
 
 def find_available_port(start_port=5000, max_attempts=20):
     for port in range(start_port, start_port + max_attempts):
@@ -15,9 +18,15 @@ def find_available_port(start_port=5000, max_attempts=20):
                 return port
     return start_port
 
+
 if __name__ == "__main__":
-    app = create_app()
-    port = Config.PORT or find_available_port()
+    if "PORT" in os.environ and os.environ["PORT"].strip():
+        try:
+            port = int(os.environ["PORT"].strip())
+        except ValueError:
+            port = find_available_port(5000)
+    else:
+        port = find_available_port(5000)
     
     banner = f"""
     ========================================================================

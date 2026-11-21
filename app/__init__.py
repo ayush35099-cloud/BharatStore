@@ -12,8 +12,15 @@ def create_app():
         static_folder=os.path.join(base_dir, "static")
     )
     app.config.from_object(Config)
-    app.config["TEMPLATES_AUTO_RELOAD"] = True
-    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+    
+    is_prod = Config.is_production()
+    app.config["TEMPLATES_AUTO_RELOAD"] = not is_prod
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400 if is_prod else 0
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    if is_prod:
+        app.config["SESSION_COOKIE_SECURE"] = True
+    
     CORS(app)
 
     logging.basicConfig(

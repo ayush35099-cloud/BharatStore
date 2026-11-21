@@ -1586,8 +1586,8 @@ def health_check():
             "postgresql": {
                 "configured": Config.is_pg_configured(),
                 "is_live": db_service.is_live_postgres,
-                "label": "Aiven for PostgreSQL (Live)" if db_service.is_live_postgres else "Local ACID Engine (Row-Locked)",
-                "details": f"Database: {Config.AIVEN_PG_DATABASE}" if db_service.is_live_postgres else "SQLite in WAL/Immediate mode",
+                "label": "PostgreSQL (Live)" if db_service.is_live_postgres else "Local ACID Engine (Row-Locked)",
+                "details": "PostgreSQL Relational Engine" if db_service.is_live_postgres else "SQLite in WAL/Immediate mode",
                 "error": db_service.connection_error
             },
             "kafka": {

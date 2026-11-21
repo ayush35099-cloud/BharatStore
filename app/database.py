@@ -134,6 +134,16 @@ class DatabaseService:
         self.connection_error = None
         self._init_connection()
 
+    def _sanitize_db_error(self, err_msg: str) -> str:
+        """Removes credentials and passwords from database error messages before logging or reporting."""
+        if not err_msg:
+            return ""
+        # Redact URI credentials: postgresql://user:password@host
+        sanitized = re.sub(r"://([^:]+):([^@]+)@", r"://\1:******@", err_msg)
+        # Redact keyword parameters: password=...
+        sanitized = re.sub(r"password=([^\s]+)", r"password=******", sanitized)
+        return sanitized
+
     def _init_connection(self):
         if Config.is_pg_configured():
             try:
@@ -144,20 +154,27 @@ class DatabaseService:
                     cur.execute("SELECT 1;")
                 conn.close()
                 self.is_live_postgres = True
-                logger.info("Successfully connected to Aiven PostgreSQL!")
+                logger.info("Successfully connected to PostgreSQL database!")
                 self._init_pg_schema()
                 return
             except Exception as e:
-                self.connection_error = str(e)
-                logger.warning(f"Failed to connect to Aiven PostgreSQL: {e}. Falling back to ACID SQLite.")
+                clean_err = self._sanitize_db_error(str(e))
+                self.connection_error = clean_err
+                if Config.is_production():
+                    logger.error(f"CRITICAL: Failed to connect to PostgreSQL in production! Error: {clean_err}. Falling back to local SQLite.")
+                else:
+                    logger.warning(f"Failed to connect to PostgreSQL: {clean_err}. Falling back to ACID SQLite.")
         
         self.is_live_postgres = False
+        if Config.is_production() and not Config.is_pg_configured():
+            logger.warning("DATABASE_URL / AIVEN_PG_URL not configured. Running with persistent local SQLite database.")
         self._init_sqlite_schema()
 
     def _get_pg_connection(self):
         import psycopg2
-        if Config.AIVEN_PG_URL:
-            return psycopg2.connect(Config.AIVEN_PG_URL)
+        pg_url = Config.get_pg_url()
+        if pg_url:
+            return psycopg2.connect(pg_url)
         return psycopg2.connect(
             host=Config.AIVEN_PG_HOST,
             port=Config.AIVEN_PG_PORT,

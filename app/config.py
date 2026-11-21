@@ -36,7 +36,8 @@ class Config:
     RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
     PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET", "").strip()
     
-    # --- Aiven PostgreSQL ---
+    # --- PostgreSQL (Render / Aiven / Standard) ---
+    DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
     AIVEN_PG_URL = os.getenv("AIVEN_PG_URL", "").strip()
     AIVEN_PG_HOST = os.getenv("AIVEN_PG_HOST", "").strip()
     AIVEN_PG_PORT = os.getenv("AIVEN_PG_PORT", "").strip()
@@ -64,8 +65,20 @@ class Config:
     AIVEN_OPENSEARCH_PASSWORD = os.getenv("AIVEN_OPENSEARCH_PASSWORD", "").strip()
 
     @classmethod
+    def get_pg_url(cls) -> str:
+        """Resolves the canonical PostgreSQL URL, supporting DATABASE_URL and AIVEN_PG_URL."""
+        url = cls.DATABASE_URL or cls.AIVEN_PG_URL
+        if url and url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+        return url
+
+    @classmethod
     def is_pg_configured(cls) -> bool:
-        return bool(cls.AIVEN_PG_URL or (cls.AIVEN_PG_HOST and cls.AIVEN_PG_USER))
+        return bool(cls.get_pg_url() or (cls.AIVEN_PG_HOST and cls.AIVEN_PG_USER))
+
+    @classmethod
+    def is_production(cls) -> bool:
+        return os.getenv("FLASK_ENV") == "production" or bool(os.getenv("RENDER"))
 
     @classmethod
     def is_kafka_configured(cls) -> bool:

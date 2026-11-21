@@ -145,6 +145,29 @@ class TestRenderProductionFixes(unittest.TestCase):
                     self.assertNotIn("SecretPass123", err)
         print(" [PASSED] 7. Production fail-fast verified: raises sanitized RuntimeError on PostgreSQL failure")
 
+    def test_08_run_migrations_seeds_customers_before_addresses(self):
+        """Spec 8: Migration engine seeds customers before addresses satisfying strict foreign key constraint."""
+        import sqlite3
+        from app.schema import run_migrations
+
+        # Use in-memory SQLite with foreign keys strictly enabled
+        conn = sqlite3.connect(":memory:")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        
+        # run_migrations must succeed without Foreign Key constraint failure
+        run_migrations(conn, is_postgres=False)
+
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM customers;")
+        cust_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM addresses;")
+        addr_count = cur.fetchone()[0]
+
+        self.assertGreater(cust_count, 0, "Customers must be seeded during run_migrations")
+        self.assertGreater(addr_count, 0, "Addresses must be seeded during run_migrations")
+        conn.close()
+        print(f" [PASSED] 8. Migrations seed {cust_count} customers and {addr_count} addresses with foreign keys strictly enforced")
+
 
 if __name__ == "__main__":
     unittest.main()

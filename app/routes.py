@@ -456,8 +456,9 @@ def build_retail_context() -> Dict[str, Any]:
             inventory_items.append(item)
 
     # 3. Attach multi-shop price comparison metadata to each item
+    all_comps = db_service.get_all_product_price_comparisons(city)
     for item in inventory_items:
-        comp = db_service.get_product_price_comparison(item["product_id"], city)
+        comp = all_comps.get(item["product_id"])
         if comp:
             item["lowest_price"] = comp["lowest_price"] if comp["lowest_price"] is not None else item["selling_price"]
             item["highest_price"] = comp["highest_price"] if comp["highest_price"] is not None else item["selling_price"]
@@ -2348,6 +2349,7 @@ def get_recent_events():
 def sse_event_stream():
     """Server-Sent Events endpoint streaming real-time Kafka produce & consume events"""
     def event_stream():
+        import queue
         q = kafka_service.event_log.subscribe()
         try:
             # First send existing recent events
@@ -2356,12 +2358,21 @@ def sse_event_stream():
                 yield f"data: {json.dumps(evt)}\n\n"
 
             while True:
-                evt = q.get()
-                yield f"data: {json.dumps(evt)}\n\n"
-        except GeneratorExit:
+                try:
+                    # Timeout after 15 seconds to yield a keep-alive heartbeat
+                    evt = q.get(timeout=15.0)
+                    yield f"data: {json.dumps(evt)}\n\n"
+                except queue.Empty:
+                    # Keep-alive heartbeat: ping client so disconnects are promptly detected
+                    yield ": ping\n\n"
+        finally:
             kafka_service.event_log.unsubscribe(q)
 
-    return Response(event_stream(), mimetype="text/event-stream")
+    resp = Response(event_stream(), mimetype="text/event-stream")
+    resp.headers["Cache-Control"] = "no-cache, no-transform"
+    resp.headers["X-Accel-Buffering"] = "no"
+    resp.headers["Connection"] = "keep-alive"
+    return resp
 
 # -------------------------------------------------------------------------
 # Concurrency Stress Test Endpoint (Hackathon Demo Proof)

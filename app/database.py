@@ -29,6 +29,7 @@ from app.schema import (
     atomic_release_stock,
     atomic_commit_reserved_stock
 )
+from app.cache import app_cache
 
 logger = logging.getLogger("BharatKart.Database")
 
@@ -41,6 +42,44 @@ def _get_product_lock(product_id: int) -> threading.Lock:
         if product_id not in _product_locks:
             _product_locks[product_id] = threading.Lock()
         return _product_locks[product_id]
+
+
+class PooledConnectionProxy:
+    """
+    Transparent proxy wrapping a PostgreSQL connection checked out from ThreadedConnectionPool.
+    Delegates all operations to the underlying connection and safely returns it to the pool
+    upon close() or context exit without terminating the TCP socket.
+    """
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+        self._returned = False
+
+    def close(self):
+        if not self._returned and self._pool and self._conn:
+            self._returned = True
+            try:
+                import psycopg2.extensions
+                if not self._conn.closed and self._conn.status != psycopg2.extensions.STATUS_READY:
+                    self._conn.rollback()
+            except Exception:
+                pass
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self._conn.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 class OrderStatus:
     PENDING_PAYMENT = "PENDING_PAYMENT"
@@ -132,6 +171,7 @@ class DatabaseService:
         self.is_live_postgres = False
         self.sqlite_path = os.path.join(os.path.dirname(__file__), "..", "bharatkart_local.db")
         self.connection_error = None
+        self._pg_pool = None
         self._init_connection()
 
     def _sanitize_db_error(self, err_msg: str) -> str:
@@ -169,13 +209,36 @@ class DatabaseService:
         if Config.is_pg_configured():
             try:
                 import psycopg2
+                from psycopg2.pool import ThreadedConnectionPool
                 from psycopg2.extras import RealDictCursor
-                conn = self._get_pg_connection()
+
+                conn = self._connect_pg_direct()
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1;")
                 conn.close()
+
+                # Initialize connection pool after verifying connectivity
+                try:
+                    pg_url = Config.get_pg_url()
+                    min_conn = getattr(Config, "PG_POOL_MIN", 2)
+                    max_conn = getattr(Config, "PG_POOL_MAX", 10)
+                    if pg_url:
+                        self._pg_pool = ThreadedConnectionPool(minconn=min_conn, maxconn=max_conn, dsn=pg_url)
+                    else:
+                        self._pg_pool = ThreadedConnectionPool(
+                            minconn=min_conn, maxconn=max_conn,
+                            host=Config.AIVEN_PG_HOST,
+                            port=Config.AIVEN_PG_PORT,
+                            user=Config.AIVEN_PG_USER,
+                            password=Config.AIVEN_PG_PASSWORD,
+                            dbname=Config.AIVEN_PG_DATABASE,
+                            sslmode=Config.AIVEN_PG_SSLMODE
+                        )
+                except Exception as pe:
+                    logger.warning(f"Connection pooling initialization notice: {pe}")
+
                 self.is_live_postgres = True
-                logger.info("Successfully connected to PostgreSQL database!")
+                logger.info("Successfully connected to PostgreSQL database with connection pooling!")
                 self._init_pg_schema()
                 return
             except Exception as e:
@@ -194,19 +257,46 @@ class DatabaseService:
         self.is_live_postgres = False
         self._init_sqlite_schema()
 
-    def _get_pg_connection(self):
+    def _connect_pg_direct(self):
+        """Creates a direct PostgreSQL connection with TCP keepalives and a 10s connect timeout."""
         import psycopg2
         pg_url = Config.get_pg_url()
         if pg_url:
-            return psycopg2.connect(pg_url)
+            return psycopg2.connect(pg_url, connect_timeout=10, keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=5)
         return psycopg2.connect(
             host=Config.AIVEN_PG_HOST,
             port=Config.AIVEN_PG_PORT,
             user=Config.AIVEN_PG_USER,
             password=Config.AIVEN_PG_PASSWORD,
             dbname=Config.AIVEN_PG_DATABASE,
-            sslmode=Config.AIVEN_PG_SSLMODE
+            sslmode=Config.AIVEN_PG_SSLMODE,
+            connect_timeout=10,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5
         )
+
+    def _get_pg_connection(self):
+        if self._pg_pool:
+            try:
+                raw_conn = self._pg_pool.getconn()
+                # Probe idle connection before reuse
+                try:
+                    if raw_conn.closed:
+                        raise Exception("Closed connection")
+                    with raw_conn.cursor() as cur:
+                        cur.execute("SELECT 1;")
+                except Exception:
+                    try:
+                        self._pg_pool.putconn(raw_conn, close=True)
+                    except Exception:
+                        pass
+                    raw_conn = self._pg_pool.getconn()
+                return PooledConnectionProxy(self._pg_pool, raw_conn)
+            except Exception as e:
+                logger.warning(f"Connection pool checkout notice ({e}), creating direct connection")
+        return self._connect_pg_direct()
 
     def _get_sqlite_connection(self):
         conn = sqlite3.connect(self.sqlite_path, check_same_thread=False, timeout=30.0)
@@ -218,8 +308,16 @@ class DatabaseService:
     # -------------------------------------------------------------------------
     def _init_pg_schema(self):
         conn = None
+        has_lock = False
         try:
-            conn = self._get_pg_connection()
+            conn = self._connect_pg_direct()
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                # Hold a session-level advisory lock to eliminate migration races between concurrent gunicorn workers
+                cur.execute("SELECT pg_advisory_lock(742189);")
+                has_lock = True
+            
+            conn.autocommit = False
             # 1. Execute complete relational schema migration & indexes
             run_migrations(conn, is_postgres=True)
 
@@ -264,6 +362,12 @@ class DatabaseService:
                 raise RuntimeError(f"PostgreSQL schema initialization failed in production: {clean_err}")
         finally:
             if conn:
+                try:
+                    if has_lock:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT pg_advisory_unlock(742189);")
+                except Exception:
+                    pass
                 try:
                     conn.close()
                 except Exception:
@@ -374,12 +478,36 @@ class DatabaseService:
     # Catalog Queries
     # -------------------------------------------------------------------------
     def get_all_products(self, category: Optional[str] = None, city: Optional[str] = None) -> List[Dict[str, Any]]:
-        products = []
-        if self.is_live_postgres:
-            from psycopg2.extras import RealDictCursor
-            conn = self._get_pg_connection()
-            try:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cached_raw = app_cache.get("catalog:all_products_raw")
+        if cached_raw is not None:
+            products = [dict(p) for p in cached_raw]
+        else:
+            products = []
+            if self.is_live_postgres:
+                from psycopg2.extras import RealDictCursor
+                conn = self._get_pg_connection()
+                try:
+                    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                        cur.execute("""
+                        SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
+                        FROM products p
+                        LEFT JOIN inventory i ON p.id = i.product_id
+                        ORDER BY p.id ASC;
+                        """)
+                        rows = cur.fetchall()
+                    for r in rows:
+                        item = dict(r)
+                        item["cities"] = self._parse_cities_json(item.get("cities_json"))
+                        item["price"] = float(item["price"]) if item.get("price") is not None else 0.0
+                        item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
+                        item["rating"] = float(item["rating"]) if item.get("rating") else None
+                        products.append(item)
+                finally:
+                    conn.close()
+            else:
+                conn = self._get_sqlite_connection()
+                try:
+                    cur = conn.cursor()
                     cur.execute("""
                     SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
                     FROM products p
@@ -387,32 +515,13 @@ class DatabaseService:
                     ORDER BY p.id ASC;
                     """)
                     rows = cur.fetchall()
-                for r in rows:
-                    item = dict(r)
-                    item["cities"] = self._parse_cities_json(item.get("cities_json"))
-                    item["price"] = float(item["price"]) if item.get("price") is not None else 0.0
-                    item["original_price"] = float(item["original_price"]) if item.get("original_price") else None
-                    item["rating"] = float(item["rating"]) if item.get("rating") else None
-                    products.append(item)
-            finally:
-                conn.close()
-        else:
-            conn = self._get_sqlite_connection()
-            try:
-                cur = conn.cursor()
-                cur.execute("""
-                SELECT p.*, COALESCE(i.stock_quantity, 20) as stock
-                FROM products p
-                LEFT JOIN inventory i ON p.id = i.product_id
-                ORDER BY p.id ASC;
-                """)
-                rows = cur.fetchall()
-                for r in rows:
-                    item = dict(r)
-                    item["cities"] = self._parse_cities_json(item.get("cities_json"))
-                    products.append(item)
-            finally:
-                conn.close()
+                    for r in rows:
+                        item = dict(r)
+                        item["cities"] = self._parse_cities_json(item.get("cities_json"))
+                        products.append(item)
+                finally:
+                    conn.close()
+            app_cache.set("catalog:all_products_raw", products, ttl=120.0)
 
         if category and category.lower() != "all":
             products = [p for p in products if (p.get("category") or "").lower() == category.lower()]
@@ -1069,6 +1178,7 @@ class DatabaseService:
         """Helper to reset stock counts back to seed levels for easy demo testing"""
         for p in SAMPLE_PRODUCTS:
             self.update_stock(p["id"], p["stock"])
+        self._invalidate_catalog_and_inventory_cache()
         logger.info("Inventory reset to initial seed values.")
 
     # -------------------------------------------------------------------------
@@ -1734,6 +1844,9 @@ class DatabaseService:
     # -------------------------------------------------------------------------
     def get_store_hubs(self) -> List[Dict[str, Any]]:
         """Returns physical retail and fulfillment hubs"""
+        cached = app_cache.get("hubs:all")
+        if cached is not None:
+            return cached
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
@@ -1741,14 +1854,14 @@ class DatabaseService:
                 cur.execute("SELECT * FROM store_hubs WHERE is_active = TRUE ORDER BY id ASC;")
                 rows = [dict(r) for r in cur.fetchall()]
             conn.close()
-            return rows
         else:
             conn = self._get_sqlite_connection()
             cur = conn.cursor()
             cur.execute("SELECT * FROM store_hubs WHERE is_active = 1 ORDER BY id ASC;")
             rows = [dict(r) for r in cur.fetchall()]
             conn.close()
-            return rows
+        app_cache.set("hubs:all", rows, ttl=300.0)
+        return rows
 
     def get_sellers(self) -> List[Dict[str, Any]]:
         """Returns verified sellers"""
@@ -2589,6 +2702,11 @@ class DatabaseService:
         except (ValueError, TypeError):
             return None
 
+        cache_key = f"store_by_id:{s_id}"
+        cached = app_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
@@ -2604,6 +2722,7 @@ class DatabaseService:
             d["is_active"] = bool(d.get("is_active"))
             d["accepts_delivery"] = bool(d.get("accepts_delivery"))
             d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            app_cache.set(cache_key, d, ttl=300.0)
             return d
         else:
             conn = self._get_sqlite_connection()
@@ -2619,6 +2738,7 @@ class DatabaseService:
             d["is_active"] = bool(d.get("is_active"))
             d["accepts_delivery"] = bool(d.get("accepts_delivery"))
             d["accepts_pickup"] = bool(d.get("accepts_pickup"))
+            app_cache.set(cache_key, d, ttl=300.0)
             return d
 
     def get_store_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
@@ -2778,6 +2898,9 @@ class DatabaseService:
                 updated = dict(cur.fetchone())
                 conn.commit()
             conn.close()
+            app_cache.delete(f"store_by_id:{store_id}")
+            app_cache.invalidate_prefix("retail_stores:")
+            app_cache.invalidate_prefix("price_comparisons_batch:")
             return updated
         else:
             conn = self._get_sqlite_connection()
@@ -2792,6 +2915,9 @@ class DatabaseService:
             """, (store_name, store_slug, store_description, store_logo, store_banner, owner_name, contact_phone, email, full_address, city, area, pincode, lat_f, lng_f, opening_time, closing_time, 1 if is_active else 0, 1 if accepts_delivery else 0, 1 if accepts_pickup else 0, store_id))
             conn.commit()
             conn.close()
+            app_cache.delete(f"store_by_id:{store_id}")
+            app_cache.invalidate_prefix("retail_stores:")
+            app_cache.invalidate_prefix("price_comparisons_batch:")
             return self.get_store_by_id(store_id)
 
     def deactivate_store(self, store_id: int) -> bool:
@@ -2913,6 +3039,11 @@ class DatabaseService:
         """
         Retrieves all inventory items for a store joined with product details.
         """
+        cache_key = f"store_inventory:{store_id}"
+        cached = app_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         store = self.get_store_by_id(store_id)
         if not store:
             return []
@@ -2983,6 +3114,7 @@ class DatabaseService:
                         rows.append(d)
             finally:
                 conn.close()
+            app_cache.set(cache_key, rows, ttl=60.0)
             return rows
         else:
             conn = self._get_sqlite_connection()
@@ -2997,6 +3129,7 @@ class DatabaseService:
                     rows.append(d)
             finally:
                 conn.close()
+            app_cache.set(cache_key, rows, ttl=60.0)
             return rows
 
     def get_store_product(self, store_id: int, product_id: int) -> Optional[Dict[str, Any]]:
@@ -3109,6 +3242,7 @@ class DatabaseService:
                     )
                 except Exception as me:
                     logger.warning(f"Could not record stock movement for store {store_id}: {me}")
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return updated
         else:
             conn = self._get_sqlite_connection()
@@ -3137,6 +3271,7 @@ class DatabaseService:
                     )
                 except Exception as me:
                     logger.warning(f"Could not record stock movement for store {store_id}: {me}")
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return self.get_store_product(store_id, product_id)
 
     def remove_store_inventory(self, store_id: int, product_id: int) -> bool:
@@ -3148,6 +3283,7 @@ class DatabaseService:
                 affected = cur.rowcount
                 conn.commit()
             conn.close()
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return affected > 0
         else:
             conn = self._get_sqlite_connection()
@@ -3156,6 +3292,7 @@ class DatabaseService:
             affected = cur.rowcount
             conn.commit()
             conn.close()
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return affected > 0
 
     def get_available_store_products(self, store_id: int) -> List[Dict[str, Any]]:
@@ -3320,6 +3457,7 @@ class DatabaseService:
                 res = atomic_commit_store_sale(cur, True, store_id, product_id, quantity, reference_type, reference_id)
                 conn.commit()
             conn.close()
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return res
         else:
             conn = self._get_sqlite_connection()
@@ -3327,6 +3465,7 @@ class DatabaseService:
             res = atomic_commit_store_sale(cur, False, store_id, product_id, quantity, reference_type, reference_id)
             conn.commit()
             conn.close()
+            self._invalidate_catalog_and_inventory_cache(store_id)
             return res
 
     # -------------------------------------------------------------------------
@@ -3357,9 +3496,15 @@ class DatabaseService:
         Retrieves active physical retail shops for the specified city, enriched with metadata.
         Filters strictly by city so stores from one city never leak into another.
         For Bengaluru, returns the 5 canonical neighbourhood retail shops (IDs 1 to 5).
+        Cached in app_cache for rapid repeated accesses.
         """
-        all_stores = self.get_all_stores(active_only=True)
         city_lower = (city or "Bengaluru").strip().lower()
+        cache_key = f"retail_stores:{city_lower}"
+        cached = app_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        all_stores = self.get_all_stores(active_only=True)
         matched = [
             s for s in all_stores
             if (city_lower in s.get("city", "").lower() or s.get("city", "").lower() in city_lower)
@@ -3372,41 +3517,173 @@ class DatabaseService:
                 matched = sorted(flagship, key=lambda s: blr_order.get(s.get("id"), 99))
             else:
                 matched = sorted(matched, key=lambda s: blr_order.get(s.get("id"), 99))
-        return [self._enrich_store_metadata(s) for s in matched]
+        res = [self._enrich_store_metadata(s) for s in matched]
+        app_cache.set(cache_key, res, ttl=120.0)
+        return res
+
+    def get_all_product_price_comparisons(self, city: str = "Bengaluru") -> Dict[int, Dict[str, Any]]:
+        """
+        High-performance batched multi-store price and stock comparison across retail shops in a city.
+        Replaces N+1 queries (500+ database roundtrips) with a single batch query and in-memory evaluation.
+        Cached in app_cache for sub-millisecond response times.
+        """
+        city_clean = (city or "Bengaluru").strip()
+        cache_key = f"price_comparisons_batch:{city_clean.lower()}"
+        cached = app_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        stores = self.get_retail_stores(city_clean)
+        if not stores:
+            return {}
+
+        store_ids = [s["id"] for s in stores]
+        inv_map = {}
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT store_id, product_id, selling_price, original_price, stock_quantity, is_available
+                    FROM store_inventory
+                    WHERE store_id = ANY(%s);
+                    """, (store_ids,))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        inv_map[(r["store_id"], r["product_id"])] = dict(r)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
+                placeholders = ",".join("?" for _ in store_ids)
+                cur.execute(f"""
+                    SELECT store_id, product_id, selling_price, original_price, stock_quantity, is_available
+                    FROM store_inventory
+                    WHERE store_id IN ({placeholders});
+                """, store_ids)
+                rows = cur.fetchall()
+                for r in rows:
+                    inv_map[(r["store_id"], r["product_id"])] = dict(r)
+            finally:
+                conn.close()
+
+        all_prods = {p["id"]: p for p in self.get_all_products()}
+        result = {}
+
+        for pid, prod in all_prods.items():
+            stores_comparison = []
+            in_stock_prices = []
+            prod_price = float(prod.get("price", 0))
+            prod_op = float(prod.get("original_price", prod_price)) if prod.get("original_price") is not None else prod_price
+
+            for st in stores:
+                inv = inv_map.get((st["id"], pid))
+                if inv:
+                    sp = float(inv["selling_price"]) if inv.get("selling_price") is not None else prod_price
+                    op = float(inv["original_price"]) if inv.get("original_price") is not None else sp
+                    sq = int(inv["stock_quantity"]) if inv.get("stock_quantity") is not None else 0
+                    ia = bool(inv.get("is_available", True) and sq > 0)
+                else:
+                    sp = prod_price
+                    op = prod_op
+                    sq = 0
+                    ia = False
+
+                if ia and sq > 0:
+                    in_stock_prices.append(sp)
+
+                status_text = "In Stock" if ia else "Out of Stock"
+                if ia and sq <= 5:
+                    status_text = f"Only {sq} left!"
+
+                stores_comparison.append({
+                    "store_id": st["id"],
+                    "store_name": st["store_name"],
+                    "store_slug": st["store_slug"],
+                    "area": st["area"],
+                    "city": st["city"],
+                    "full_address": st["full_address"],
+                    "rating": st.get("rating", 4.8),
+                    "delivery_time": st.get("delivery_time", "20-30 min"),
+                    "badge": st.get("badge", ""),
+                    "price": round(sp, 2),
+                    "selling_price": round(sp, 2),
+                    "original_price": round(op, 2),
+                    "stock_quantity": sq,
+                    "is_available": ia,
+                    "status_text": status_text,
+                    "is_lowest": False,
+                    "savings": 0.0
+                })
+
+            lowest_price = min(in_stock_prices) if in_stock_prices else None
+            highest_price = max(in_stock_prices) if in_stock_prices else None
+            lowest_store_name = None
+            lowest_store_id = None
+
+            if lowest_price is not None:
+                for item in stores_comparison:
+                    if item["is_available"] and item["price"] == lowest_price:
+                        item["is_lowest"] = True
+                        if not lowest_store_name:
+                            lowest_store_name = item["store_name"]
+                            lowest_store_id = item["store_id"]
+                    if highest_price and item["is_available"]:
+                        item["savings"] = round(highest_price - item["price"], 2)
+
+            max_savings = round(highest_price - lowest_price, 2) if (highest_price and lowest_price) else 0.0
+
+            result[pid] = {
+                "product": {
+                    "id": prod["id"],
+                    "sku": prod.get("sku"),
+                    "title": prod["title"],
+                    "brand": prod.get("brand"),
+                    "category": prod.get("category"),
+                    "sub_category": prod.get("sub_category"),
+                    "image_url": prod.get("image_url"),
+                    "description": prod.get("description"),
+                    "rating": prod.get("rating", 4.5),
+                    "rating_count": prod.get("rating_count", 0),
+                    "price": prod["price"],
+                    "original_price": prod.get("original_price", prod["price"]),
+                    "stock": prod.get("stock", 20),
+                    "cities": prod.get("cities", [])
+                },
+                "lowest_price": lowest_price,
+                "highest_price": highest_price,
+                "max_savings": max_savings,
+                "lowest_store_id": lowest_store_id,
+                "lowest_store_name": lowest_store_name,
+                "stores_comparison": stores_comparison,
+                "total_stores_count": len(stores_comparison),
+                "in_stock_stores_count": len(in_stock_prices)
+            }
+
+        app_cache.set(cache_key, result, ttl=45.0)
+        return result
 
     def get_product_price_comparison(self, product_id: int, city: str = "Bengaluru") -> Optional[Dict[str, Any]]:
         """
-        Retrieves multi-store price and stock comparison across the 5 retail shops in Bengaluru.
+        Retrieves multi-store price and stock comparison across the retail shops in a city.
         Identifies the lowest price, savings amount, and stock status per shop.
+        Delegates to cached batch calculation for maximum performance.
         """
+        all_comps = self.get_all_product_price_comparisons(city)
+        if product_id in all_comps:
+            return all_comps[product_id]
+
         prod = self.get_product_by_id(product_id)
         if not prod:
             return None
 
         stores = self.get_retail_stores(city)
         stores_comparison = []
-        in_stock_prices = []
-
         for st in stores:
-            inv = self.get_store_product(st["id"], product_id)
-            if inv:
-                sp = float(inv["selling_price"])
-                op = float(inv["original_price"]) if inv.get("original_price") else sp
-                sq = int(inv["stock_quantity"])
-                ia = bool(inv.get("is_available", True) and sq > 0)
-            else:
-                sp = float(prod["price"])
-                op = float(prod.get("original_price", sp))
-                sq = 0
-                ia = False
-
-            if ia and sq > 0:
-                in_stock_prices.append(sp)
-
-            status_text = "In Stock" if ia else "Out of Stock"
-            if ia and sq <= 5:
-                status_text = f"Only {sq} left!"
-
             stores_comparison.append({
                 "store_id": st["id"],
                 "store_name": st["store_name"],
@@ -3417,52 +3694,36 @@ class DatabaseService:
                 "rating": st.get("rating", 4.8),
                 "delivery_time": st.get("delivery_time", "20-30 min"),
                 "badge": st.get("badge", ""),
-                "price": round(sp, 2),
-                "selling_price": round(sp, 2),
-                "original_price": round(op, 2),
-                "stock_quantity": sq,
-                "is_available": ia,
-                "status_text": status_text,
+                "price": round(float(prod["price"]), 2),
+                "selling_price": round(float(prod["price"]), 2),
+                "original_price": round(float(prod.get("original_price", prod["price"])), 2),
+                "stock_quantity": 0,
+                "is_available": False,
+                "status_text": "Out of Stock",
                 "is_lowest": False,
                 "savings": 0.0
             })
-
-        lowest_price = min(in_stock_prices) if in_stock_prices else None
-        highest_price = max(in_stock_prices) if in_stock_prices else None
-        lowest_store_name = None
-        lowest_store_id = None
-
-        if lowest_price is not None:
-            for item in stores_comparison:
-                if item["is_available"] and item["price"] == lowest_price:
-                    item["is_lowest"] = True
-                    if not lowest_store_name:
-                        lowest_store_name = item["store_name"]
-                        lowest_store_id = item["store_id"]
-                if highest_price and item["is_available"]:
-                    item["savings"] = round(highest_price - item["price"], 2)
-
         return {
-            "product": {
-                "id": prod["id"],
-                "sku": prod.get("sku"),
-                "title": prod["title"],
-                "brand": prod.get("brand"),
-                "category": prod.get("category"),
-                "sub_category": prod.get("sub_category"),
-                "image_url": prod.get("image_url"),
-                "description": prod.get("description"),
-                "rating": prod.get("rating", 4.5)
-            },
-            "lowest_price": lowest_price,
-            "highest_price": highest_price,
-            "max_savings": round(highest_price - lowest_price, 2) if (highest_price and lowest_price) else 0.0,
-            "lowest_store_id": lowest_store_id,
-            "lowest_store_name": lowest_store_name,
+            "product": prod,
+            "lowest_price": None,
+            "highest_price": None,
+            "max_savings": 0.0,
+            "lowest_store_id": None,
+            "lowest_store_name": None,
             "stores_comparison": stores_comparison,
             "total_stores_count": len(stores_comparison),
-            "in_stock_stores_count": len(in_stock_prices)
+            "in_stock_stores_count": 0
         }
+
+    def _invalidate_catalog_and_inventory_cache(self, store_id: Optional[int] = None):
+        """Invalidates in-memory caches when catalog or store inventory changes."""
+        app_cache.delete("catalog:all_products_raw")
+        app_cache.invalidate_prefix("price_comparisons_batch:")
+        app_cache.invalidate_prefix("retail_stores:")
+        if store_id:
+            app_cache.delete(f"store_inventory:{store_id}")
+        else:
+            app_cache.invalidate_prefix("store_inventory:")
 
     # -------------------------------------------------------------------------
     # Phase 5: Nearby Store Discovery & Haversine Distance (Max 15 km)

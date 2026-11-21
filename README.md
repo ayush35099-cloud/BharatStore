@@ -382,13 +382,14 @@ Open your browser to:
 | Variable | Required | Default / Fallback | Description |
 | :--- | :---: | :--- | :--- |
 | `PORT` | Optional | `5000` | Port for the web service (automatically assigned by Render) |
-| `FLASK_ENV` | Optional | `production` | Set to `production` on Render to enable HTTPS cookies |
+| `FLASK_ENV` | Optional | `production` | Set to `production` on Render to enable HTTPS cookies and fail-fast PostgreSQL |
 | `SECRET_KEY` | **Required** | *Auto-generated on launch* | Cryptographic 256-bit key for session signing |
-| `ADMIN_API_KEY` | **Required** | `""` | Timing-safe secret token for administrative APIs |
+| `ADMIN_API_KEY` | **Required** | *Generated via Blueprint* | Timing-safe secret token for administrative APIs |
+| `DATABASE_URL` | **Required in Prod** | *Local SQLite in Dev* | Standard Render / Aiven PostgreSQL connection URI |
+| `AIVEN_PG_URL` | Optional | *Uses DATABASE_URL* | Aiven PostgreSQL connection URI |
+| `PG_POOL_MAX` | Optional | `10` | Maximum PostgreSQL connections per worker pool |
 | `MAX_QUANTITY_PER_ITEM`| Optional | `50` | Maximum units per cart line item |
 | `ALLOW_INSECURE_TEST_ENDPOINTS` | Optional | `false` | Security guard to disable mock routes in production |
-| `DATABASE_URL` | Optional | *SQLite local fallback* | Standard Render / Aiven PostgreSQL connection URI |
-| `AIVEN_PG_URL` | Optional | *Uses DATABASE_URL* | Aiven PostgreSQL connection URI |
 | `AIVEN_KAFKA_BOOTSTRAP_SERVERS`| Optional | *In-memory SSE stream* | Apache Kafka bootstrap broker addresses |
 | `AIVEN_OPENSEARCH_URL` | Optional | *Local fuzzy DSL engine* | OpenSearch cluster endpoint |
 | `RAZORPAY_KEY_ID` | Optional | *Simulated checkout* | Razorpay API key ID for live transactions |
@@ -397,26 +398,28 @@ Open your browser to:
 
 ## 13. Render Cloud Deployment Guide
 
-BharatStore is prepared for zero-downtime deployment on [Render](https://render.com) using Gunicorn and Python 3.10.
+BharatStore is prepared for zero-downtime deployment on [Render](https://render.com) using Gunicorn (`gthread` multithreading worker model) and Python 3.10.
 
 ### Web Service Settings on Render
 
 - **Environment:** `Python 3`
+- **Health Check Path:** `/api/health`
 - **Build Command:**
   ```bash
   pip install -r requirements.txt
   ```
 - **Start Command:**
   ```bash
-  gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+  gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --worker-class gthread --threads 8 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -
   ```
 
 ### Render Blueprint (1-Click Deployment)
-A production-ready `render.yaml` specification is included in the root directory. You can deploy both the Flask Web Service and an optional Managed PostgreSQL Database directly using Render Blueprints.
+A production-ready `render.yaml` specification is included in the root directory. It provisions both the Flask Web Service with multithreading and the managed `bharatstore-db` PostgreSQL database directly using Render Blueprints.
 
-### Graceful Fallbacks on Render
-- If `DATABASE_URL` is omitted, BharatStore operates with a persistent local SQLite engine with full ACID row-locking.
-- If Apache Kafka or OpenSearch are not configured, in-memory event streaming and fuzzy search engines automatically activate so the storefront and checkout remain 100% operational.
+### Production Persistence & Streaming Architecture
+- **PostgreSQL Enforcement:** In production (`FLASK_ENV=production` or `RENDER=true`), PostgreSQL is strictly mandatory. The server fails fast on startup if `DATABASE_URL` is unreachable, preventing accidental data loss or transient in-memory state.
+- **Multithreading & SSE Keep-Alive:** Gunicorn runs with `--worker-class gthread --threads 8`, allowing SSE event streams (`/api/events/stream`) to run concurrently without pinning worker processes. Dead streaming connections are automatically detected via 15-second keepalive heartbeats and safely unsubscribed.
+- **Resilient Fallbacks in Development:** In local development, SQLite fallback with row-locking activates automatically if PostgreSQL is unavailable. If Apache Kafka or OpenSearch are not configured, in-memory event streaming and fuzzy search engines automatically activate.
 
 ---
 

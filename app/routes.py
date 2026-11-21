@@ -944,6 +944,353 @@ def remove_from_retail_cart_api():
     })
 
 
+def _get_cart_auth():
+    """Returns (customer_id, session_id) for the current request."""
+    sess_id = request.args.get("session_id") or request.headers.get("X-Session-Id") or session.get("session_id")
+    if not sess_id:
+        sess_id = str(uuid.uuid4())
+        session["session_id"] = sess_id
+        session.permanent = True
+
+    cust_id = None
+    if session.get("customer_id"):
+        try:
+            cust_id = int(session["customer_id"])
+        except (ValueError, TypeError):
+            pass
+    elif request.headers.get("X-Customer-Id"):
+        try:
+            cust_id = int(request.headers["X-Customer-Id"])
+        except (ValueError, TypeError):
+            pass
+    elif request.args.get("customer_id"):
+        try:
+            cust_id = int(request.args["customer_id"])
+        except (ValueError, TypeError):
+            pass
+    return cust_id, sess_id
+
+# -----------------------------------------------------------------------------
+# Phase 7: Advanced Multi-Store Cart & Checkout APIs
+# -----------------------------------------------------------------------------
+
+@main_bp.route("/api/cart/online", methods=["GET"])
+def get_cart_online_api():
+    """Returns independent Online Shopping marketplace cart."""
+    cust_id, sess_id = _get_cart_auth()
+    cart = db_service.get_cart(cust_id, sess_id, shopping_mode="ONLINE")
+    return jsonify({"success": True, "cart": cart})
+
+@main_bp.route("/api/cart/retail", methods=["GET"])
+def get_cart_retail_api():
+    """Returns central Retail master cart grouped by shop."""
+    cust_id, sess_id = _get_cart_auth()
+    loc = session.get("delivery_location") or {}
+    cust_lat = request.args.get("lat", loc.get("lat"))
+    cust_lng = request.args.get("lng", loc.get("lng"))
+    retail_carts = db_service.get_all_retail_carts(cust_id, sess_id, customer_lat=cust_lat, customer_lng=cust_lng)
+    return jsonify(retail_carts)
+
+@main_bp.route("/api/cart/retail/<int:store_id>", methods=["GET"])
+def get_cart_retail_store_api(store_id: int):
+    """Returns single physical store basket."""
+    cust_id, sess_id = _get_cart_auth()
+    cart = db_service.get_cart(cust_id, sess_id, shopping_mode="RETAIL_NEAR_ME", store_id=store_id)
+    return jsonify({"success": True, "cart": cart})
+
+@main_bp.route("/api/cart/summary", methods=["GET"])
+def get_cart_summary_api():
+    """Returns global cart summary and counts across shopping modes."""
+    cust_id, sess_id = _get_cart_auth()
+    mode = get_current_shopping_mode()
+    online_cart = db_service.get_cart(cust_id, sess_id, shopping_mode="ONLINE")
+    retail_carts = db_service.get_all_retail_carts(cust_id, sess_id)
+
+    curr_total = online_cart["total_items"] if mode == "ONLINE" else retail_carts["total_items"]
+    curr_subtotal = online_cart["subtotal"] if mode == "ONLINE" else retail_carts["subtotal"]
+
+    return jsonify({
+        "success": True,
+        "shopping_mode": mode,
+        "total_items": online_cart["total_items"] + retail_carts["total_items"],
+        "subtotal": round(online_cart["subtotal"] + retail_carts["subtotal"], 2),
+        "grand_total": round(online_cart["subtotal"] + retail_carts["grand_total"], 2),
+        "online": {
+            "total_items": online_cart["total_items"],
+            "subtotal": online_cart["subtotal"]
+        },
+        "retail": {
+            "total_items": retail_carts["total_items"],
+            "subtotal": retail_carts["subtotal"],
+            "shops_count": len(retail_carts["shops"])
+        },
+        "current": {
+            "total_items": curr_total,
+            "subtotal": curr_subtotal
+        }
+    })
+
+@main_bp.route("/api/cart/online/add", methods=["POST"])
+def add_to_cart_online_api():
+    """Adds a product to independent Online Shopping cart."""
+    cust_id, sess_id = _get_cart_auth()
+    data = request.get_json() or {}
+    pid = data.get("product_id")
+    qty = data.get("quantity", 1)
+
+    if not pid:
+        return jsonify({"success": False, "error": "product_id is required."}), 400
+    try:
+        pid = int(pid)
+        qty = int(qty)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid product_id or quantity format."}), 400
+
+    try:
+        updated_cart = db_service.add_to_cart(cust_id, sess_id, "ONLINE", pid, qty)
+        return jsonify({
+            "success": True,
+            "message": "Added item to Online cart.",
+            "cart": updated_cart
+        }), 201
+    except ValueError as e:
+        status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
+        return jsonify({"success": False, "error": str(e)}), status_code
+    except Exception as e:
+        logger.error(f"Error in add_to_cart_online: {e}")
+        return jsonify({"success": False, "error": "Failed to add item to online cart."}), 500
+
+@main_bp.route("/api/cart/retail/<int:store_id>/add", methods=["POST"])
+def add_to_cart_retail_store_api(store_id: int):
+    """Adds a grocery product to specific retail store basket."""
+    cust_id, sess_id = _get_cart_auth()
+    data = request.get_json() or {}
+    pid = data.get("product_id")
+    qty = data.get("quantity", 1)
+    fulfillment = data.get("fulfillment", "delivery")
+
+    if not pid:
+        return jsonify({"success": False, "error": "product_id is required."}), 400
+    try:
+        pid = int(pid)
+        qty = int(qty)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid parameters format."}), 400
+
+    try:
+        updated_cart = db_service.add_to_cart(cust_id, sess_id, "RETAIL_NEAR_ME", pid, qty, store_id=store_id, fulfillment=fulfillment)
+        # Also sync session retail cart dictionary
+        cart_dict = _get_session_retail_cart()
+        item_key = f"{store_id}_{pid}"
+        if updated_cart.get("items"):
+            item_obj = next((it for it in updated_cart["items"] if it["product_id"] == pid), None)
+            if item_obj:
+                cart_dict[item_key] = {
+                    "item_key": item_key,
+                    "store_id": store_id,
+                    "store_name": updated_cart.get("store_name", f"Store #{store_id}"),
+                    "product_id": pid,
+                    "title": item_obj["title"],
+                    "price": item_obj["price"],
+                    "quantity": item_obj["quantity"],
+                    "image_url": item_obj.get("image_url", ""),
+                    "fulfillment": item_obj.get("fulfillment", "delivery")
+                }
+                session["retail_cart"] = cart_dict
+                session.modified = True
+
+        return jsonify({
+            "success": True,
+            "message": f"Added item to Store #{store_id} basket.",
+            "cart": updated_cart
+        }), 201
+    except ValueError as e:
+        status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
+        return jsonify({"success": False, "error": str(e)}), status_code
+    except Exception as e:
+        logger.error(f"Error in add_to_cart_retail_store: {e}")
+        return jsonify({"success": False, "error": "Failed to add item to retail store basket."}), 500
+
+@main_bp.route("/api/cart/items/<int:item_id>", methods=["PATCH", "PUT"])
+def update_cart_item_api(item_id: int):
+    """Updates item quantity or fulfillment option."""
+    cust_id, sess_id = _get_cart_auth()
+    data = request.get_json() or {}
+    qty = data.get("quantity")
+    fulfillment = data.get("fulfillment")
+
+    if qty is not None:
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "Invalid quantity format."}), 400
+
+    try:
+        updated_cart = db_service.update_cart_item(item_id, quantity=qty, fulfillment=fulfillment, customer_id=cust_id, session_id=sess_id)
+        return jsonify({"success": True, "cart": updated_cart})
+    except ValueError as e:
+        status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
+        return jsonify({"success": False, "error": str(e)}), status_code
+    except PermissionError as e:
+        return jsonify({"success": False, "error": str(e)}), 403
+    except Exception as e:
+        logger.error(f"Error updating cart item {item_id}: {e}")
+        return jsonify({"success": False, "error": "Failed to update cart item."}), 500
+
+@main_bp.route("/api/cart/items/<int:item_id>", methods=["DELETE"])
+def delete_cart_item_api(item_id: int):
+    """Removes an item from cart."""
+    cust_id, sess_id = _get_cart_auth()
+    try:
+        updated_cart = db_service.remove_cart_item(item_id, customer_id=cust_id, session_id=sess_id)
+        return jsonify({"success": True, "message": "Item removed from basket.", "cart": updated_cart})
+    except ValueError as e:
+        return jsonify({"success": False, "error": str(e)}), 404
+    except PermissionError as e:
+        return jsonify({"success": False, "error": str(e)}), 403
+    except Exception as e:
+        logger.error(f"Error removing cart item {item_id}: {e}")
+        return jsonify({"success": False, "error": "Failed to remove cart item."}), 500
+
+@main_bp.route("/api/cart/online/clear", methods=["DELETE"])
+def clear_cart_online_api():
+    """Clears entire Online Shopping marketplace cart."""
+    cust_id, sess_id = _get_cart_auth()
+    db_service.clear_cart(cust_id, sess_id, shopping_mode="ONLINE")
+    return jsonify({"success": True, "message": "Online Shopping cart cleared."})
+
+@main_bp.route("/api/cart/retail/<int:store_id>/clear", methods=["DELETE"])
+def clear_cart_retail_store_api(store_id: int):
+    """Clears specific store basket."""
+    cust_id, sess_id = _get_cart_auth()
+    db_service.clear_cart(cust_id, sess_id, shopping_mode="RETAIL_NEAR_ME", store_id=store_id)
+    cart_dict = _get_session_retail_cart()
+    keys_to_del = [k for k in cart_dict.keys() if k.startswith(f"{store_id}_")]
+    for k in keys_to_del:
+        cart_dict.pop(k, None)
+    session["retail_cart"] = cart_dict
+    session.modified = True
+    return jsonify({"success": True, "message": f"Store #{store_id} basket cleared."})
+
+@main_bp.route("/api/cart/retail/clear", methods=["DELETE"])
+def clear_all_retail_carts_api():
+    """Clears all active Retail store baskets."""
+    cust_id, sess_id = _get_cart_auth()
+    db_service.clear_all_retail_carts(cust_id, sess_id)
+    session["retail_cart"] = {}
+    session.modified = True
+    return jsonify({"success": True, "message": "All retail store baskets cleared."})
+
+@main_bp.route("/api/checkout/online", methods=["POST"])
+def checkout_online_api():
+    """Executes checkout for Online Shopping cart."""
+    cust_id, sess_id = _get_cart_auth()
+    data = request.get_json() or {}
+    cust_info = data.get("customer_info") or {
+        "name": "Priya Sharma",
+        "email": "priya.sharma@example.in",
+        "phone": "+91 98201 12345",
+        "address": "Flat 402, Sea Green Apts, Worli Sea Face",
+        "city": "Mumbai"
+    }
+    payment_method = data.get("payment_method", "UPI")
+    try:
+        order = db_service.checkout_online_cart(cust_id or 1, sess_id, cust_info, payment_method)
+        kafka_ev = None
+        try:
+            kafka_ev = kafka_service.produce_order_created_event(
+                order_id=order.get("order_id") or order.get("id", 1),
+                order_number=order.get("order_number", "BK-ORD-ONLINE"),
+                customer_email=cust_info.get("email", "priya.sharma@example.in"),
+                total_amount=order.get("total_amount", 0.0),
+                items_count=len(order.get("items", []))
+            )
+        except Exception as ke:
+            logger.debug(f"Kafka produce notice: {ke}")
+        order["kafka_event"] = kafka_ev
+        return jsonify({"success": True, "order": order}), 201
+    except ValueError as e:
+        status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
+        return jsonify({"success": False, "error": str(e)}), status_code
+    except Exception as e:
+        logger.error(f"Checkout online error: {e}")
+        return jsonify({"success": False, "error": "Checkout failed."}), 500
+
+@main_bp.route("/api/checkout/retail", methods=["POST"])
+@main_bp.route("/api/checkout/retail/multi-store", methods=["POST"])
+def checkout_retail_multi_store_api():
+    """Executes multi-store checkout for selected Retail baskets."""
+    cust_id, sess_id = _get_cart_auth()
+    data = request.get_json() or {}
+    selected_store_ids = data.get("selected_store_ids") or data.get("store_ids")
+    if not selected_store_ids and data.get("store_id"):
+        selected_store_ids = [data.get("store_id")]
+
+    if not selected_store_ids:
+        all_carts = db_service.get_all_retail_carts(cust_id, sess_id)
+        selected_store_ids = [s["store_id"] for s in all_carts.get("shops", [])]
+
+    if not selected_store_ids:
+        return jsonify({"success": False, "error": "No retail store baskets selected for checkout."}), 400
+
+    try:
+        selected_store_ids = [int(s) for s in selected_store_ids]
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid store ID format."}), 400
+
+    cust_info = data.get("customer_info") or {
+        "name": "Priya Sharma",
+        "email": "priya.sharma@example.in",
+        "phone": "+91 98201 12345",
+        "address": "Flat 402, Sea Green Apts, Worli Sea Face",
+        "city": "Bengaluru"
+    }
+    delivery_address = data.get("delivery_address") or session.get("delivery_location") or {
+        "latitude": 12.9784,
+        "longitude": 77.6408,
+        "city": "Bengaluru",
+        "formatted": "CMH Road, Indiranagar, Bengaluru"
+    }
+    payment_method = data.get("payment_method", "UPI")
+
+    try:
+        summary = db_service.checkout_retail_multi_store(
+            customer_id=cust_id or 1,
+            session_id=sess_id,
+            selected_store_ids=selected_store_ids,
+            customer_info=cust_info,
+            delivery_address=delivery_address,
+            payment_method=payment_method
+        )
+        kafka_ev = None
+        try:
+            kafka_ev = kafka_service.produce_order_created_event(
+                order_id=summary["parent_order_id"],
+                order_number=summary["parent_order_number"],
+                customer_email=cust_info.get("email", "priya.sharma@example.in"),
+                total_amount=summary["grand_total"],
+                items_count=sum(s["items_count"] for s in summary["suborders"])
+            )
+        except Exception as ke:
+            logger.debug(f"Kafka retail produce notice: {ke}")
+        summary["kafka_event"] = kafka_ev
+        cart_dict = _get_session_retail_cart()
+        for sid in selected_store_ids:
+            keys_to_del = [k for k in cart_dict.keys() if k.startswith(f"{sid}_")]
+            for k in keys_to_del:
+                cart_dict.pop(k, None)
+        session["retail_cart"] = cart_dict
+        session.modified = True
+
+        return jsonify(summary), 201
+    except ValueError as e:
+        status_code = 404 if ("not found" in str(e).lower() or "does not exist" in str(e).lower()) else 400
+        return jsonify({"success": False, "error": str(e)}), status_code
+    except Exception as e:
+        logger.error(f"Multi-store checkout error: {e}")
+        return jsonify({"success": False, "error": "Multi-store checkout failed."}), 500
+
+
 @main_bp.route("/online")
 def online_page():
     set_current_shopping_mode("ONLINE")
@@ -1021,6 +1368,26 @@ def checkout_page():
 @main_bp.route("/login")
 def login_page():
     return render_template("auth_login.html")
+
+@main_bp.route("/api/auth/login", methods=["POST"])
+def auth_login_api():
+    data = request.get_json(silent=True) or {}
+    customer_id = data.get("customer_id") or 1
+    session["customer_id"] = int(customer_id)
+    session.modified = True
+    return jsonify({"success": True, "customer_id": int(customer_id), "message": "Logged in successfully."})
+
+@main_bp.route("/api/auth/logout", methods=["POST", "GET"])
+@main_bp.route("/logout", methods=["POST", "GET"])
+def auth_logout_api():
+    session.pop("customer_id", None)
+    session["session_id"] = str(uuid.uuid4())
+    session.pop("retail_cart", None)
+    session.modified = True
+    if request.path == "/logout" and request.method == "GET":
+        from flask import redirect
+        return redirect("/login")
+    return jsonify({"success": True, "message": "Logged out successfully."})
 
 @main_bp.route("/register")
 def register_page():

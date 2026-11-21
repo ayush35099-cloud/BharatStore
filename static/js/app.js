@@ -960,8 +960,9 @@ async function updateShopFulfillment(storeIdOrShopName, value) {
 
 function openCartDrawer() {
   const drawer = document.getElementById("cart-drawer-overlay");
-  if (drawer && !drawer.classList.contains("open")) {
+  if (drawer) {
     drawer.classList.add("open");
+    document.body.classList.add("cart-drawer-open");
     document.body.style.overflow = "hidden";
     renderCartDrawer();
   }
@@ -970,11 +971,13 @@ function openCartDrawer() {
 function toggleCartDrawer() {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer) {
-    drawer.classList.toggle("open");
-    if (drawer.classList.contains("open")) {
+    const isOpen = drawer.classList.toggle("open");
+    if (isOpen) {
+      document.body.classList.add("cart-drawer-open");
       document.body.style.overflow = "hidden";
       renderCartDrawer();
     } else {
+      document.body.classList.remove("cart-drawer-open");
       document.body.style.overflow = "";
     }
   }
@@ -984,6 +987,7 @@ function closeCartDrawer(e) {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer) {
     drawer.classList.remove("open");
+    document.body.classList.remove("cart-drawer-open");
     document.body.style.overflow = "";
   }
 }
@@ -1104,21 +1108,21 @@ function renderCartDrawer() {
       const itemCount = group.items.reduce((s, i) => s + i.qty, 0);
       return `
       <div class="shop-cart-group" style="${isSelected ? '' : 'opacity:0.65; border-color:var(--color-border);'}">
-        <div class="shop-cart-group-header" style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle);">
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+        <div class="shop-cart-group-header">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0; flex:1; min-width:0;">
             <input 
               type="checkbox" 
               class="shop-cart-checkbox" 
               data-store-id="${group.store_id}" 
               ${isSelected ? 'checked' : ''} 
               onchange="toggleCartDrawerShopSelection(${group.store_id}, this.checked)"
-              style="width:16px; height:16px; accent-color:var(--color-primary); cursor:pointer;"
+              style="width:16px; height:16px; accent-color:var(--color-primary); cursor:pointer; flex-shrink:0;"
             >
-            <span class="shop-cart-group-title" style="font-weight:700; font-size:13px;"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${escapeHtml(group.name)}</span>
+            <span class="shop-cart-group-title"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${escapeHtml(group.name)}</span>
           </label>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:11px; background:var(--color-bg-surface); border:1px solid var(--color-border); padding:2px 6px; border-radius:10px; font-weight:600; color:var(--color-text-muted);">${itemCount} item${itemCount > 1 ? 's' : ''}</span>
-            <span style="font-size:12.5px; font-weight:700; color:var(--color-primary);">₹${group.subtotal.toLocaleString('en-IN')}</span>
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <span style="font-size:11px; background:var(--color-bg-surface); border:1px solid var(--color-border); padding:2px 6px; border-radius:10px; font-weight:600; color:var(--color-text-muted); white-space:nowrap;">${itemCount} item${itemCount > 1 ? 's' : ''}</span>
+            <span style="font-size:12.5px; font-weight:700; color:var(--color-primary); white-space:nowrap;">₹${group.subtotal.toLocaleString('en-IN')}</span>
             <button type="button" onclick="toggleShopBasketCollapse(${group.store_id})" style="background:transparent; border:none; color:var(--color-text-muted); cursor:pointer; padding:4px 6px; font-size:12px;" title="${isCollapsed ? 'Expand basket' : 'Collapse basket'}">
               <i class="fa-solid ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'}"></i>
             </button>
@@ -1126,9 +1130,9 @@ function renderCartDrawer() {
         </div>
 
         <div class="shop-cart-collapsible-body" style="display:${isCollapsed ? 'none' : 'block'};">
-          <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px;">
-            <span style="font-weight:600; color:var(--color-text-muted);"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
-            <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer;">
+          <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px; gap:6px;">
+            <span style="font-weight:600; color:var(--color-text-muted); white-space:nowrap;"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
+            <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer; max-width:62%; text-overflow:ellipsis;">
               <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>Standard Delivery (₹20)</option>
               <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup (FREE)</option>
             </select>
@@ -1138,18 +1142,18 @@ function renderCartDrawer() {
             ${group.items.map(item => {
               const p = item.product;
               return `
-                <div class="drawer-item" style="padding:8px 0; border-bottom:1px solid var(--color-border-subtle);">
-                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
-                  <div style="flex:1;">
-                    <div class="drawer-item-title" style="font-size:12.5px;">${escapeHtml(p.title)}</div>
-                    <div class="drawer-item-price" style="font-size:13px; font-weight:700;">₹${p.price.toLocaleString('en-IN')}</div>
-                    <div class="drawer-qty-control" style="margin-top:4px;">
-                      <button onclick="updateCartItemQty('${item.id || item.key}', -1)">-</button>
+                <div class="drawer-item">
+                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}">
+                  <div style="min-width:0; width:100%;">
+                    <div class="drawer-item-title">${escapeHtml(p.title)}</div>
+                    <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
+                    <div class="drawer-qty-control">
+                      <button type="button" onclick="updateCartItemQty('${item.id || item.key}', -1)" aria-label="Decrease quantity">-</button>
                       <span>${item.qty}</span>
-                      <button onclick="updateCartItemQty('${item.id || item.key}', 1)">+</button>
+                      <button type="button" onclick="updateCartItemQty('${item.id || item.key}', 1)" aria-label="Increase quantity">+</button>
                     </div>
                   </div>
-                  <button onclick="removeCartItem('${item.id || item.key}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
+                  <button type="button" onclick="removeCartItem('${item.id || item.key}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
                     <i class="fa-solid fa-trash-can"></i>
                   </button>
                 </div>
@@ -1157,7 +1161,7 @@ function renderCartDrawer() {
             }).join("")}
           </div>
 
-          <div class="shop-cart-subtotal-bar" style="display:flex; justify-content:space-between; padding:8px 12px; font-size:11.5px; background:var(--color-bg-subtle); border-top:1px solid var(--color-border-subtle);">
+          <div class="shop-cart-subtotal-bar">
             <span style="color:var(--color-text-muted);">Store Items: ${itemCount}</span>
             <span style="font-weight:700; color:var(--color-text-main);">Store Subtotal: ₹${group.subtotal.toLocaleString('en-IN')}</span>
           </div>
@@ -1186,16 +1190,16 @@ function renderCartDrawer() {
       return `
         <div class="drawer-item">
           <img src="${p.image_url}" alt="${escapeHtml(p.title)}">
-          <div>
+          <div style="min-width:0; width:100%;">
             <div class="drawer-item-title">${escapeHtml(p.title)}</div>
             <div class="drawer-item-price">₹${p.price.toLocaleString('en-IN')}</div>
             <div class="drawer-qty-control">
-              <button onclick="updateCartItemQty('${item.id || item.key || p.id}', -1)">-</button>
+              <button type="button" onclick="updateCartItemQty('${item.id || item.key || p.id}', -1)" aria-label="Decrease quantity">-</button>
               <span>${item.qty}</span>
-              <button onclick="updateCartItemQty('${item.id || item.key || p.id}', 1)">+</button>
+              <button type="button" onclick="updateCartItemQty('${item.id || item.key || p.id}', 1)" aria-label="Increase quantity">+</button>
             </div>
           </div>
-          <button onclick="removeCartItem('${item.id || item.key || p.id}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer;" title="Remove">
+          <button type="button" onclick="removeCartItem('${item.id || item.key || p.id}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
             <i class="fa-solid fa-trash-can"></i>
           </button>
         </div>

@@ -2126,10 +2126,15 @@ class DatabaseService:
             return d
 
     def get_store_by_slug(self, slug: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a store by unique slug."""
+        """Retrieves a store by unique slug with backward-compatibility alias resolution."""
         if not slug or not isinstance(slug, str):
             return None
         slug_clean = slug.strip().lower()
+
+        alias_map = {
+            "bharatstore-bengaluru-tech-store": 1,
+            "fresh-mart-bengaluru": 2
+        }
 
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
@@ -2137,6 +2142,9 @@ class DatabaseService:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM stores WHERE store_slug = %s;", (slug_clean,))
                 row = cur.fetchone()
+                if not row and slug_clean in alias_map:
+                    cur.execute("SELECT * FROM stores WHERE id = %s;", (alias_map[slug_clean],))
+                    row = cur.fetchone()
             conn.close()
             return dict(row) if row else None
         else:
@@ -2144,6 +2152,9 @@ class DatabaseService:
             cur = conn.cursor()
             cur.execute("SELECT * FROM stores WHERE store_slug = ?;", (slug_clean,))
             row = cur.fetchone()
+            if not row and slug_clean in alias_map:
+                cur.execute("SELECT * FROM stores WHERE id = ?;", (alias_map[slug_clean],))
+                row = cur.fetchone()
             conn.close()
             if not row:
                 return None
@@ -2615,4 +2626,130 @@ class DatabaseService:
             conn.commit()
             conn.close()
             return res
+
+    # -------------------------------------------------------------------------
+    # Phase 5: Retail Near Me 5-Shop Price Comparison & Hyperlocal Marketplace
+    # -------------------------------------------------------------------------
+
+    def _enrich_store_metadata(self, store: Dict[str, Any]) -> Dict[str, Any]:
+        """Adds delivery time, rating, and quick-commerce metadata to store object."""
+        s = dict(store)
+        sid = s.get("id")
+        meta = {
+            1: {"rating": 4.8, "rating_count": 840, "delivery_time": "15-20 min", "min_order": 99.0, "delivery_fee": 15.0, "badge": "Fastest Delivery"},
+            2: {"rating": 4.7, "rating_count": 690, "delivery_time": "20-25 min", "min_order": 149.0, "delivery_fee": 20.0, "badge": "Daily Staples Value"},
+            3: {"rating": 4.9, "rating_count": 920, "delivery_time": "15-25 min", "min_order": 99.0, "delivery_fee": 15.0, "badge": "Top Rated Organic"},
+            4: {"rating": 4.6, "rating_count": 580, "delivery_time": "25-35 min", "min_order": 199.0, "delivery_fee": 25.0, "badge": "Pure Ghee & Spices"},
+            5: {"rating": 4.8, "rating_count": 1120, "delivery_time": "20-30 min", "min_order": 149.0, "delivery_fee": 20.0, "badge": "Mega Pantry Savings"},
+            6: {"rating": 4.9, "rating_count": 760, "delivery_time": "20-30 min", "min_order": 149.0, "delivery_fee": 20.0, "badge": "West Coast Express"},
+            7: {"rating": 4.7, "rating_count": 480, "delivery_time": "25-35 min", "min_order": 99.0, "delivery_fee": 15.0, "badge": "Andheri Local Mart"}
+        }.get(sid, {"rating": 4.7, "rating_count": 350, "delivery_time": "20-30 min", "min_order": 99.0, "delivery_fee": 20.0, "badge": "Neighbourhood Store"})
+
+        for k, v in meta.items():
+            if k not in s or s[k] is None:
+                s[k] = v
+        return s
+
+    def get_retail_stores(self, city: str = "Bengaluru") -> List[Dict[str, Any]]:
+        """
+        Retrieves active physical retail shops for the specified city, enriched with metadata.
+        For Bengaluru, returns the 5 neighbourhood retail shops (IDs 1 to 5).
+        """
+        all_stores = self.get_all_stores(active_only=True)
+        city_lower = (city or "Bengaluru").strip().lower()
+        matched = [s for s in all_stores if city_lower in s.get("city", "").lower() and s.get("id") in [1, 2, 3, 4, 5]]
+        if not matched:
+            matched = [s for s in all_stores if s.get("id") in [1, 2, 3, 4, 5]]
+            if not matched:
+                matched = all_stores[:5]
+        return [self._enrich_store_metadata(s) for s in matched]
+
+    def get_product_price_comparison(self, product_id: int, city: str = "Bengaluru") -> Optional[Dict[str, Any]]:
+        """
+        Retrieves multi-store price and stock comparison across the 5 retail shops in Bengaluru.
+        Identifies the lowest price, savings amount, and stock status per shop.
+        """
+        prod = self.get_product_by_id(product_id)
+        if not prod:
+            return None
+
+        stores = self.get_retail_stores(city)
+        stores_comparison = []
+        in_stock_prices = []
+
+        for st in stores:
+            inv = self.get_store_product(st["id"], product_id)
+            if inv:
+                sp = float(inv["selling_price"])
+                op = float(inv["original_price"]) if inv.get("original_price") else sp
+                sq = int(inv["stock_quantity"])
+                ia = bool(inv.get("is_available", True) and sq > 0)
+            else:
+                sp = float(prod["price"])
+                op = float(prod.get("original_price", sp))
+                sq = 0
+                ia = False
+
+            if ia and sq > 0:
+                in_stock_prices.append(sp)
+
+            status_text = "In Stock" if ia else "Out of Stock"
+            if ia and sq <= 5:
+                status_text = f"Only {sq} left!"
+
+            stores_comparison.append({
+                "store_id": st["id"],
+                "store_name": st["store_name"],
+                "store_slug": st["store_slug"],
+                "area": st["area"],
+                "city": st["city"],
+                "full_address": st["full_address"],
+                "rating": st.get("rating", 4.8),
+                "delivery_time": st.get("delivery_time", "20-30 min"),
+                "badge": st.get("badge", ""),
+                "price": sp,
+                "original_price": op,
+                "stock_quantity": sq,
+                "is_available": ia,
+                "status_text": status_text,
+                "is_lowest": False,
+                "savings": 0.0
+            })
+
+        lowest_price = min(in_stock_prices) if in_stock_prices else None
+        highest_price = max(in_stock_prices) if in_stock_prices else None
+        lowest_store_name = None
+        lowest_store_id = None
+
+        if lowest_price is not None:
+            for item in stores_comparison:
+                if item["is_available"] and item["price"] == lowest_price:
+                    item["is_lowest"] = True
+                    if not lowest_store_name:
+                        lowest_store_name = item["store_name"]
+                        lowest_store_id = item["store_id"]
+                if highest_price and item["is_available"]:
+                    item["savings"] = round(highest_price - item["price"], 2)
+
+        return {
+            "product": {
+                "id": prod["id"],
+                "sku": prod.get("sku"),
+                "title": prod["title"],
+                "brand": prod.get("brand"),
+                "category": prod.get("category"),
+                "sub_category": prod.get("sub_category"),
+                "image_url": prod.get("image_url"),
+                "description": prod.get("description"),
+                "rating": prod.get("rating", 4.5)
+            },
+            "lowest_price": lowest_price,
+            "highest_price": highest_price,
+            "max_savings": round(highest_price - lowest_price, 2) if (highest_price and lowest_price) else 0.0,
+            "lowest_store_id": lowest_store_id,
+            "lowest_store_name": lowest_store_name,
+            "stores_comparison": stores_comparison,
+            "total_stores_count": len(stores_comparison),
+            "in_stock_stores_count": len(in_stock_prices)
+        }
 

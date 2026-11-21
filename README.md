@@ -5,10 +5,13 @@
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-blue)](https://aiven.io/postgresql)
 [![Streaming](https://img.shields.io/badge/streaming-Apache%20Kafka-red)](https://aiven.io/kafka)
 [![Search](https://img.shields.io/badge/search-OpenSearch%202.x-teal)](https://aiven.io/opensearch)
-[![Tests](https://img.shields.io/badge/tests-71%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
+[![Tests](https://img.shields.io/badge/tests-90%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **BharatStore** is a modern, location-aware, dual-mode e-commerce and quick-commerce platform designed for India's retail ecosystem. It bridges physical neighborhood grocery stores and supermarkets with an enterprise-scale online marketplace. Customers experience the hyper-local speed of quick commerce (Zepto / Swiggy Instamart / Blinkit) alongside the nationwide selection of a full marketplace (Amazon / Flipkart) — unified within a single Flask-driven platform.
+
+> **Key Proposition for Retail Near Me:**  
+> *"Compare prices across five neighbourhood shops and buy at the price you prefer."*
 
 ---
 
@@ -17,16 +20,16 @@
 - [1. Project Introduction](#1-project-introduction)
 - [2. Dual Shopping Modes](#2-dual-shopping-modes)
 - [3. Key Platform Capabilities](#3-key-platform-capabilities)
-- [4. Phase 4 Multi-Store Inventory Foundation](#4-phase-4-multi-store-inventory-foundation)
-- [5. Technology Stack](#5-technology-stack)
-- [6. Architecture Diagram](#6-architecture-diagram)
-- [7. Database Schema & Relational Design](#7-database-schema--relational-design)
-- [8. Installation & Local Setup (Windows PowerShell)](#8-installation--local-setup-windows-powershell)
-- [9. Environment Configuration](#9-environment-configuration)
-- [10. REST API Documentation](#10-rest-api-documentation)
-- [11. Automated Testing & Verification](#11-automated-testing--verification)
-- [12. Project Roadmap](#12-project-roadmap)
-- [13. Screenshots & Visual Interface](#13-screenshots--visual-interface)
+- [4. Five-Shop Retail Grocery Marketplace & Price Comparison](#4-five-shop-retail-grocery-marketplace--price-comparison)
+- [5. Multi-Store Inventory Foundation](#5-multi-store-inventory-foundation)
+- [6. Technology Stack](#6-technology-stack)
+- [7. Architecture Diagram](#7-architecture-diagram)
+- [8. Database Schema & Relational Design](#8-database-schema--relational-design)
+- [9. Installation & Local Setup (Windows PowerShell)](#9-installation--local-setup-windows-powershell)
+- [10. Environment Configuration](#10-environment-configuration)
+- [11. REST API Documentation](#11-rest-api-documentation)
+- [12. Automated Testing & Verification](#12-automated-testing--verification)
+- [13. Project Roadmap](#13-project-roadmap)
 - [14. Security & Concurrency Controls](#14-security--concurrency-controls)
 - [15. Contributors & Collaboration](#15-contributors--collaboration)
 - [16. License](#16-license)
@@ -36,12 +39,13 @@
 ## 1. Project Introduction
 
 ### Overview & Problem Statement
-Traditional e-commerce platforms force physical retailers to operate as distant drop-shippers with standardized national pricing, masking physical store inventory, local discounts, and hyper-local delivery capability. Conversely, quick-commerce apps restrict shoppers to micro-warehouses (dark stores) without access to comprehensive product ranges, high-ticket electronics, or artisanal heritage goods.
+Traditional e-commerce platforms force physical retailers to operate as distant drop-shippers with standardized national pricing, masking physical store inventory, local discounts, and hyper-local delivery capability. Conversely, quick-commerce apps restrict shoppers to micro-warehouses (dark stores) without access to comprehensive product ranges, price comparisons between neighborhood shops, or high-ticket electronics.
 
 ### Project Objectives
 1. **Unify Quick Commerce & National Marketplace:** Seamlessly switch between physical store delivery (within 15 km) and nationwide marketplace fulfillment without cart cross-contamination.
-2. **True Multi-Store Inventory & Pricing:** Allow physical stores in Bengaluru, Mumbai, and Delhi to stock the same product (e.g. *Fresh Milk 1L* or *Wheat Atta 5kg*) at independent prices and real-time inventory counts.
-3. **Resilient Dual-Engine Architecture:** Operate zero-config locally using ACID SQLite, local fuzzy OpenSearch emulation, and in-process Kafka streams, while seamlessly scaling to Aiven Managed PostgreSQL, Kafka, and OpenSearch in production.
+2. **Five-Shop Grocery Price Comparison:** Allow customers to browse five verified neighborhood grocery shops in Bengaluru, compare real-time prices on everyday essentials, and purchase from the store offering the best price.
+3. **True Multi-Store Inventory & Pricing:** Allow physical stores to stock the same products at independent prices (with realistic ₹1–₹3 variances) and isolated stock levels (including out-of-stock isolation).
+4. **Resilient Dual-Engine Architecture:** Operate zero-config locally using ACID SQLite, local fuzzy OpenSearch emulation, and in-process Kafka streams, while seamlessly scaling to Aiven Managed PostgreSQL, Kafka, and OpenSearch in production.
 
 ---
 
@@ -49,14 +53,15 @@ Traditional e-commerce platforms force physical retailers to operate as distant 
 
 | Feature / Dimension | 🛒 Mode A: Retail Near Me | 🌐 Mode B: Online Shopping |
 | :--- | :--- | :--- |
-| **Experience Inspiration** | Zepto, Swiggy Instamart, Zomato Local | Amazon.in, Flipkart |
-| **Catalog & Products** | Daily groceries, dairy, fresh vegetables, FMCG | Full 6-category marketplace catalog |
-| **Fulfillment Source** | Selected physical retail store / neighborhood hub | Central regional fulfillment mega-hubs |
-| **Pricing Engine** | Physical store-specific selling price | National catalog selling price |
+| **Experience Inspiration** | Zepto, Swiggy Instamart, Blinkit, Local Shops | Amazon.in, Flipkart |
+| **Catalog & Products** | Strictly Daily Groceries, Dairy, Staples & Produce (0 Electronics) | Full 7-category marketplace catalog (Laptops, Mobiles, Apparel, Home) |
+| **Fulfillment Source** | 5 Verified Bengaluru neighborhood physical retail shops | Central regional fulfillment mega-hubs |
+| **Pricing Engine** | Physical shop-specific selling price (₹1–₹3 variations) | National catalog selling price |
+| **Price Comparison** | Real-time 5-shop price comparison modal & lowest price badges | Single marketplace price with coupon discounts |
 | **Stock Tracking** | Real-time `store_inventory` row-level stock | Central `inventory` double-entry ledger |
-| **Delivery Radius** | Strict 15 km local radius based on GPS / PIN | Nationwide delivery across India |
-| **Cart Isolation** | Retains local store items in isolated basket | Retains marketplace items independently |
-| **Order Tracking** | Express delivery with local hub routing | BlueDart tracking timeline & tax invoices |
+| **Delivery Radius** | Strict 15 km local radius with 2-Hour Express Delivery | Nationwide delivery across India |
+| **Cart Isolation** | Retains local shop items with shop-wise subtotals | Retains marketplace items independently |
+| **Fulfillment Options**| 2-Hour Express Doorstep Delivery (₹20) or Free Store Pickup | Standard Courier & Surface Logistics |
 
 ---
 
@@ -73,21 +78,63 @@ Traditional e-commerce platforms force physical retailers to operate as distant 
 
 ---
 
-## 4. Phase 4 Multi-Store Inventory Foundation
+## 4. Five-Shop Retail Grocery Marketplace & Price Comparison
+
+The Retail Near Me storefront has been transformed into a hyper-local grocery shopping and price comparison platform:
+
+### 1. Five Verified Bengaluru Retail Shops
+Customers can switch between five authentic neighborhood grocery stores located across prime Bengaluru localities:
+1. **Bharat Fresh Mart** (Store ID: 1, Indiranagar, 12.9784, 77.6408) — *Rating: 4.8★, Delivery: 15-20 min, Min Order: ₹99*
+2. **Daily Needs Supermarket** (Store ID: 2, Koramangala, 12.9352, 77.6245) — *Rating: 4.6★, Delivery: 25-30 min, Min Order: ₹149*
+3. **Green Basket Grocery** (Store ID: 3, HSR Layout, 12.9121, 77.6446) — *Rating: 4.9★, Delivery: 20-25 min, Min Order: ₹99*
+4. **Sri Lakshmi Stores** (Store ID: 4, Jayanagar, 12.9308, 77.5838) — *Rating: 4.7★, Delivery: 30-35 min, Min Order: ₹199*
+5. **Smart Choice Supermarket** (Store ID: 5, Whitefield, 12.9698, 77.7500) — *Rating: 4.5★, Delivery: 35-40 min, Min Order: ₹249*
+
+### 2. Strict Grocery-Only Isolation
+The Retail storefront strictly filters catalog items to `category == "Daily Essentials & Groceries"`. Laptops, smartphones, audio gear, apparel, and non-grocery merchandise are strictly excluded from `/retail`.
+
+### 3. Comprehensive 50+ Everyday Grocery Catalog
+Over 60 everyday grocery items organized across five essential departments:
+- **Dairy & Breakfast (13 items):** Amul Taaza Milk 1L, Amul Gold Milk 500ml, Mother Dairy Milk 1L, Fresh Curd 500g, Amul Masti Dahi 400g, Paneer 200g, Amul Butter 100g, Amul Pure Ghee 500ml, Cheese 200g, Bread, Eggs, Oats, Corn Flakes.
+- **Rice & Grains (11 items):** Basmati Rice 1kg, Regular Rice 5kg, Wheat Atta 5kg, Toor Dal 1kg, Moong Dal 1kg, Chana Dal, Urad Dal, Rajma, Poha, Besan, Suji.
+- **Cooking Essentials (12 items):** Sunflower Oil 1L, Mustard Oil 1L, Sugar 1kg, Salt 1kg, Turmeric Powder, Red Chilli Powder, Coriander Powder, Garam Masala, Tea, Coffee, Cumin Seeds, Mustard Seeds.
+- **Fresh Produce (10 items):** New Crop Potatoes 1kg, Nasik Red Onions 1kg, Hybrid Tomatoes 1kg, Robusta Bananas 1 Dozen, Coriander Bunch, Green Chillies, Ginger, Apples, Oranges, Capsicum.
+- **Household Essentials (8 items):** Surf Excel Easy Wash 1kg, Vim Dishwash Gel 500ml, Lizol Floor Cleaner 1L, Dettol Handwash 675ml, Harpic 1L, Colin Glass Cleaner, Goodknight Refill, Scotch-Brite Sponges.
+
+### 4. Real Database Store-Specific Pricing & Stock Variance
+Prices reflect real-world market variations with realistic ₹1–₹3 variances:
+- *Amul Taaza Milk 1L:* ₹60 at Bharat Fresh Mart vs ₹62 at Daily Needs Supermarket.
+- *Amul Pure Ghee 500ml:* ₹310 at Store 1, ₹312 at Store 3, ₹309 at Store 4 (Lowest price!).
+- *Paneer 200g:* ₹95 at Store 1, ₹92 at Store 3 (Lowest), ₹98 at Store 2, and Out of Stock at Store 4.
+- *Out-of-Stock Isolation:* Store 2 has Curd and Ghee out of stock; Store 4 has Paneer out of stock. Customers cannot add out-of-stock items, while other shops maintain active stock.
+
+### 5. Interactive 5-Shop Price Comparison Modal
+Every product card features a **"Compare 5 Shops"** button. Clicking opens a real-time comparison modal showing:
+- Image, title, unit pack size.
+- Real-time price breakdown across all 5 Bengaluru shops.
+- Green badge highlighting the shop offering the **Lowest Price** along with the exact rupee savings.
+- Per-shop stock status (In Stock with count vs Out of Stock).
+- Direct **"Buy from Shop"** action button for immediate fulfillment from the selected store.
+
+### 6. Shop-Aware Cart with Subtotals & Fulfillment Selection
+- Cart items are tagged with `store_id` and `store_name`.
+- Cart drawer dynamically groups items by shop with individual shop subtotals.
+- Customers can toggle between **2-Hour Express Delivery (₹20)** and **Free Store Pickup** per shop.
+
+---
+
+## 5. Multi-Store Inventory Foundation
 
 Phase 4 establishes complete inventory decentralization across physical retail stores:
 
 1. **Physical Store Database (`stores`):** Captures store details, unique slug, owner, verified contact phone, GPS coordinates, opening/closing hours, active status, and delivery/pickup availability.
 2. **Multi-Store Inventory Engine (`store_inventory`):** Maps `(store_id, product_id)` with independent selling prices, stock quantities, reserved counts, and low-stock alerts.
-3. **Store-Specific Availability & Price Differentiation:**
-   - *Amul Taaza Milk 1L:* ₹60 (20 units) at Bengaluru Tech Store vs. ₹62 (8 units) at Fresh Mart Bengaluru.
-   - *Mother Dairy Curd 500g:* In Stock (10 units) at Bengaluru Tech Store vs. **Out of Stock** (0 units) at Fresh Mart Bengaluru.
-4. **Overselling & Concurrency Protection:** Atomic row-level stock decrements (`stock_quantity = stock_quantity - ? WHERE stock_quantity >= ?`) and reservations preventing race conditions.
-5. **Admin Foundation:** Protected APIs for store registration, inline inventory updates, stock restocking, and low-stock threshold queries.
+3. **Overselling & Concurrency Protection:** Atomic row-level stock decrements (`stock_quantity = stock_quantity - ? WHERE stock_quantity >= ?`) and reservations preventing race conditions.
+4. **Admin Foundation:** Protected APIs for store registration, inline inventory updates, stock restocking, and low-stock threshold queries.
 
 ---
 
-## 5. Technology Stack
+## 6. Technology Stack
 
 - **Backend Framework:** Python 3.10+, Flask 3.0.0, Flask-CORS 4.0.0
 - **Database Engine:**
@@ -100,53 +147,51 @@ Phase 4 establishes complete inventory decentralization across physical retail s
 
 ---
 
-## 6. Architecture Diagram
+## 7. Architecture Diagram
 
 ```mermaid
 flowchart TD
     subgraph Client["Shopper & Storefront (Browser)"]
         UI["Dual-Mode Responsive UI (HTML5 / Vanilla JS / CSS3)"]
-        Modal["Location Selector Modal (GPS / 6 Metro Hubs)"]
-        Switcher["Shopping Mode Switcher (Retail Near Me ⇄ Online)"]
+        Modal["5-Shop Price Comparison Modal (#retail-compare-modal)"]
+        Search["Live Grocery Search Filter (#retail-grocery-search-input)"]
+        StoreGrid["5-Shop Showcase Grid (.retail-stores-grid-5)"]
+        Cart["Shop-Aware Cart Drawer (.shop-cart-group)"]
     end
 
     subgraph Backend["Flask 3.0 Enterprise Application"]
         App["Flask Router & Blueprint Engine (app/routes.py)"]
-        Context["Context Processor (inject_shopping_mode)"]
-        AdminGuard["HMAC Security Guard (@require_admin_auth)"]
+        CompareAPI["Price Comparison Engine (/api/retail/products/<id>/compare)"]
+        CartAPI["Store-Aware Retail Cart API (/api/retail/cart/*)"]
         Service["Database Service Layer (app/database.py)"]
     end
 
     subgraph DataTier["Data & Infrastructure Tier"]
-        Stores["Physical Stores Table (stores)"]
-        StoreInv["Store-Specific Inventory (store_inventory)"]
-        MarketInv["Marketplace Inventory (inventory)"]
-        Catalog["Master Catalog (products, categories)"]
+        Stores["Physical Stores (stores: IDs 1-5 Bengaluru)"]
+        StoreInv["Store-Specific Inventory & Pricing (store_inventory)"]
+        Catalog["Master Grocery Catalog (Daily Essentials & Groceries)"]
         Kafka["Apache Kafka Event Bus (order-events)"]
-        Search["OpenSearch Cluster (Typo-Tolerant DSL)"]
     end
 
-    UI --> Switcher
+    UI --> StoreGrid
+    UI --> Search
     UI --> Modal
-    Switcher -->|REST / Session| App
-    Modal -->|POST /api/location/set-current| App
-    App --> Context
-    App --> AdminGuard
-    App --> Service
-
-    Service -->|Mode A: Store Routing| Stores
-    Service -->|Mode A: Store Pricing & Stock| StoreInv
-    Service -->|Mode B: National Stock| MarketInv
-    Service -->|Shared Product Data| Catalog
-    Service -->|Async Telemetry| Kafka
-    Service -->|Catalog Indexing| Search
+    UI --> Cart
+    Modal -->|GET /api/retail/products/:id/compare| CompareAPI
+    Cart -->|POST / PUT / DELETE| CartAPI
+    CompareAPI --> Service
+    CartAPI --> Service
+    Service --> Stores
+    Service --> StoreInv
+    Service --> Catalog
+    Service --> Kafka
 ```
 
 ---
 
-## 7. Database Schema & Relational Design
+## 8. Database Schema & Relational Design
 
-The system implements 25 relational tables with strict referential integrity:
+The system implements relational tables with strict referential integrity:
 
 ```
 ┌───────────────────────────┐             ┌───────────────────────────┐
@@ -157,8 +202,9 @@ The system implements 25 relational tables with strict referential integrity:
 │ store_slug (UNIQUE)       │             │ title                     │
 │ full_address              │             │ brand                     │
 │ city, area, pincode       │             │ category                  │
-│ latitude, longitude       │             │ price (national default)  │
-│ is_active                 │             │ image_url                 │
+│ latitude, longitude       │             │ sub_category              │
+│ rating, delivery_time     │             │ price (national default)  │
+│ min_order, is_active      │             │ image_url                 │
 └─────────────┬─────────────┘             └─────────────┬─────────────┘
               │                                         │
               │         ┌─────────────────────┐         │
@@ -179,7 +225,7 @@ The system implements 25 relational tables with strict referential integrity:
 
 ---
 
-## 8. Installation & Local Setup (Windows PowerShell)
+## 9. Installation & Local Setup (Windows PowerShell)
 
 Follow these steps to run BharatStore locally:
 
@@ -214,7 +260,7 @@ Open `.env` in your editor and paste your generated keys.
 ### 5. Run Database Migrations
 Migrations run **automatically and idempotently** on server startup. To verify manually:
 ```powershell
-python -m unittest tests/test_phase4_store_inventory.py
+python -m unittest tests/test_retail_price_comparison.py
 ```
 
 ### 6. Start the Flask Application
@@ -224,14 +270,14 @@ python run.py
 
 Open your browser to:
 - **Homepage:** [http://127.0.0.1:5000/](http://127.0.0.1:5000/)
-- **Retail Near Me:** [http://127.0.0.1:5000/retail](http://127.0.0.1:5000/retail)
-- **Online Marketplace:** [http://127.0.0.1:5000/products](http://127.0.0.1:5000/products)
+- **Retail Near Me (5-Shop Comparison):** [http://127.0.0.1:5000/retail](http://127.0.0.1:5000/retail)
+- **Online Marketplace:** [http://127.0.0.1:5000/?view=online](http://127.0.0.1:5000/?view=online)
 - **Mode Selector:** [http://127.0.0.1:5000/select-mode](http://127.0.0.1:5000/select-mode)
 - **Architecture & Streaming Inspector:** [http://127.0.0.1:5000/architecture](http://127.0.0.1:5000/architecture)
 
 ---
 
-## 9. Environment Configuration
+## 10. Environment Configuration
 
 | Variable | Required | Default / Fallback | Description |
 | :--- | :---: | :--- | :--- |
@@ -247,91 +293,107 @@ Open your browser to:
 
 ---
 
-## 10. REST API Documentation
+## 11. REST API Documentation
 
-### Public Customer Endpoints
+### Retail Near Me & Price Comparison Endpoints
 
-#### `GET /api/stores`
-Returns active physical stores. Supports optional filters: `?city=Bengaluru&area=Indiranagar`.
+#### `GET /api/retail/stores`
+Returns the five Bengaluru neighbourhood shops with live delivery time, ratings, and min order thresholds.
 ```json
 {
   "success": true,
-  "count": 4,
+  "total_stores": 5,
+  "city": "Bengaluru",
   "stores": [
     {
       "id": 1,
-      "store_name": "BharatStore Bengaluru Tech Store",
-      "store_slug": "bharatstore-bengaluru-tech-store",
-      "city": "Bengaluru",
+      "store_name": "Bharat Fresh Mart",
       "area": "Indiranagar",
-      "pincode": "560038",
-      "latitude": 12.9784,
-      "longitude": 77.6408,
-      "opening_time": "06:30 AM",
-      "closing_time": "11:30 PM",
-      "accepts_delivery": true,
-      "accepts_pickup": true
+      "rating": 4.8,
+      "delivery_time": "15-20 min",
+      "min_order": 99.0
     }
   ]
 }
 ```
 
-#### `GET /api/stores/<store_id>/products`
-Returns in-stock items available at the specific physical store.
+#### `GET /api/retail/catalog`
+Returns the dynamic retail grocery-only catalog grouped by essential departments, including active store details and top savings deals.
 ```json
 {
   "success": true,
-  "store_id": 1,
-  "store_name": "BharatStore Bengaluru Tech Store",
-  "count": 19,
-  "products": [
+  "dairy_items": [...],
+  "grains_items": [...],
+  "essentials_items": [...],
+  "produce_items": [...],
+  "household_items": [...],
+  "top_deals": [...]
+}
+```
+
+#### `GET /api/retail/products/<product_id>/compare`
+Calculates real-time price comparison across all five neighbourhood shops for a specific grocery product.
+```json
+{
+  "success": true,
+  "product": {
+    "id": 79,
+    "title": "Amul Pure Ghee – 500 ml",
+    "pack_size": "500 ml"
+  },
+  "lowest_price": 309.0,
+  "highest_price": 312.0,
+  "max_savings": 3.0,
+  "lowest_store_id": 4,
+  "lowest_store_name": "Sri Lakshmi Stores",
+  "stores_comparison": [
     {
-      "product_id": 61,
-      "title": "Amul Taaza Homogenised Toned Milk 1L",
-      "selling_price": 60.00,
-      "original_price": 64.00,
-      "stock_quantity": 20,
-      "is_available": true
+      "store_id": 1,
+      "store_name": "Bharat Fresh Mart",
+      "selling_price": 310.0,
+      "stock_quantity": 25,
+      "is_available": true,
+      "is_lowest": false
+    },
+    {
+      "store_id": 4,
+      "store_name": "Sri Lakshmi Stores",
+      "selling_price": 309.0,
+      "stock_quantity": 30,
+      "is_available": true,
+      "is_lowest": true
     }
   ]
 }
 ```
 
-#### `GET /api/stores/<store_id>/products/<product_id>`
-Returns specific store pricing and stock availability.
-
----
-
-### Protected Administrative Endpoints
-*Requires header: `X-Admin-Token: <ADMIN_API_KEY>` or `Authorization: Bearer <ADMIN_API_KEY>`*
-
-#### `POST /api/stores/<store_id>/inventory`
-Adds a product to store inventory with custom store pricing.
+#### `POST /api/retail/cart/add`
+Adds a product to the retail basket from a designated physical store with inventory and out-of-stock validation.
 ```json
 // Request Body
 {
-  "product_id": 16,
-  "selling_price": 530.00,
-  "original_price": 540.00,
-  "stock_quantity": 40,
-  "low_stock_threshold": 8
+  "product_id": 61,
+  "store_id": 1,
+  "quantity": 2,
+  "store_name": "Bharat Fresh Mart",
+  "fulfillment": "delivery"
 }
 ```
 
-#### `PUT /api/stores/<store_id>/inventory/<product_id>`
-Modifies price or stock level at the specified physical store.
+#### `GET /api/retail/cart`
+Returns the active retail cart grouped by shop with calculated subtotals, fulfillment breakdown, and grand totals.
 
-#### `DELETE /api/stores/<store_id>/inventory/<product_id>`
-Removes a product from store inventory.
+#### `PUT /api/retail/cart/update`
+Updates quantity or fulfillment mode (`delivery` / `pickup`) for a specific shop item.
 
-#### `GET /api/stores/<store_id>/inventory/low-stock`
-Returns items where `(stock_quantity - reserved_quantity) <= low_stock_threshold`.
+#### `DELETE /api/retail/cart/remove`
+Removes an item from the shop-aware retail cart.
 
 ---
 
-## 11. Automated Testing & Verification
+## 12. Automated Testing & Verification
 
-All 71 automated tests across Phase 1, Phase 2, Phase 3, and Phase 4 are executed and verified:
+All 90 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, and Retail Price Comparison are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -341,18 +403,29 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 71 tests in 0.685s
+Ran 90 tests in 6.421s
 
 OK (100% Passed)
 ```
 
+- **Retail 5-Shop Price Comparison Suite (`tests/test_retail_price_comparison.py`):** 10 / 10 PASS
+  - 5 Bengaluru stores registered with exact coordinates and metadata.
+  - Strict grocery-only isolation verified (0 non-grocery items on `/retail`).
+  - 50+ grocery products verified across 5 essential departments.
+  - Per-store independent pricing & realistic ₹1–₹3 variances verified.
+  - Out-of-stock isolation across shops strictly enforced.
+  - Real-time 5-shop price comparison API calculated lowest price & savings.
+  - Store-aware retail cart API operations (add, oos rejection, shop grouping, remove).
+  - Retail Near Me homepage DOM verified (5-shop grid, search bar, banner, modal).
+  - Online Shopping marketplace catalog integrity confirmed intact.
+- **Retail Grocery Catalog Suite (`tests/test_retail_grocery_catalog.py`):** 9 / 9 PASS
+  - Essential Dairy, Grains, and Cooking Essentials existence in DB.
+  - First-screen rendering of Milk, Curd, Ghee, Butter, Paneer, and Cheese.
+  - Store 2 out-of-stock badges and Store 2 subtitle compatibility.
 - **Phase 4 Multi-Store Inventory Suite (`tests/test_phase4_store_inventory.py`):** 21 / 21 PASS
   - Store creation, retrieval, updates, activation/deactivation cycles.
-  - Independent store pricing (₹60 vs ₹62 for Milk 1L).
-  - Out-of-stock isolation (Curd available at Store 1, unavailable at Store 2).
+  - Independent store pricing and out-of-stock isolation.
   - Concurrency safety, overselling prevention, and stock reservation lifecycle.
-  - Negative values and duplicate inventory rejection (`HTTP 400`, `HTTP 409`).
-  - Unauthorized mutations blocked with `HTTP 403`.
 - **Phase 3 Location & Addresses Suite (`tests/test_phase3_location_management.py`):** 21 / 21 PASS
   - GPS coordinates validation, Indian PIN / phone regex, customer ownership (IDOR).
 - **Phase 2 Shopping Modes Suite (`tests/test_phase2_shopping_modes.py`):** 17 / 17 PASS
@@ -362,23 +435,15 @@ OK (100% Passed)
 
 ---
 
-## 12. Project Roadmap
+## 13. Project Roadmap
 
 - [x] **Phase 1: Platform Foundation & Core E-Commerce** (18 modules, Aiven Cloud integrations, dual SQLite/PG engine).
 - [x] **Phase 2: Dual Shopping Mode Selection Engine** (Retail Near Me ⇄ Online Shopping, isolated carts).
 - [x] **Phase 3: Location and Address Management** (GPS detection, 6 metro hubs, address book CRUD, zero horizontal scroll).
 - [x] **Phase 4: Store Database & Multi-Store Inventory** (Physical store models, independent pricing, overselling protection).
-- [ ] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Routing** (Map views, dynamic store comparison, tiered delivery fees).
+- [x] **Retail Near Me 5-Shop Price Comparison Marketplace** (5 Bengaluru shops, 50+ groceries, 5-shop compare modal, shop-aware cart).
+- [ ] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Routing** (Map views, dynamic distance routing, delivery tiers).
 - [ ] **Phase 6: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
-
----
-
-## 13. Screenshots & Visual Interface
-
-| Mode A: Retail Near Me (Quick Commerce) | Location Selector Modal (GPS & Metro) |
-| :---: | :---: |
-| ![Retail Storefront](https://images.unsplash.com/photo-1542838132-92c53300491e?w=600&auto=format&fit=crop&q=80) | ![Location Modal](https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=600&auto=format&fit=crop&q=80) |
-| *15-Minute Local Delivery with dynamic nearest hub* | *GPS detection & 6 Indian metro hub picker* |
 
 ---
 

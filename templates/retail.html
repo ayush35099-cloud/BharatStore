@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Retail Near Me — Hyperlocal Stores & 2-Hour Delivery — BharatStore{% endblock %}
+{% block title %}Retail Near Me — Hyperlocal Stores & 5-Shop Price Comparison — BharatStore{% endblock %}
 
 {% block content %}
 <!-- =========================================================================
@@ -12,7 +12,7 @@
       <div class="retail-hero-content">
         <div class="retail-badge-row">
           <span class="retail-live-badge"><i class="fa-solid fa-bolt"></i> Quick Commerce</span>
-          <span class="retail-radius-badge"><i class="fa-solid fa-location-crosshairs"></i> 15 km Delivery Radius</span>
+          <span class="retail-radius-badge"><i class="fa-solid fa-scale-balanced"></i> 5-Shop Price Comparison</span>
           <span class="retail-status-badge"><i class="fa-solid fa-clock"></i> 2-Hour Express Delivery</span>
         </div>
 
@@ -20,7 +20,7 @@
           Neighbourhood Physical Stores, <em>Delivered in 2 Hours</em>
         </h1>
         <p class="retail-hero-subtitle">
-          Real-time physical store inventory verified from your local neighbourhood store. Order farm-fresh milk, bilona ghee, pure malai paneer, atta, and daily cooking essentials with 2-hour express door delivery or free store pickup.
+          Compare prices across five neighbourhood grocery shops in Bengaluru and buy at the price you prefer. Order fresh milk, bilona ghee, pure paneer, atta, and cooking essentials with 2-hour express delivery or free store pickup.
         </p>
 
         <!-- Active Store Bar -->
@@ -31,10 +31,10 @@
           <div class="active-store-info">
             <span class="active-store-label">Current Fulfillment Store:</span>
             <strong class="active-store-name" id="retail-hero-store-name">
-              {{ current_store.store_name if current_store else (current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'BharatStore Mumbai Central Store') }}
+              {{ current_store.store_name if current_store else (current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'Bharat Fresh Mart') }}
             </strong>
             <span class="active-store-meta" id="retail-hero-store-meta">
-              {{ current_store.full_address if current_store else (current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Bandra West, Mumbai') }} • 2-Hour Express Delivery (₹20) or Store Pickup (FREE)
+              {{ current_store.full_address if current_store else (current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Indiranagar, Bengaluru') }} • {{ current_store.store_description if current_store else '' }} • 2-Hour Express Delivery (₹20) or Store Pickup (FREE)
             </span>
           </div>
           <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Delivery Location">
@@ -43,34 +43,61 @@
           </button>
         </div>
 
-        <!-- Quick Switch Store Pills -->
-        <div class="store-quick-pills">
-          <span style="font-size:12px; font-weight:700; color:var(--color-text-muted); align-self:center; margin-right:4px;">
-            <i class="fa-solid fa-shop"></i> Select Store:
-          </span>
-          {% for st in stores %}
-          <button 
-            type="button" 
-            class="store-pill-btn {% if current_store and st.id == current_store.id %}active{% endif %}"
-            onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
-            aria-label="Switch to {{ st.store_name }}"
-          >
-            <i class="fa-solid fa-store"></i> {{ st.store_name }} ({{ st.city }})
-          </button>
-          {% endfor %}
+        <!-- 5-Shop Showcase Grid -->
+        <div class="retail-stores-showcase-wrapper">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:12.5px; font-weight:700; color:var(--color-text-main);">
+              <i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> Select from 5 Bengaluru Neighbourhood Shops:
+            </span>
+            <span style="font-size:11.5px; color:var(--color-text-muted);">
+              Prices & stock vary by shop
+            </span>
+          </div>
+          <div class="retail-stores-grid-5">
+            {% for st in stores[:5] %}
+            <div 
+              class="retail-store-showcase-card {% if current_store and st.id == current_store.id %}active-shop{% endif %}"
+              onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
+              role="button"
+              tabindex="0"
+              aria-label="Shop from {{ st.store_name }} in {{ st.locality or st.city }}"
+            >
+              <div>
+                <div class="shop-badge-top">
+                  <span class="shop-rating"><i class="fa-solid fa-star"></i> {{ st.rating or 4.7 }}</span>
+                  <span class="shop-time"><i class="fa-solid fa-clock"></i> {{ st.delivery_time or '20-30m' }}</span>
+                </div>
+                <div class="shop-title">{{ st.store_name }}</div>
+                <div class="shop-locality"><i class="fa-solid fa-location-dot"></i> {{ st.locality or st.city }}</div>
+              </div>
+              <div class="shop-footer-row">
+                <span style="color:var(--color-text-muted);">Min: ₹{{ st.min_order_value or 99 }}</span>
+                <span class="shop-select-label">
+                  {% if current_store and st.id == current_store.id %}
+                    <i class="fa-solid fa-circle-check"></i> Active
+                  {% else %}
+                    Shop Here <i class="fa-solid fa-arrow-right"></i>
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
         </div>
+
       </div>
 
       <div class="retail-hero-visual">
         <div class="retail-visual-box">
-          <div class="retail-icon-large"><i class="fa-solid fa-truck-fast"></i></div>
-          <div class="retail-stat-title">2-Hour Express Delivery</div>
-          <div class="retail-stat-desc">Dispatched directly from physical city stores</div>
+          <div class="retail-icon-large"><i class="fa-solid fa-scale-balanced"></i></div>
+          <div class="retail-stat-title">Compare Across 5 Shops</div>
+          <div class="retail-stat-desc">Compare real-time prices and buy at your preferred shop</div>
           <div class="retail-perks-list">
-            <div><i class="fa-solid fa-circle-check"></i> Physical store verified stock</div>
-            <div><i class="fa-solid fa-circle-check"></i> ₹0 Store pickup available</div>
-            <div><i class="fa-solid fa-circle-check"></i> 15 km Delivery Radius guaranteed</div>
-            <div><i class="fa-solid fa-circle-check"></i> Chilled dairy cold-chain delivery</div>
+            <div><i class="fa-solid fa-circle-check"></i> 5 Verified Bengaluru grocery shops</div>
+            <div><i class="fa-solid fa-circle-check"></i> Real-time per-store stock & pricing</div>
+            <div><i class="fa-solid fa-circle-check"></i> 2-Hour Express Doorstep Delivery</div>
+            <div><i class="fa-solid fa-circle-check"></i> ₹0 Store Pickup with no wait time</div>
+            <div><i class="fa-solid fa-circle-check"></i> Chilled dairy cold-chain assurance</div>
           </div>
         </div>
       </div>
@@ -79,13 +106,50 @@
 </section>
 
 <!-- =========================================================================
-     2. QUICK COMMERCE DEPARTMENT TABS (Top Fold Navigation)
+     2. VALUE PROPOSITION BANNER & INSTANT GROCERY SEARCH
      ========================================================================= -->
-<section class="section-wrapper" style="padding-top: 10px; padding-bottom: 6px;">
+<section class="section-wrapper" style="padding-top: 14px; padding-bottom: 6px;">
   <div class="container">
+    <!-- Value Proposition Banner -->
+    <div class="retail-comparison-banner">
+      <div class="banner-text">
+        <strong><i class="fa-solid fa-scale-balanced" style="margin-right:6px;"></i> Compare prices across five neighbourhood shops and buy at the price you prefer.</strong>
+        <span>Transparent grocery prices across Bharat Fresh Mart, Daily Needs, Green Basket, Sri Lakshmi Stores & Smart Choice Supermarket.</span>
+      </div>
+      <div class="retail-deals-pills-row">
+        {% for deal in top_deals[:4] %}
+        <button type="button" class="retail-deal-pill" onclick="openPriceComparisonModal({{ deal.product_id }})" style="cursor:pointer; border:none;">
+          <i class="fa-solid fa-fire"></i> {{ deal.title[:20] }}... — Save up to ₹{{ '{:,.0f}'.format(deal.max_savings) }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Live Grocery Search Bar -->
+    <div class="retail-search-bar-row">
+      <div class="retail-search-box">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input 
+          type="text" 
+          id="retail-grocery-search-input" 
+          placeholder="Search across 5 shops for milk, atta, ghee, oil, fruits, veggies..." 
+          oninput="handleGrocerySearch(this.value)"
+          aria-label="Search grocery products across five shops"
+          autocomplete="off"
+        >
+        <button type="button" class="clear-btn" id="retail-search-clear-btn" onclick="clearGrocerySearch()" aria-label="Clear search">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div style="font-size:12.5px; color:var(--color-text-muted); font-weight:600; align-self:center;" id="search-results-counter">
+        Showing {{ products|length }} essential grocery items
+      </div>
+    </div>
+
+    <!-- Quick Commerce Department Navigation Tabs -->
     <div class="retail-category-pills-row">
       <button class="retail-cat-pill active" onclick="filterDepartment('all', this)">
-        <i class="fa-solid fa-border-all"></i> All Essentials
+        <i class="fa-solid fa-border-all"></i> All Essentials ({{ products|length }})
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('dairy', this)">
         <i class="fa-solid fa-cow"></i> Dairy & Breakfast ({{ dairy_items|length }})
@@ -98,6 +162,9 @@
       </button>
       <button class="retail-cat-pill" onclick="filterDepartment('produce', this)">
         <i class="fa-solid fa-apple-whole"></i> Fresh Produce ({{ produce_items|length }})
+      </button>
+      <button class="retail-cat-pill" onclick="filterDepartment('household', this)">
+        <i class="fa-solid fa-spray-can-sparkles"></i> Household Essentials ({{ household_items|length }})
       </button>
     </div>
   </div>
@@ -122,7 +189,7 @@
 
     <div class="product-cards-grid" id="dairy-products-grid">
       {% for item in dairy_items %}
-      <div class="product-card" data-category="Dairy & Breakfast" data-product-id="{{ item.product_id }}">
+      <div class="product-card" data-category="Dairy & Breakfast" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
@@ -138,6 +205,20 @@
           {% endif %}
         </div>
         <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
           <span class="product-card-category">{{ item.brand }} • Dairy & Breakfast</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
@@ -147,27 +228,38 @@
             {% if item.original_price and item.original_price > item.selling_price %}
             <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
             {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
           </div>
         </div>
-        <div class="product-card-footer">
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
           {% if item.is_available and item.stock_quantity > 0 %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             onclick="addToCart({{ item.product_id }})" 
             aria-label="Add {{ item.title }} to basket"
           >
-            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+            <i class="fa-solid fa-bag-shopping"></i> Add
           </button>
           {% else %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             disabled 
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
             aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out of Stock
+            <i class="fa-solid fa-ban"></i> Out
           </button>
           {% endif %}
         </div>
@@ -196,7 +288,7 @@
 
     <div class="product-cards-grid" id="grains-products-grid">
       {% for item in grains_items %}
-      <div class="product-card" data-category="Rice & Grains" data-product-id="{{ item.product_id }}">
+      <div class="product-card" data-category="Rice & Grains" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
@@ -212,6 +304,20 @@
           {% endif %}
         </div>
         <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
           <span class="product-card-category">{{ item.brand }} • Rice & Grains</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
@@ -221,26 +327,38 @@
             {% if item.original_price and item.original_price > item.selling_price %}
             <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
             {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
           </div>
         </div>
-        <div class="product-card-footer">
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
           {% if item.is_available and item.stock_quantity > 0 %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             onclick="addToCart({{ item.product_id }})" 
             aria-label="Add {{ item.title }} to basket"
           >
-            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+            <i class="fa-solid fa-bag-shopping"></i> Add
           </button>
           {% else %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             disabled 
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out of Stock
+            <i class="fa-solid fa-ban"></i> Out
           </button>
           {% endif %}
         </div>
@@ -269,7 +387,7 @@
 
     <div class="product-cards-grid" id="essentials-products-grid">
       {% for item in essentials_items %}
-      <div class="product-card" data-category="Cooking Essentials" data-product-id="{{ item.product_id }}">
+      <div class="product-card" data-category="Cooking Essentials" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
@@ -285,6 +403,20 @@
           {% endif %}
         </div>
         <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
           <span class="product-card-category">{{ item.brand }} • Cooking Essentials</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
@@ -294,26 +426,38 @@
             {% if item.original_price and item.original_price > item.selling_price %}
             <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
             {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
           </div>
         </div>
-        <div class="product-card-footer">
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
           {% if item.is_available and item.stock_quantity > 0 %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             onclick="addToCart({{ item.product_id }})" 
             aria-label="Add {{ item.title }} to basket"
           >
-            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+            <i class="fa-solid fa-bag-shopping"></i> Add
           </button>
           {% else %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             disabled 
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out of Stock
+            <i class="fa-solid fa-ban"></i> Out
           </button>
           {% endif %}
         </div>
@@ -341,7 +485,7 @@
 
     <div class="product-cards-grid" id="produce-products-grid">
       {% for item in produce_items %}
-      <div class="product-card" data-category="Fresh Produce" data-product-id="{{ item.product_id }}">
+      <div class="product-card" data-category="Fresh Produce" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
         <div class="product-card-visual">
           <a href="/product/{{ item.product_id }}">
             <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
@@ -357,6 +501,20 @@
           {% endif %}
         </div>
         <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
           <span class="product-card-category">{{ item.brand }} • Fresh Produce</span>
           <h3 class="product-card-title">
             <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
@@ -366,26 +524,38 @@
             {% if item.original_price and item.original_price > item.selling_price %}
             <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
             {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
           </div>
         </div>
-        <div class="product-card-footer">
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
           {% if item.is_available and item.stock_quantity > 0 %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             onclick="addToCart({{ item.product_id }})" 
             aria-label="Add {{ item.title }} to basket"
           >
-            <i class="fa-solid fa-bag-shopping"></i> Add to Basket
+            <i class="fa-solid fa-bag-shopping"></i> Add
           </button>
           {% else %}
           <button 
             type="button" 
-            class="btn-primary product-card-action-btn" 
+            class="btn-quick-add" 
             disabled 
             style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
           >
-            <i class="fa-solid fa-ban"></i> Out of Stock
+            <i class="fa-solid fa-ban"></i> Out
           </button>
           {% endif %}
         </div>
@@ -396,7 +566,105 @@
 </section>
 
 <!-- =========================================================================
-     7. NEARBY STORES & FULFILLMENT HUBS (Within 15 km)
+     7. FIFTH SECTION — HOUSEHOLD ESSENTIALS
+     ========================================================================= -->
+<section class="section-wrapper retail-dept-section" id="household-section" style="padding-top: 18px;">
+  <div class="container">
+    <div class="retail-dept-header">
+      <div class="retail-dept-title-group">
+        <span class="retail-dept-badge"><i class="fa-solid fa-spray-can-sparkles"></i> Home Care</span>
+        <h2>Detergents, Cleaners & Daily Utilities</h2>
+        <p>Premium laundry detergents, dishwashing liquid, floor disinfectant & pest protection</p>
+      </div>
+      <span style="font-size:13px; font-weight:700; color:var(--color-primary);">
+        {{ household_items|length }} Household Items
+      </span>
+    </div>
+
+    <div class="product-cards-grid" id="household-products-grid">
+      {% for item in household_items %}
+      <div class="product-card" data-category="Household Essentials" data-product-id="{{ item.product_id }}" data-title="{{ item.title|lower }}">
+        <div class="product-card-visual">
+          <a href="/product/{{ item.product_id }}">
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="product-card-image" loading="lazy">
+          </a>
+          {% if item.is_available and item.stock_quantity > 0 %}
+            <span class="retail-stock-pill in-stock">
+              <i class="fa-solid fa-circle-check"></i> In Stock ({{ item.stock_quantity }})
+            </span>
+          {% else %}
+            <span class="retail-stock-pill out-of-stock">
+              <i class="fa-solid fa-circle-xmark"></i> Out of Stock
+            </span>
+          {% endif %}
+        </div>
+        <div class="product-card-body">
+          {% if item.is_store_lowest %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-tag"></i> Lowest Price at this shop!
+            </div>
+          {% elif item.lowest_price and item.lowest_price < item.selling_price %}
+            <div class="product-card-best-price-badge" style="background:#EFF6FF; border-color:#BFDBFE; color:#1D4ED8;">
+              <i class="fa-solid fa-arrow-trend-down"></i> From ₹{{ '{:,.2f}'.format(item.lowest_price) }} at {{ item.lowest_store_name }}
+            </div>
+          {% else %}
+            <div class="product-card-best-price-badge">
+              <i class="fa-solid fa-shop"></i> In Stock across shops
+            </div>
+          {% endif %}
+
+          <span class="product-card-category">{{ item.brand }} • Household Essentials</span>
+          <h3 class="product-card-title">
+            <a href="/product/{{ item.product_id }}">{{ item.title }}</a>
+          </h3>
+          <div class="product-card-pricing">
+            <span class="product-card-price">₹{{ '{:,.2f}'.format(item.selling_price) }}</span>
+            {% if item.original_price and item.original_price > item.selling_price %}
+            <span class="product-card-original-price">₹{{ '{:,.2f}'.format(item.original_price) }}</span>
+            {% endif %}
+            {% if item.max_savings and item.max_savings > 0 %}
+            <span class="product-card-save-pill">Save up to ₹{{ '{:,.0f}'.format(item.max_savings) }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="product-card-buttons-row">
+          <button 
+            type="button" 
+            class="btn-compare-5" 
+            onclick="openPriceComparisonModal({{ item.product_id }})" 
+            aria-label="Compare 5 shops for {{ item.title }}"
+          >
+            <i class="fa-solid fa-scale-balanced"></i> Compare 5 Shops
+          </button>
+          {% if item.is_available and item.stock_quantity > 0 %}
+          <button 
+            type="button" 
+            class="btn-quick-add" 
+            onclick="addToCart({{ item.product_id }})" 
+            aria-label="Add {{ item.title }} to basket"
+          >
+            <i class="fa-solid fa-bag-shopping"></i> Add
+          </button>
+          {% else %}
+          <button 
+            type="button" 
+            class="btn-quick-add" 
+            disabled 
+            style="background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed;"
+            aria-label="{{ item.title }} is Out of Stock"
+          >
+            <i class="fa-solid fa-ban"></i> Out
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     8. NEARBY STORES & FULFILLMENT HUBS (Within 15 km)
      ========================================================================= -->
 <section class="section-wrapper" id="nearby-stores-section" style="padding-top: 18px;">
   <div class="container">
@@ -479,7 +747,7 @@
 </section>
 
 <!-- =========================================================================
-     8. SWITCH TO ONLINE SHOPPING MARKETPLACE BANNER
+     9. SWITCH TO ONLINE SHOPPING MARKETPLACE BANNER
      ========================================================================= -->
 <section class="section-wrapper" style="padding: 24px 0 60px 0;">
   <div class="container">
@@ -503,6 +771,35 @@
     </div>
   </div>
 </section>
+
+<!-- =========================================================================
+     10. INTERACTIVE 5-SHOP PRICE COMPARISON MODAL
+     ========================================================================= -->
+<div class="retail-compare-modal-backdrop" id="retail-compare-modal" onclick="handleCompareBackdropClick(event)">
+  <div class="retail-compare-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-compare-title">
+    <div class="retail-compare-modal-header">
+      <div>
+        <span style="font-size:11px; font-weight:700; color:var(--color-primary); text-transform:uppercase; letter-spacing:0.5px;">
+          <i class="fa-solid fa-scale-balanced"></i> 5-Shop Price Comparison
+        </span>
+        <h3 id="modal-compare-title" style="margin:2px 0 0 0; font-size:16px; font-weight:700; color:var(--color-text-main);">
+          Comparing Across 5 Bengaluru Shops
+        </h3>
+      </div>
+      <button type="button" class="btn-ghost" onclick="closePriceComparisonModal()" aria-label="Close Comparison" style="padding:6px; font-size:18px; color:var(--color-text-muted); cursor:pointer; border:none; background:none;">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div class="retail-compare-modal-body" id="retail-compare-modal-content">
+      <!-- Dynamically filled by openPriceComparisonModal(productId) -->
+      <div style="text-align:center; padding:30px 0;">
+        <i class="fa-solid fa-circle-notch fa-spin" style="font-size:24px; color:var(--color-primary);"></i>
+        <p style="margin-top:10px; font-size:13px; color:var(--color-text-muted);">Fetching real-time shop prices...</p>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -524,7 +821,8 @@
       dairy: document.getElementById("dairy-section"),
       grains: document.getElementById("grains-section"),
       essentials: document.getElementById("essentials-section"),
-      produce: document.getElementById("produce-section")
+      produce: document.getElementById("produce-section"),
+      household: document.getElementById("household-section")
     };
 
     if (deptKey === "all") {
@@ -541,6 +839,40 @@
     }
   }
 
+  function handleGrocerySearch(query) {
+    const q = (query || "").trim().toLowerCase();
+    const clearBtn = document.getElementById("retail-search-clear-btn");
+    if (clearBtn) clearBtn.style.display = q ? "block" : "none";
+
+    const cards = document.querySelectorAll(".retail-dept-section .product-card");
+    let matchCount = 0;
+
+    cards.forEach(card => {
+      const title = card.getAttribute("data-title") || "";
+      const cat = (card.getAttribute("data-category") || "").toLowerCase();
+      if (!q || title.includes(q) || cat.includes(q)) {
+        card.style.display = "";
+        matchCount++;
+      } else {
+        card.style.display = "none";
+      }
+    });
+
+    const counter = document.getElementById("search-results-counter");
+    if (counter) {
+      counter.textContent = q ? `Found ${matchCount} items matching "${query}"` : `Showing ${cards.length} essential grocery items`;
+    }
+  }
+
+  function clearGrocerySearch() {
+    const input = document.getElementById("retail-grocery-search-input");
+    if (input) {
+      input.value = "";
+      handleGrocerySearch("");
+      input.focus();
+    }
+  }
+
   // Highlight active store on load
   document.addEventListener("DOMContentLoaded", () => {
     const activeStoreCard = document.querySelector(".store-hub-card.active-store-card");
@@ -548,5 +880,163 @@
       activeStoreCard.scrollIntoView({ behavior: "auto", block: "nearest" });
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // 5-Shop Price Comparison Modal Logic
+  // ---------------------------------------------------------------------------
+  async function openPriceComparisonModal(productId) {
+    const modal = document.getElementById("retail-compare-modal");
+    const content = document.getElementById("retail-compare-modal-content");
+    const titleEl = document.getElementById("modal-compare-title");
+    if (!modal || !content) return;
+
+    modal.classList.add("open");
+    document.body.style.overflow = "hidden";
+    content.innerHTML = `
+      <div style="text-align:center; padding:36px 0;">
+        <i class="fa-solid fa-circle-notch fa-spin" style="font-size:24px; color:var(--color-primary);"></i>
+        <p style="margin-top:10px; font-size:13px; color:var(--color-text-muted);">Fetching real-time prices across 5 shops...</p>
+      </div>
+    `;
+
+    try {
+      const res = await fetch(`/api/retail/products/${productId}/compare`);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        content.innerHTML = `<div class="ui-state-box ui-error-state"><p>${data.error || 'Unable to load price comparison.'}</p></div>`;
+        return;
+      }
+
+      const p = data.product;
+      if (titleEl) {
+        titleEl.textContent = `Price Comparison: ${p.title}`;
+      }
+
+      let shopsHtml = "";
+      (data.stores_comparison || []).forEach(shop => {
+        const isLowest = shop.is_lowest;
+        const inStock = shop.is_available && shop.stock_quantity > 0;
+        const rowClass = isLowest ? "compare-shop-row lowest-price-row" : "compare-shop-row";
+
+        shopsHtml += `
+          <div class="${rowClass}">
+            <div class="compare-shop-info">
+              <strong>
+                ${shop.store_name}
+                ${isLowest ? '<span style="font-size:10px; background:#10B981; color:#fff; padding:2px 6px; border-radius:4px; margin-left:6px; font-weight:700;"><i class="fa-solid fa-tag"></i> LOWEST PRICE</span>' : ''}
+              </strong>
+              <span><i class="fa-solid fa-location-dot"></i> ${shop.locality || shop.city} • <i class="fa-solid fa-clock"></i> ${shop.delivery_time || '20-30m'} • <i class="fa-solid fa-star" style="color:#F59E0B;"></i> ${shop.rating || 4.7}</span>
+              <div style="font-size:11px; margin-top:3px; color:${inStock ? '#059669' : '#DC2626'}; font-weight:600;">
+                ${inStock ? `<i class="fa-solid fa-circle-check"></i> In Stock (${shop.stock_quantity} available)` : '<i class="fa-solid fa-circle-xmark"></i> Out of Stock at this shop'}
+              </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div class="compare-shop-pricing">
+                <div class="price">₹${parseFloat(shop.selling_price).toFixed(2)}</div>
+                ${isLowest && data.max_savings > 0 ? `<div class="savings">Save ₹${data.max_savings.toFixed(2)}</div>` : ''}
+              </div>
+
+              <div>
+                ${inStock ? `
+                  <button 
+                    type="button" 
+                    class="btn-primary" 
+                    style="padding:7px 12px; font-size:12px; font-weight:700; white-space:nowrap;"
+                    onclick="addFromSpecificShop(${p.id}, ${shop.store_id}, '${shop.store_name.replace(/'/g, "\\'")}', 1)"
+                  >
+                    <i class="fa-solid fa-cart-plus"></i> Buy from Shop
+                  </button>
+                ` : `
+                  <button 
+                    type="button" 
+                    class="btn-primary" 
+                    disabled 
+                    style="padding:7px 12px; font-size:12px; background:#9CA3AF; border-color:#9CA3AF; cursor:not-allowed; white-space:nowrap;"
+                  >
+                    Out of Stock
+                  </button>
+                `}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      content.innerHTML = `
+        <div style="display:flex; gap:14px; align-items:center; padding:12px; background:var(--color-bg-subtle); border-radius:var(--radius-md); margin-bottom:16px;">
+          <img src="${p.image_url}" alt="${p.title}" style="width:60px; height:60px; object-fit:contain; background:#fff; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:4px;">
+          <div>
+            <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700; color:var(--color-text-main);">${p.title}</h4>
+            <div style="font-size:12px; color:var(--color-text-muted);">
+              Pack/Unit: <strong>${p.pack_size || p.unit_quantity || 'Standard'}</strong> • Lowest across shops: <strong style="color:#059669;">₹${parseFloat(data.lowest_price).toFixed(2)}</strong> (Lowest at ${data.lowest_store_name})
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px; font-size:12.5px; font-weight:700; color:var(--color-text-main);">
+          <i class="fa-solid fa-shop"></i> Prices across 5 neighbourhood shops in Bengaluru:
+        </div>
+
+        <div class="compare-shops-list">
+          ${shopsHtml}
+        </div>
+      `;
+    } catch (err) {
+      console.error("Comparison load error:", err);
+      content.innerHTML = `<div class="ui-state-box ui-error-state"><p>Failed to connect to stores network. Please try again.</p></div>`;
+    }
+  }
+
+  function closePriceComparisonModal() {
+    const modal = document.getElementById("retail-compare-modal");
+    if (modal) {
+      modal.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+  }
+
+  function handleCompareBackdropClick(e) {
+    if (e.target && e.target.id === "retail-compare-modal") {
+      closePriceComparisonModal();
+    }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closePriceComparisonModal();
+    }
+  });
+
+  async function addFromSpecificShop(productId, storeId, storeName, qty = 1) {
+    try {
+      const res = await fetch("/api/retail/cart/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: productId,
+          store_id: storeId,
+          store_name: storeName,
+          quantity: qty
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.error || "Could not add item to basket", true);
+        return;
+      }
+      showToast(`Added to basket from ${storeName}!`);
+      closePriceComparisonModal();
+
+      // Refresh retail cart state
+      if (window.fetchAndSyncRetailCart) {
+        await window.fetchAndSyncRetailCart();
+      }
+      openCartDrawer();
+    } catch (err) {
+      console.error("addFromSpecificShop error:", err);
+      showToast("Error adding item from selected shop", true);
+    }
+  }
 </script>
 {% endblock %}

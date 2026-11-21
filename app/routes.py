@@ -285,21 +285,22 @@ def inject_shopping_mode():
 def build_retail_context() -> Dict[str, Any]:
     """
     Constructs high-performance context for Retail Near Me storefront.
-    Loads real physical stores, store-specific inventory, and groups
-    essential items (Dairy & Breakfast, Rice & Grains, Cooking Essentials, Fresh Produce).
+    Loads the 5 Bengaluru retail shops, grocery-only catalog, and
+    multi-shop price comparisons.
     """
     set_current_shopping_mode("RETAIL_NEAR_ME")
     hubs = db_service.get_store_hubs()
-    stores = db_service.get_all_stores(active_only=True)
-    if not stores:
-        stores = [
-            {"id": 1, "store_name": "BharatStore Bengaluru Tech Store", "store_slug": "bharatstore-bengaluru-tech-store", "city": "Bengaluru", "area": "Indiranagar", "full_address": "100 Feet Road, Indiranagar, Bengaluru 560038", "is_active": True},
-            {"id": 2, "store_name": "Fresh Mart Bengaluru", "store_slug": "fresh-mart-bengaluru", "city": "Bengaluru", "area": "Koramangala", "full_address": "80 Feet Road, Koramangala, Bengaluru 560034", "is_active": True},
-            {"id": 3, "store_name": "BharatStore Mumbai Bandra", "store_slug": "bharatstore-mumbai-bandra", "city": "Mumbai", "area": "Bandra West", "full_address": "Hill Road, Bandra West, Mumbai 400050", "is_active": True},
-            {"id": 4, "store_name": "QuickMart Mumbai", "store_slug": "quickmart-mumbai", "city": "Mumbai", "area": "Andheri West", "full_address": "Lokhandwala Complex, Andheri West, Mumbai 400053", "is_active": True}
-        ]
 
-    # 1. Resolve selected physical store (Query Param -> Session -> City Location -> Default Store 1)
+    # Resolve delivery city
+    loc = session.get("delivery_location") or {}
+    city = (loc.get("city") or request.cookies.get("bharatstore_city") or "Bengaluru").strip()
+
+    # Get active retail stores for city (5 Bengaluru shops by default)
+    stores = db_service.get_retail_stores(city)
+    if not stores:
+        stores = db_service.get_retail_stores("Bengaluru")
+
+    # 1. Resolve selected physical store (Query Param -> Session -> Default Store 1)
     store_id_param = request.args.get("store_id")
     selected_store = None
     if store_id_param:
@@ -317,21 +318,20 @@ def build_retail_context() -> Dict[str, Any]:
                 selected_store = None
 
     if not selected_store:
-        loc = session.get("delivery_location") or {}
-        city = (loc.get("city") or request.cookies.get("bharatstore_city") or "Bengaluru").strip().lower()
-        if "mumbai" in city:
-            selected_store = next((s for s in stores if s.get("id") == 3), stores[0])
-        else:
-            selected_store = next((s for s in stores if s.get("id") == 1), stores[0])
+        selected_store = stores[0] if stores else None
 
-    session["retail_store_id"] = selected_store["id"]
+    if selected_store:
+        selected_store = db_service._enrich_store_metadata(selected_store)
+        session["retail_store_id"] = selected_store["id"]
 
-    # 2. Retrieve store inventory
-    inventory_items = db_service.get_store_inventory(selected_store["id"])
+    # 2. Retrieve store inventory strictly for grocery products
+    raw_inventory = db_service.get_store_inventory(selected_store["id"]) if selected_store else []
+    # Strict filter: strictly grocery items only!
+    inventory_items = [p for p in raw_inventory if p.get("category") == "Daily Essentials & Groceries"]
 
-    # Fallback to global catalog if store inventory empty
+    # Fallback to grocery catalog if store inventory empty
     if not inventory_items:
-        raw_prods = db_service.get_all_products()
+        raw_prods = [p for p in db_service.get_all_products() if p.get("category") == "Daily Essentials & Groceries"]
         inventory_items = []
         for p in raw_prods:
             item = dict(p)
@@ -342,46 +342,75 @@ def build_retail_context() -> Dict[str, Any]:
             item["is_available"] = True
             inventory_items.append(item)
 
-    # 3. Categorize into essential departments
+    # 3. Attach multi-shop price comparison metadata to each item
+    for item in inventory_items:
+        comp = db_service.get_product_price_comparison(item["product_id"], city)
+        if comp:
+            item["lowest_price"] = comp["lowest_price"] if comp["lowest_price"] is not None else item["selling_price"]
+            item["highest_price"] = comp["highest_price"] if comp["highest_price"] is not None else item["selling_price"]
+            item["lowest_store_name"] = comp["lowest_store_name"] or (selected_store["store_name"] if selected_store else "Local Shop")
+            item["lowest_store_id"] = comp["lowest_store_id"] or (selected_store["id"] if selected_store else 1)
+            item["max_savings"] = comp["max_savings"]
+            item["stores_comparison"] = comp["stores_comparison"]
+            item["in_stock_stores_count"] = comp["in_stock_stores_count"]
+            item["is_store_lowest"] = (item["selling_price"] == item["lowest_price"] and item["is_available"])
+        else:
+            item["lowest_price"] = item["selling_price"]
+            item["highest_price"] = item["selling_price"]
+            item["lowest_store_name"] = selected_store["store_name"] if selected_store else "Local Shop"
+            item["lowest_store_id"] = selected_store["id"] if selected_store else 1
+            item["max_savings"] = 0.0
+            item["stores_comparison"] = []
+            item["in_stock_stores_count"] = 1 if item["is_available"] else 0
+            item["is_store_lowest"] = item["is_available"]
+
+    # 4. Categorize into essential departments
     dairy_items = []
     grains_items = []
     essentials_items = []
     produce_items = []
-    other_items = []
+    household_items = []
 
     for item in inventory_items:
         sub = item.get("sub_category", "")
         t = (item.get("title") or "").lower()
-        if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+        if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg", "flake", "oat"]):
             item["department"] = "Dairy & Breakfast"
             dairy_items.append(item)
-        elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana"]):
+        elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana", "rajma", "poha"]):
             item["department"] = "Rice & Grains"
             grains_items.append(item)
-        elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice"]):
+        elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice", "turmeric", "chilli", "coriander", "tea", "coffee"]):
             item["department"] = "Cooking Essentials"
             essentials_items.append(item)
-        elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "fruit", "vegetable"]):
+        elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "orange", "capsicum", "chilli", "coriander", "ginger", "adrak", "fruit", "vegetable"]):
             item["department"] = "Fresh Produce"
             produce_items.append(item)
+        elif sub == "Household Essentials" or any(k in t for k in ["surf", "vim", "lizol", "dettol", "harpic", "colin", "goodknight", "scrub", "detergent", "cleaner"]):
+            item["department"] = "Household Essentials"
+            household_items.append(item)
         else:
-            item["department"] = "Other Essentials"
-            other_items.append(item)
+            item["department"] = "Cooking Essentials"
+            essentials_items.append(item)
 
-    # Ordered catalog ensuring dairy & essentials lead first
-    ordered_products = dairy_items + grains_items + essentials_items + produce_items + other_items
+    ordered_products = dairy_items + grains_items + essentials_items + produce_items + household_items
+
+    # Top deals highlight
+    top_deals = sorted([p for p in ordered_products if p.get("max_savings", 0) > 0], key=lambda x: x.get("max_savings", 0), reverse=True)[:6]
 
     return {
         "hubs": hubs,
         "stores": stores,
         "current_store": selected_store,
-        "selected_store_id": selected_store["id"],
+        "selected_store_id": selected_store["id"] if selected_store else 1,
         "dairy_items": dairy_items,
         "grains_items": grains_items,
         "essentials_items": essentials_items,
         "produce_items": produce_items,
+        "household_items": household_items,
         "products": ordered_products,
-        "all_store_products": inventory_items,
+        "all_store_products": ordered_products,
+        "top_deals": top_deals,
         "active_mode": "RETAIL_NEAR_ME"
     }
 
@@ -401,9 +430,25 @@ def retail_page():
     ctx = build_retail_context()
     return render_template("retail.html", **ctx)
 
+# -----------------------------------------------------------------------------
+# Retail Near Me 5-Shop Price Comparison & Hyperlocal APIs
+# -----------------------------------------------------------------------------
+
+@main_bp.route("/api/retail/stores", methods=["GET"])
+def get_retail_stores_api():
+    """Returns the 5 Bengaluru retail shops with complete metadata."""
+    city = request.args.get("city", "Bengaluru")
+    stores = db_service.get_retail_stores(city)
+    return jsonify({
+        "success": True,
+        "stores": stores,
+        "total_stores": len(stores),
+        "city": city
+    })
+
 @main_bp.route("/api/retail/catalog", methods=["GET"])
 def get_retail_catalog_api():
-    """Returns dynamic retail catalog grouped by department for live store switcher."""
+    """Returns dynamic retail grocery-only catalog grouped by department with 5-shop price comparisons."""
     ctx = build_retail_context()
     return jsonify({
         "success": True,
@@ -412,9 +457,297 @@ def get_retail_catalog_api():
         "grains_items": ctx["grains_items"],
         "essentials_items": ctx["essentials_items"],
         "produce_items": ctx["produce_items"],
+        "household_items": ctx.get("household_items", []),
         "all_products": ctx["products"],
+        "top_deals": ctx.get("top_deals", []),
         "total_items": len(ctx["products"])
     })
+
+@main_bp.route("/api/retail/products/<int:product_id>/compare", methods=["GET"])
+def get_retail_product_compare_api(product_id: int):
+    """Returns real-time 5-shop price comparison and stock status for a grocery product."""
+    city = request.args.get("city", "Bengaluru")
+    comparison = db_service.get_product_price_comparison(product_id, city)
+    if not comparison:
+        return jsonify({"success": False, "error": f"Grocery product #{product_id} not found."}), 404
+    return jsonify({
+        "success": True,
+        **comparison
+    })
+
+@main_bp.route("/api/retail/stores/<int:store_id>/products", methods=["GET"])
+def get_retail_store_products_api(store_id: int):
+    """Returns grocery products available at a specific physical store."""
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+    prods = db_service.get_available_store_products(store_id)
+    grocery_prods = [p for p in prods if p.get("category") == "Daily Essentials & Groceries"]
+    return jsonify({
+        "success": True,
+        "store": db_service._enrich_store_metadata(store),
+        "products": grocery_prods,
+        "total_products": len(grocery_prods)
+    })
+
+@main_bp.route("/api/retail/stores/<int:store_id>/products/<int:product_id>", methods=["GET"])
+def get_retail_store_product_detail_api(store_id: int, product_id: int):
+    """Returns grocery product availability, price, and stock for a specific store."""
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+    item = db_service.get_store_product(store_id, product_id)
+    if not item:
+        return jsonify({"success": False, "error": f"Product #{product_id} not available at store #{store_id}."}), 404
+    return jsonify({
+        "success": True,
+        "store": db_service._enrich_store_metadata(store),
+        "product": item
+    })
+
+# -----------------------------------------------------------------------------
+# Retail Shop-Aware Cart Management Endpoints
+# -----------------------------------------------------------------------------
+
+def _get_session_retail_cart() -> Dict[str, Any]:
+    if "retail_cart" not in session or not isinstance(session["retail_cart"], dict):
+        session["retail_cart"] = {}
+    return session["retail_cart"]
+
+def _calculate_retail_cart_summary(cart_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Computes shop-wise breakdown, subtotals, delivery fees and grand total."""
+    shops_map = {}
+    total_qty = 0
+    grand_subtotal = 0.0
+
+    for key, item in cart_dict.items():
+        sid = item["store_id"]
+        if sid not in shops_map:
+            store_obj = db_service.get_store_by_id(sid)
+            s_name = store_obj["store_name"] if store_obj else item.get("store_name", f"Store #{sid}")
+            s_area = store_obj["area"] if store_obj else item.get("area", "")
+            min_ord = 99.0
+            del_fee = 15.0
+            if store_obj:
+                enriched = db_service._enrich_store_metadata(store_obj)
+                min_ord = enriched.get("min_order", 99.0)
+                del_fee = enriched.get("delivery_fee", 15.0)
+
+            shops_map[sid] = {
+                "store_id": sid,
+                "store_name": s_name,
+                "area": s_area,
+                "min_order": min_ord,
+                "base_delivery_fee": del_fee,
+                "items": [],
+                "subtotal": 0.0,
+                "delivery_fee": del_fee,
+                "fulfillment_type": item.get("fulfillment", "delivery")
+            }
+
+        item_subtotal = round(float(item["price"]) * int(item["quantity"]), 2)
+        item["subtotal"] = item_subtotal
+        shops_map[sid]["items"].append(item)
+        shops_map[sid]["subtotal"] = round(shops_map[sid]["subtotal"] + item_subtotal, 2)
+        total_qty += int(item["quantity"])
+        grand_subtotal = round(grand_subtotal + item_subtotal, 2)
+
+    shops_list = []
+    total_delivery_fee = 0.0
+
+    for sid, sdata in shops_map.items():
+        if sdata["fulfillment_type"] == "pickup" or sdata["subtotal"] >= sdata["min_order"]:
+            sdata["delivery_fee"] = 0.0
+        else:
+            sdata["delivery_fee"] = sdata["base_delivery_fee"]
+        total_delivery_fee += sdata["delivery_fee"]
+        shops_list.append(sdata)
+
+    grand_total = round(grand_subtotal + total_delivery_fee, 2)
+
+    return {
+        "items": list(cart_dict.values()),
+        "shops": shops_list,
+        "total_items": total_qty,
+        "subtotal": grand_subtotal,
+        "delivery_fee": round(total_delivery_fee, 2),
+        "grand_total": grand_total
+    }
+
+@main_bp.route("/api/retail/cart", methods=["GET"])
+def get_retail_cart_api():
+    """Returns current retail cart with shop-wise breakdown."""
+    cart_dict = _get_session_retail_cart()
+    summary = _calculate_retail_cart_summary(cart_dict)
+    return jsonify({
+        "success": True,
+        **summary
+    })
+
+@main_bp.route("/api/retail/cart/add", methods=["POST"])
+def add_to_retail_cart_api():
+    """Adds a product to retail cart associated with a specific store."""
+    data = request.get_json() or {}
+    product_id = data.get("product_id")
+    store_id = data.get("store_id")
+    quantity = data.get("quantity", 1)
+    fulfillment = data.get("fulfillment", "delivery")
+
+    if not product_id:
+        return jsonify({"success": False, "error": "Product ID is required."}), 400
+    if not store_id:
+        return jsonify({"success": False, "error": "Store ID is required for Retail mode."}), 400
+
+    try:
+        pid = int(product_id)
+        sid = int(store_id)
+        qty = int(quantity)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid IDs or quantity format."}), 400
+
+    if qty <= 0:
+        return jsonify({"success": False, "error": "Quantity must be at least 1."}), 400
+
+    store = db_service.get_store_by_id(sid)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{sid} not found."}), 404
+
+    inv = db_service.get_store_product(sid, pid)
+    if not inv or not inv.get("is_available") or inv.get("stock_quantity", 0) <= 0:
+        return jsonify({"success": False, "error": f"Sorry, this item is Out of Stock at {store['store_name']}."}), 400
+
+    available_stock = int(inv["stock_quantity"])
+
+    cart_dict = _get_session_retail_cart()
+    item_key = f"{sid}_{pid}"
+    existing_qty = cart_dict[item_key]["quantity"] if item_key in cart_dict else 0
+    new_qty = existing_qty + qty
+
+    if new_qty > available_stock:
+        return jsonify({
+            "success": False,
+            "error": f"Requested quantity ({new_qty}) exceeds available stock ({available_stock}) at {store['store_name']}."
+        }), 400
+
+    cart_dict[item_key] = {
+        "item_key": item_key,
+        "store_id": sid,
+        "store_name": store["store_name"],
+        "area": store["area"],
+        "product_id": pid,
+        "title": inv["title"],
+        "brand": inv.get("brand", ""),
+        "sub_category": inv.get("sub_category", ""),
+        "price": float(inv["selling_price"]),
+        "original_price": float(inv["original_price"]) if inv.get("original_price") else float(inv["selling_price"]),
+        "image_url": inv.get("image_url", ""),
+        "quantity": new_qty,
+        "fulfillment": fulfillment
+    }
+
+    session["retail_cart"] = cart_dict
+    session.modified = True
+    summary = _calculate_retail_cart_summary(cart_dict)
+
+    return jsonify({
+        "success": True,
+        "message": f"Added {inv['title']} from {store['store_name']} to basket.",
+        "added_item": cart_dict[item_key],
+        **summary
+    }), 201
+
+@main_bp.route("/api/retail/cart/update", methods=["PUT"])
+def update_retail_cart_api():
+    """Updates quantity or fulfillment type for an item in the retail cart."""
+    data = request.get_json() or {}
+    product_id = data.get("product_id")
+    store_id = data.get("store_id")
+    quantity = data.get("quantity")
+    fulfillment = data.get("fulfillment")
+
+    if not product_id or not store_id or quantity is None:
+        return jsonify({"success": False, "error": "product_id, store_id and quantity are required."}), 400
+
+    try:
+        pid = int(product_id)
+        sid = int(store_id)
+        qty = int(quantity)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid parameters."}), 400
+
+    cart_dict = _get_session_retail_cart()
+    item_key = f"{sid}_{pid}"
+
+    if qty <= 0:
+        cart_dict.pop(item_key, None)
+    else:
+        inv = db_service.get_store_product(sid, pid)
+        if not inv or not inv.get("is_available"):
+            cart_dict.pop(item_key, None)
+            return jsonify({"success": False, "error": "Item is no longer available at this store."}), 400
+
+        avail = int(inv["stock_quantity"])
+        if qty > avail:
+            qty = avail
+
+        if item_key in cart_dict:
+            cart_dict[item_key]["quantity"] = qty
+            if fulfillment:
+                cart_dict[item_key]["fulfillment"] = fulfillment
+        else:
+            store = db_service.get_store_by_id(sid)
+            cart_dict[item_key] = {
+                "item_key": item_key,
+                "store_id": sid,
+                "store_name": store["store_name"] if store else f"Store #{sid}",
+                "area": store["area"] if store else "",
+                "product_id": pid,
+                "title": inv["title"],
+                "price": float(inv["selling_price"]),
+                "image_url": inv.get("image_url", ""),
+                "quantity": qty,
+                "fulfillment": fulfillment or "delivery"
+            }
+
+    session["retail_cart"] = cart_dict
+    session.modified = True
+    summary = _calculate_retail_cart_summary(cart_dict)
+
+    return jsonify({
+        "success": True,
+        **summary
+    })
+
+@main_bp.route("/api/retail/cart/remove", methods=["DELETE"])
+def remove_from_retail_cart_api():
+    """Removes an item from the retail cart."""
+    data = request.get_json() or {}
+    product_id = data.get("product_id") or request.args.get("product_id")
+    store_id = data.get("store_id") or request.args.get("store_id")
+
+    if not product_id or not store_id:
+        return jsonify({"success": False, "error": "product_id and store_id are required."}), 400
+
+    try:
+        pid = int(product_id)
+        sid = int(store_id)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid parameters."}), 400
+
+    cart_dict = _get_session_retail_cart()
+    item_key = f"{sid}_{pid}"
+    cart_dict.pop(item_key, None)
+
+    session["retail_cart"] = cart_dict
+    session.modified = True
+    summary = _calculate_retail_cart_summary(cart_dict)
+
+    return jsonify({
+        "success": True,
+        "message": "Item removed from basket.",
+        **summary
+    })
+
 
 @main_bp.route("/online")
 def online_page():
@@ -934,6 +1267,42 @@ def api_validate_cart_item():
     product = db_service.get_product_by_id(product_id)
     if not product:
         return jsonify({"valid": False, "error": f"Product #{product_id} does not exist"}), 404
+
+    store_id = data.get("store_id")
+    if store_id:
+        try:
+            sid = int(store_id)
+            inv = db_service.get_store_product(sid, product_id)
+            if inv:
+                avail_store = int(inv.get("stock_quantity", 0))
+                if not inv.get("is_available") or avail_store <= 0:
+                    return jsonify({
+                        "valid": False,
+                        "error": f"'{inv['title']}' is currently Out of Stock at this store",
+                        "available_stock": 0,
+                        "product_id": product_id,
+                        "store_id": sid
+                    }), 400
+                if quantity > avail_store:
+                    return jsonify({
+                        "valid": False,
+                        "error": f"Requested quantity ({quantity}) exceeds store stock ({avail_store})",
+                        "available_stock": avail_store,
+                        "product_id": product_id,
+                        "store_id": sid
+                    }), 400
+                return jsonify({
+                    "valid": True,
+                    "product_id": product_id,
+                    "store_id": sid,
+                    "title": inv["title"],
+                    "price": float(inv["selling_price"]),
+                    "requested_quantity": quantity,
+                    "available_stock": avail_store,
+                    "subtotal": float(inv["selling_price"]) * quantity
+                })
+        except Exception:
+            pass
 
     available_stock = int(product.get("stock", 0))
     if available_stock <= 0:

@@ -806,7 +806,7 @@ function updateHeaderBadges() {
 async function addToCart(productId, qty = 1, storeId = null, storeName = null, fulfillment = "delivery") {
   const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
   if (isRetail) {
-    const sId = storeId || parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1");
+    const sId = storeId || appState.selectedStoreId || parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1");
     try {
       const res = await fetch(`/api/cart/retail/${sId}/add`, {
         method: "POST",
@@ -822,8 +822,15 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
         showToast(data.error || "Cannot add product to store basket", true);
         return;
       }
+      if (!appState.selectedRetailStores) {
+        appState.selectedRetailStores = new Set();
+      }
+      appState.selectedRetailStores.add(Number(sId));
+      if (appState.collapsedShops) {
+        appState.collapsedShops.delete(Number(sId));
+      }
       await syncCartWithBackend();
-      showToast(`Added to ${data.cart?.store_name || `Store #${sId}`} basket!`);
+      showToast(`Added to ${data.cart?.store_name || storeName || `Store #${sId}`} basket!`);
     } catch (e) {
       console.error("Retail add to cart error:", e);
       showToast("Network error while adding to basket", true);
@@ -994,6 +1001,22 @@ function toggleCartDrawerShopSelection(storeId, isChecked) {
   renderCartDrawer();
 }
 
+function toggleShopBasketCollapse(storeId) {
+  if (!appState.collapsedShops) {
+    appState.collapsedShops = new Set();
+  }
+  const sid = Number(storeId);
+  if (appState.collapsedShops.has(sid)) {
+    appState.collapsedShops.delete(sid);
+  } else {
+    appState.collapsedShops.add(sid);
+  }
+  renderCartDrawer();
+  if (document.getElementById("cart-page-items-list")) {
+    renderCartPage();
+  }
+}
+
 function proceedToCheckoutFromDrawer() {
   closeCartDrawer();
   const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
@@ -1077,9 +1100,11 @@ function renderCartDrawer() {
 
     container.innerHTML = Object.values(shopGroups).map(group => {
       const isSelected = appState.selectedRetailStores.has(group.store_id);
+      const isCollapsed = Boolean(appState.collapsedShops && appState.collapsedShops.has(group.store_id));
+      const itemCount = group.items.reduce((s, i) => s + i.qty, 0);
       return `
       <div class="shop-cart-group" style="${isSelected ? '' : 'opacity:0.65; border-color:var(--color-border);'}">
-        <div class="shop-cart-group-header">
+        <div class="shop-cart-group-header" style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle);">
           <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
             <input 
               type="checkbox" 
@@ -1089,45 +1114,53 @@ function renderCartDrawer() {
               onchange="toggleCartDrawerShopSelection(${group.store_id}, this.checked)"
               style="width:16px; height:16px; accent-color:var(--color-primary); cursor:pointer;"
             >
-            <span class="shop-cart-group-title"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${escapeHtml(group.name)}</span>
+            <span class="shop-cart-group-title" style="font-weight:700; font-size:13px;"><i class="fa-solid fa-shop" style="color:var(--color-primary); margin-right:4px;"></i> ${escapeHtml(group.name)}</span>
           </label>
-          <span style="font-size:12px; font-weight:700; color:var(--color-primary);">₹${group.subtotal.toLocaleString('en-IN')}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:11px; background:var(--color-bg-surface); border:1px solid var(--color-border); padding:2px 6px; border-radius:10px; font-weight:600; color:var(--color-text-muted);">${itemCount} item${itemCount > 1 ? 's' : ''}</span>
+            <span style="font-size:12.5px; font-weight:700; color:var(--color-primary);">₹${group.subtotal.toLocaleString('en-IN')}</span>
+            <button type="button" onclick="toggleShopBasketCollapse(${group.store_id})" style="background:transparent; border:none; color:var(--color-text-muted); cursor:pointer; padding:4px 6px; font-size:12px;" title="${isCollapsed ? 'Expand basket' : 'Collapse basket'}">
+              <i class="fa-solid ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'}"></i>
+            </button>
+          </div>
         </div>
 
-        <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px;">
-          <span style="font-weight:600; color:var(--color-text-muted);"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
-          <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer;">
-            <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>Standard Delivery (₹20)</option>
-            <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup</option>
-          </select>
-        </div>
+        <div class="shop-cart-collapsible-body" style="display:${isCollapsed ? 'none' : 'block'};">
+          <div style="padding:6px 12px; background:var(--color-bg-subtle); border-bottom:1px solid var(--color-border-subtle); display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+            <span style="font-weight:600; color:var(--color-text-muted);"><i class="fa-solid fa-truck"></i> Fulfillment:</span>
+            <select onchange="updateShopFulfillment('${group.name.replace(/'/g, "\\'")}', this.value)" style="font-size:11px; padding:2px 6px; border-radius:4px; border:1px solid var(--color-border); background:var(--color-bg-surface); cursor:pointer;">
+              <option value="delivery" ${group.fulfillment === 'delivery' ? 'selected' : ''}>Standard Delivery (₹20)</option>
+              <option value="pickup" ${group.fulfillment === 'pickup' ? 'selected' : ''}>Store Pickup (FREE)</option>
+            </select>
+          </div>
 
-        <div class="shop-cart-items-list">
-          ${group.items.map(item => {
-            const p = item.product;
-            return `
-              <div class="drawer-item" style="padding:8px 0; border-bottom:1px solid var(--color-border-subtle);">
-                <img src="${p.image_url}" alt="${escapeHtml(p.title)}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
-                <div style="flex:1;">
-                  <div class="drawer-item-title" style="font-size:12.5px;">${escapeHtml(p.title)}</div>
-                  <div class="drawer-item-price" style="font-size:13px;">₹${p.price.toLocaleString('en-IN')}</div>
-                  <div class="drawer-qty-control" style="margin-top:4px;">
-                    <button onclick="updateCartItemQty('${item.id || item.key}', -1)">-</button>
-                    <span>${item.qty}</span>
-                    <button onclick="updateCartItemQty('${item.id || item.key}', 1)">+</button>
+          <div class="shop-cart-items-list">
+            ${group.items.map(item => {
+              const p = item.product;
+              return `
+                <div class="drawer-item" style="padding:8px 0; border-bottom:1px solid var(--color-border-subtle);">
+                  <img src="${p.image_url}" alt="${escapeHtml(p.title)}" style="width:48px; height:48px; object-fit:contain; border-radius:4px; border:1px solid var(--color-border); padding:2px;">
+                  <div style="flex:1;">
+                    <div class="drawer-item-title" style="font-size:12.5px;">${escapeHtml(p.title)}</div>
+                    <div class="drawer-item-price" style="font-size:13px; font-weight:700;">₹${p.price.toLocaleString('en-IN')}</div>
+                    <div class="drawer-qty-control" style="margin-top:4px;">
+                      <button onclick="updateCartItemQty('${item.id || item.key}', -1)">-</button>
+                      <span>${item.qty}</span>
+                      <button onclick="updateCartItemQty('${item.id || item.key}', 1)">+</button>
+                    </div>
                   </div>
+                  <button onclick="removeCartItem('${item.id || item.key}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
                 </div>
-                <button onclick="removeCartItem('${item.id || item.key}')" style="background:transparent; border:none; color:var(--color-danger); cursor:pointer; padding:4px;" title="Remove">
-                  <i class="fa-solid fa-trash-can"></i>
-                </button>
-              </div>
-            `;
-          }).join("")}
-        </div>
+              `;
+            }).join("")}
+          </div>
 
-        <div class="shop-cart-subtotal-bar">
-          <span style="color:var(--color-text-muted);">Shop Items: ${group.items.reduce((s, i) => s + i.qty, 0)}</span>
-          <span>Shop Subtotal: ₹${group.subtotal.toLocaleString('en-IN')}</span>
+          <div class="shop-cart-subtotal-bar" style="display:flex; justify-content:space-between; padding:8px 12px; font-size:11.5px; background:var(--color-bg-subtle); border-top:1px solid var(--color-border-subtle);">
+            <span style="color:var(--color-text-muted);">Store Items: ${itemCount}</span>
+            <span style="font-weight:700; color:var(--color-text-main);">Store Subtotal: ₹${group.subtotal.toLocaleString('en-IN')}</span>
+          </div>
         </div>
       </div>
     `;
@@ -1308,7 +1341,7 @@ function createProductCardHTML(p) {
         </div>
 
         <div class="product-card-actions">
-          <button class="btn-add-cart" onclick="addToCart(${p.id})" ${p.stock <= 0 ? 'disabled' : ''}>
+          <button class="btn-add-cart" onclick="addToCart(${p.id}, 1, ${p.store_id || 'null'}, '${(p.store_name || '').replace(/'/g, "\\'")}')" ${p.stock <= 0 ? 'disabled' : ''}>
             <i class="fa-solid fa-bag-shopping"></i> Add to Cart
           </button>
           <button class="btn-quick-view" onclick="openQuickView(${p.id})" title="Quick View">
@@ -1993,9 +2026,11 @@ function renderCartPage() {
       </div>
       ${activeShops.map(shop => {
         const isSelected = appState.selectedRetailStores.has(shop.store_id);
+        const isCollapsed = Boolean(appState.collapsedShops && appState.collapsedShops.has(shop.store_id));
         const shopSubtotal = shop.items.reduce((sum, it) => sum + (((it.product && it.product.price) || 0) * it.qty), 0);
         const fee = (shop.fulfillment === 'pickup') ? 0 : shop.delivery_fee;
         const shopTotal = shopSubtotal + fee;
+        const shopItemCount = shop.items.reduce((s, i) => s + i.qty, 0);
 
         if (isSelected) {
           combinedSelectedSubtotal += shopSubtotal;
@@ -2019,62 +2054,72 @@ function renderCartPage() {
                 </div>
               </div>
 
-              <button class="btn-secondary" onclick="clearStoreBasket(${shop.store_id})" style="font-size:11.5px; padding:4px 9px; color:var(--color-danger); border-color:var(--color-danger-light);">
-                <i class="fa-solid fa-trash-can"></i> Clear Store Basket
-              </button>
-            </div>
-
-            <!-- Fulfillment Toggle -->
-            <div style="background:var(--color-bg-subtle); padding:10px 14px; border-radius:var(--radius-md); margin-bottom:14px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; font-size:12.5px;">
-              <span style="font-weight:700; color:var(--color-text-main);"><i class="fa-solid fa-truck-fast"></i> Delivery Method:</span>
-              <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                <input type="radio" name="store_fulfill_${shop.store_id}" value="delivery" ${shop.fulfillment !== 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'delivery')">
-                <span>2-Hour Delivery (₹${shop.delivery_fee})</span>
-              </label>
-              <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                <input type="radio" name="store_fulfill_${shop.store_id}" value="pickup" ${shop.fulfillment === 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'pickup')">
-                <span>Store Pickup (<strong style="color:var(--color-sage);">FREE ₹0</strong>)</span>
-              </label>
-            </div>
-
-            <!-- Store Items List -->
-            <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
-              ${shop.items.map(it => {
-                const p = it.product;
-                const itTotal = (p.price || 0) * it.qty;
-                return `
-                  <div style="display:grid; grid-template-columns:64px 1fr auto auto; gap:16px; align-items:center; padding:10px 0; border-bottom:1px solid var(--color-border-subtle);">
-                    <img src="${p.image_url}" alt="${p.title}" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:2px;">
-                    <div>
-                      <h4 style="font-size:13.5px; margin:0 0 4px 0;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>
-                      <span style="font-size:12px; color:var(--color-primary); font-weight:700;">₹${(p.price || 0).toLocaleString('en-IN')} / unit</span>
-                      <div style="font-size:11px; color:var(--color-text-muted); margin-top:2px;">Store Stock: ${p.stock || 20} units</div>
-                    </div>
-                    <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
-                      <button onclick="updateCartItemQty('${it.id || it.key}', -1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>
-                      <span style="padding:4px 12px; font-weight:700; font-size:13px;">${it.qty}</span>
-                      <button onclick="updateCartItemQty('${it.id || it.key}', 1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">+</button>
-                    </div>
-                    <div style="text-align:right;">
-                      <div style="font-size:15px; font-weight:800; color:var(--color-text-main);">₹${itTotal.toLocaleString('en-IN')}</div>
-                      <button onclick="removeCartItem('${it.id || it.key}')" style="background:transparent; border:none; color:var(--color-danger); font-size:11px; cursor:pointer; margin-top:2px;">
-                        <i class="fa-solid fa-trash-can"></i> Remove
-                      </button>
-                    </div>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-
-            <!-- Store Subtotal & Checkout This Store Action -->
-            <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px dashed var(--color-border);">
-              <div>
-                <span style="font-size:12px; color:var(--color-text-muted);">Basket Subtotal: ₹${shopSubtotal.toLocaleString('en-IN')} + Delivery: ₹${fee}</span>
-                <div style="font-size:15px; font-weight:800; color:var(--color-primary);">Store Total: ₹${shopTotal.toLocaleString('en-IN')}</div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:12px; background:var(--color-bg-subtle); border:1px solid var(--color-border); padding:3px 8px; border-radius:12px; font-weight:600; color:var(--color-text-muted);">${shopItemCount} item${shopItemCount > 1 ? 's' : ''}</span>
+                <span style="font-size:14px; font-weight:700; color:var(--color-primary);">₹${shopTotal.toLocaleString('en-IN')}</span>
+                <button type="button" class="btn-secondary" onclick="toggleShopBasketCollapse(${shop.store_id})" style="font-size:12px; padding:4px 8px; cursor:pointer;" title="${isCollapsed ? 'Expand store basket' : 'Collapse store basket'}">
+                  <i class="fa-solid ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'}"></i>
+                </button>
+                <button class="btn-secondary" onclick="clearStoreBasket(${shop.store_id})" style="font-size:11.5px; padding:4px 9px; color:var(--color-danger); border-color:var(--color-danger-light);">
+                  <i class="fa-solid fa-trash-can"></i> Clear Store Basket
+                </button>
               </div>
-              <button class="btn-primary" onclick="checkoutSingleRetailStore(${shop.store_id})" style="font-size:12.5px; padding:8px 16px;">
-                <i class="fa-solid fa-bag-shopping"></i> Checkout This Store Only
-              </button>
+            </div>
+
+            <!-- Collapsible Body -->
+            <div class="shop-cart-collapsible-body" style="display:${isCollapsed ? 'none' : 'block'};">
+              <!-- Fulfillment Toggle -->
+              <div style="background:var(--color-bg-subtle); padding:10px 14px; border-radius:var(--radius-md); margin-bottom:14px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; font-size:12.5px;">
+                <span style="font-weight:700; color:var(--color-text-main);"><i class="fa-solid fa-truck-fast"></i> Delivery Method:</span>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="radio" name="store_fulfill_${shop.store_id}" value="delivery" ${shop.fulfillment !== 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'delivery')">
+                  <span>2-Hour Delivery (₹${shop.delivery_fee})</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                  <input type="radio" name="store_fulfill_${shop.store_id}" value="pickup" ${shop.fulfillment === 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'pickup')">
+                  <span>Store Pickup (<strong style="color:var(--color-sage);">FREE ₹0</strong>)</span>
+                </label>
+              </div>
+
+              <!-- Store Items List -->
+              <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+                ${shop.items.map(it => {
+                  const p = it.product;
+                  const itTotal = (p.price || 0) * it.qty;
+                  return `
+                    <div style="display:grid; grid-template-columns:64px 1fr auto auto; gap:16px; align-items:center; padding:10px 0; border-bottom:1px solid var(--color-border-subtle);">
+                      <img src="${p.image_url}" alt="${p.title}" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); border:1px solid var(--color-border); padding:2px;">
+                      <div>
+                        <h4 style="font-size:13.5px; margin:0 0 4px 0;"><a href="/product/${p.id}">${escapeHtml(p.title)}</a></h4>
+                        <span style="font-size:12px; color:var(--color-primary); font-weight:700;">₹${(p.price || 0).toLocaleString('en-IN')} / unit</span>
+                        <div style="font-size:11px; color:var(--color-text-muted); margin-top:2px;">Store Stock: ${p.stock || 20} units</div>
+                      </div>
+                      <div style="display:flex; align-items:center; border:1px solid var(--color-border); border-radius:var(--radius-sm); overflow:hidden;">
+                        <button onclick="updateCartItemQty('${it.id || it.key}', -1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">-</button>
+                        <span style="padding:4px 12px; font-weight:700; font-size:13px;">${it.qty}</span>
+                        <button onclick="updateCartItemQty('${it.id || it.key}', 1)" style="padding:4px 10px; background:var(--color-bg-subtle); border:none; cursor:pointer; font-weight:700;">+</button>
+                      </div>
+                      <div style="text-align:right;">
+                        <div style="font-size:15px; font-weight:800; color:var(--color-text-main);">₹${itTotal.toLocaleString('en-IN')}</div>
+                        <button onclick="removeCartItem('${it.id || it.key}')" style="background:transparent; border:none; color:var(--color-danger); font-size:11px; cursor:pointer; margin-top:2px;">
+                          <i class="fa-solid fa-trash-can"></i> Remove
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+
+              <!-- Store Subtotal & Checkout This Store Action -->
+              <div style="display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px dashed var(--color-border);">
+                <div>
+                  <span style="font-size:12px; color:var(--color-text-muted);">Basket Subtotal: ₹${shopSubtotal.toLocaleString('en-IN')} + Delivery: ₹${fee}</span>
+                  <div style="font-size:15px; font-weight:800; color:var(--color-primary);">Store Total: ₹${shopTotal.toLocaleString('en-IN')}</div>
+                </div>
+                <button class="btn-primary" onclick="checkoutSingleRetailStore(${shop.store_id})" style="font-size:12.5px; padding:8px 16px;">
+                  <i class="fa-solid fa-bag-shopping"></i> Checkout This Store Only
+                </button>
+              </div>
             </div>
 
           </div>

@@ -870,6 +870,12 @@ def add_to_retail_cart_api():
 
     available_stock = int(inv["stock_quantity"])
 
+    cust_id, sess_id = _get_cart_auth()
+    try:
+        db_service.add_to_cart(cust_id, sess_id, "RETAIL_NEAR_ME", pid, qty, store_id=sid, fulfillment=fulfillment)
+    except Exception as e:
+        logger.warning(f"DB add_to_cart sync notice in legacy endpoint: {e}")
+
     cart_dict = _get_session_retail_cart()
     item_key = f"{sid}_{pid}"
     existing_qty = cart_dict[item_key]["quantity"] if item_key in cart_dict else 0

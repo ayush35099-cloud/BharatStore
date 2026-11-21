@@ -654,29 +654,8 @@
 
   async function addFromSpecificShop(productId, storeId, storeName, qty = 1) {
     try {
-      const res = await fetch("/api/retail/cart/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_id: productId,
-          store_id: storeId,
-          store_name: storeName,
-          quantity: qty
-        })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        showToast(data.error || "Could not add item to basket", true);
-        return;
-      }
-      showToast(`Added to basket from ${storeName}!`);
+      await addToCart(productId, qty, Number(storeId), storeName);
       closePriceComparisonModal();
-      if (window.appState && window.appState.selectedRetailStores) {
-        window.appState.selectedRetailStores.add(Number(storeId));
-      }
-      if (window.fetchAndSyncRetailCart) {
-        await window.fetchAndSyncRetailCart();
-      }
       openCartDrawer();
     } catch (err) {
       console.error("addFromSpecificShop error:", err);

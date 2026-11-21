@@ -9,8 +9,9 @@ import logging
 import hmac
 import uuid
 import concurrent.futures
+from typing import Optional, Dict, Any, List
 from functools import wraps
-from flask import Blueprint, request, jsonify, render_template, Response, session
+from flask import Blueprint, request, jsonify, render_template, Response, session, redirect, url_for
 from app.config import Config
 from app.database import DatabaseService, OrderStatus, PaymentStatus
 from app.payment_service import PaymentService
@@ -91,20 +92,35 @@ except Exception as e:
 # -------------------------------------------------------------------------
 # Shopping Mode Constants & Persistence Helpers
 # -------------------------------------------------------------------------
-VALID_SHOPPING_MODES = {"RETAIL_NEAR_ME", "ONLINE"}
+MODE_NORMALIZATION = {
+    "RETAIL": "RETAIL_NEAR_ME",
+    "RETAIL_NEAR_ME": "RETAIL_NEAR_ME",
+    "ONLINE": "ONLINE",
+    "MARKETPLACE": "ONLINE"
+}
+VALID_SHOPPING_MODES = {"RETAIL_NEAR_ME", "ONLINE", "RETAIL", "retail", "online", "retail_near_me"}
 DEFAULT_SHOPPING_MODE = "ONLINE"
+
+def normalize_shopping_mode(mode: Optional[str]) -> Optional[str]:
+    """Normalizes mode strings like 'retail', 'online', 'RETAIL_NEAR_ME' to canonical mode."""
+    if not mode or not isinstance(mode, str):
+        return None
+    cleaned = mode.strip().upper().replace("-", "_").replace(" ", "_")
+    return MODE_NORMALIZATION.get(cleaned)
 
 def get_current_shopping_mode() -> str:
     """Retrieves validated shopping mode from session, defaulting to ONLINE."""
     mode = session.get("shopping_mode")
-    if mode in VALID_SHOPPING_MODES:
-        return mode
+    canonical = normalize_shopping_mode(mode)
+    if canonical:
+        return canonical
     return DEFAULT_SHOPPING_MODE
 
 def set_current_shopping_mode(mode: str) -> bool:
     """Sets and validates shopping mode in the session."""
-    if mode in VALID_SHOPPING_MODES:
-        session["shopping_mode"] = mode
+    canonical = normalize_shopping_mode(mode)
+    if canonical:
+        session["shopping_mode"] = canonical
         session.permanent = True
         return True
     return False
@@ -114,7 +130,7 @@ def inject_shopping_mode():
     """Injects current shopping mode into all Jinja2 templates."""
     return {
         "current_shopping_mode": get_current_shopping_mode(),
-        "valid_shopping_modes": sorted(list(VALID_SHOPPING_MODES))
+        "valid_shopping_modes": ["ONLINE", "RETAIL_NEAR_ME"]
     }
 
 # -------------------------------------------------------------------------
@@ -122,6 +138,23 @@ def inject_shopping_mode():
 # -------------------------------------------------------------------------
 @main_bp.route("/")
 def index():
+    mode = get_current_shopping_mode()
+    if mode == "RETAIL_NEAR_ME" and request.args.get("view") != "online":
+        hubs = db_service.get_store_hubs()
+        products = db_service.get_all_products()
+        return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+    return render_template("index.html")
+
+@main_bp.route("/retail")
+def retail_page():
+    set_current_shopping_mode("RETAIL_NEAR_ME")
+    hubs = db_service.get_store_hubs()
+    products = db_service.get_all_products()
+    return render_template("retail.html", hubs=hubs, products=products, active_mode="RETAIL_NEAR_ME")
+
+@main_bp.route("/online")
+def online_page():
+    set_current_shopping_mode("ONLINE")
     return render_template("index.html")
 
 @main_bp.route("/select-mode")
@@ -286,6 +319,7 @@ def set_shopping_mode_api():
     """
     Validates and updates customer shopping mode in session.
     Guarantees strict server-side validation against unauthorized or arbitrary mode identifiers.
+    Accepts 'retail', 'online', 'RETAIL_NEAR_ME', 'ONLINE'.
     """
     data = request.get_json(silent=True) or {}
     mode = data.get("mode")
@@ -295,19 +329,19 @@ def set_shopping_mode_api():
             "error": "A valid 'mode' string is required."
         }), 400
 
-    clean_mode = mode.strip().upper()
-    if clean_mode not in VALID_SHOPPING_MODES:
+    canonical = normalize_shopping_mode(mode)
+    if not canonical:
         return jsonify({
             "success": False,
-            "error": f"Invalid shopping mode '{mode}'. Must be one of: {', '.join(sorted(list(VALID_SHOPPING_MODES)))}."
+            "error": f"Invalid shopping mode '{mode}'. Must be one of: ONLINE, RETAIL_NEAR_ME (or 'retail', 'online')."
         }), 400
 
-    set_current_shopping_mode(clean_mode)
-    logger.info(f"Shopping mode successfully set to '{clean_mode}'")
+    set_current_shopping_mode(canonical)
+    logger.info(f"Shopping mode successfully set to '{canonical}'")
     return jsonify({
         "success": True,
-        "mode": clean_mode,
-        "message": f"Shopping mode successfully switched to {clean_mode}."
+        "mode": canonical,
+        "message": f"Shopping mode successfully switched to {canonical}."
     })
 
 # -------------------------------------------------------------------------

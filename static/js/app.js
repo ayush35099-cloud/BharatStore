@@ -164,6 +164,10 @@ function updateModeNav() {
   document.querySelectorAll(".online-only-nav").forEach(el => {
     el.classList.toggle("nav-hidden", isRetail);
   });
+  const homeLink = document.getElementById("nav-mode-home");
+  if (homeLink) {
+    homeLink.setAttribute("href", isRetail ? "/retail" : "/");
+  }
 }
 
 function handleModeSwitchRequest(targetMode) {
@@ -289,6 +293,32 @@ async function executeModeSwitch(targetMode) {
   if (document.getElementById("cart-page-items-list")) {
     renderCartPage();
   }
+
+  // 6. Seamless Mode-Aware Navigation Transition
+  const currentPath = window.location.pathname;
+  if (targetMode === "RETAIL_NEAR_ME") {
+    // If not already on retail page, navigate to Retail Near Me experience
+    if (currentPath !== "/retail") {
+      setTimeout(() => {
+        window.location.href = "/retail";
+      }, 300);
+      return;
+    }
+    // If location is not set yet, prompt location/store selector
+    if (!localStorage.getItem("bharatstore_selected_city")) {
+      setTimeout(() => {
+        openHubSwitchModal();
+      }, 400);
+    }
+  } else if (targetMode === "ONLINE") {
+    // If on retail page or select-mode, navigate to full online marketplace homepage
+    if (currentPath === "/retail" || currentPath === "/select-mode") {
+      setTimeout(() => {
+        window.location.href = "/?view=online";
+      }, 300);
+      return;
+    }
+  }
 }
 
 function openModeSelectModal() {
@@ -309,13 +339,21 @@ function selectModeFromModal(targetMode) {
 function selectModeAndNavigate(targetMode) {
   handleModeSwitchRequest(targetMode);
   setTimeout(() => {
-    window.location.href = "/";
+    if (targetMode === "RETAIL_NEAR_ME") {
+      window.location.href = "/retail";
+    } else {
+      window.location.href = "/?view=online";
+    }
   }, 250);
 }
 
 function handleNearbyStoresNav() {
-  showToast("Retail Near Me: Stores within 15 km in Mumbai, Bengaluru, Delhi, Hyderabad, Chennai & Kolkata! Full GPS discovery activates in Phase 5.");
-  openHubSwitchModal();
+  const nearbyEl = document.getElementById("nearby-stores-section");
+  if (nearbyEl) {
+    nearbyEl.scrollIntoView({ behavior: "smooth" });
+  } else {
+    window.location.href = "/retail#nearby-stores-section";
+  }
 }
 
 // -----------------------------------------------------------------------------

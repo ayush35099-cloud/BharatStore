@@ -58,7 +58,12 @@ class TestPhase2ShoppingModes(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data["success"])
         self.assertEqual(data["mode"], "RETAIL_NEAR_ME")
-        print(" [PASSED] 2. Retail Near Me mode can be selected via API")
+
+        # Also verify normalization of 'retail'
+        res_norm = self.client.post("/api/shopping-mode", json={"mode": "retail"})
+        self.assertEqual(res_norm.status_code, 200)
+        self.assertEqual(res_norm.get_json()["mode"], "RETAIL_NEAR_ME")
+        print(" [PASSED] 2. Retail Near Me mode can be selected via API (supports 'RETAIL_NEAR_ME' and 'retail')")
 
     # 3. Online mode selection
     def test_03_online_mode_selection(self):
@@ -67,7 +72,12 @@ class TestPhase2ShoppingModes(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data["success"])
         self.assertEqual(data["mode"], "ONLINE")
-        print(" [PASSED] 3. Online Shopping mode can be selected via API")
+
+        # Also verify normalization of 'online'
+        res_norm = self.client.post("/api/shopping-mode", json={"mode": "online"})
+        self.assertEqual(res_norm.status_code, 200)
+        self.assertEqual(res_norm.get_json()["mode"], "ONLINE")
+        print(" [PASSED] 3. Online Shopping mode can be selected via API (supports 'ONLINE' and 'online')")
 
     # 4. Session persistence
     def test_04_session_persistence(self):
@@ -231,6 +241,61 @@ class TestPhase2ShoppingModes(unittest.TestCase):
         self.assertIn('id="nav-mode-orders"', base_html)
         self.assertIn('id="nav-mode-cart"', base_html)
         print(" [PASSED] 14. Mode-specific navigation and /select-mode page fully verified")
+
+    # 15. Dedicated /retail route loads Retail Near Me storefront
+    def test_15_retail_page_route(self):
+        with self.app.test_client() as client:
+            res = client.get("/retail")
+            self.assertEqual(res.status_code, 200)
+            html = res.get_data(as_text=True)
+
+            self.assertIn("Nearby Stores within 15 km", html)
+            self.assertIn("store-hub-card", html)
+            self.assertIn("2-Hour Express Delivery", html)
+            self.assertIn("BharatStore Mumbai MegaHub", html)
+
+            # Check that accessing /retail set session mode to RETAIL_NEAR_ME
+            mode_res = client.get("/api/shopping-mode")
+            self.assertEqual(mode_res.get_json()["mode"], "RETAIL_NEAR_ME")
+        print(" [PASSED] 15. Dedicated /retail route successfully loads Retail Near Me storefront (HTTP 200)")
+
+    # 16. Dedicated /online route loads Online Shopping marketplace
+    def test_16_online_page_route(self):
+        with self.app.test_client() as client:
+            res = client.get("/online")
+            self.assertEqual(res.status_code, 200)
+            html = res.get_data(as_text=True)
+
+            self.assertIn("Physical Stores Across India", html)
+            self.assertIn("Explore 50+ Products", html)
+
+            # Check that accessing /online set session mode to ONLINE
+            mode_res = client.get("/api/shopping-mode")
+            self.assertEqual(mode_res.get_json()["mode"], "ONLINE")
+        print(" [PASSED] 16. Dedicated /online route successfully loads Online Shopping marketplace (HTTP 200)")
+
+    # 17. Seamless Homepage switching according to active mode
+    def test_17_homepage_dual_view_switch(self):
+        with self.app.test_client() as client:
+            # Step A: In ONLINE mode, homepage loads marketplace
+            client.post("/api/shopping-mode", json={"mode": "online"})
+            home_online = client.get("/")
+            self.assertEqual(home_online.status_code, 200)
+            self.assertIn("Physical Stores Across India", home_online.get_data(as_text=True))
+
+            # Step B: In RETAIL mode, homepage loads Retail Near Me
+            client.post("/api/shopping-mode", json={"mode": "retail"})
+            home_retail = client.get("/")
+            self.assertEqual(home_retail.status_code, 200)
+            retail_html = home_retail.get_data(as_text=True)
+            self.assertIn("Nearby Stores within 15 km", retail_html)
+            self.assertIn("Neighbourhood Physical Stores", retail_html)
+
+            # Step C: Refreshing / preserves the Retail view
+            home_retail_refreshed = client.get("/")
+            self.assertEqual(home_retail_refreshed.status_code, 200)
+            self.assertIn("Nearby Stores within 15 km", home_retail_refreshed.get_data(as_text=True))
+        print(" [PASSED] 17. Homepage seamlessly switches between Retail Near Me and Online Shopping and survives refresh")
 
 
 if __name__ == "__main__":

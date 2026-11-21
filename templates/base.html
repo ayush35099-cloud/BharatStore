@@ -53,7 +53,7 @@
     <div class="container header-inner">
       
       <!-- Brand Logo -->
-      <a href="/" class="brand-logo-group">
+      <a href="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}/retail{% else %}/{% endif %}" class="brand-logo-group">
         <div class="logo-badge-icon">
           <i class="fa-solid fa-store"></i>
         </div>
@@ -176,14 +176,14 @@
     <div class="container category-nav-inner">
       <!-- Mode-Specific Primary Nav Links -->
       <div class="mode-nav-links" id="mode-nav-links">
-        <a href="/" class="category-nav-link" id="nav-mode-home">
+        <a href="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}/retail{% else %}/{% endif %}" class="category-nav-link" id="nav-mode-home">
           <i class="fa-solid fa-house"></i> Home
         </a>
         <a href="/products" class="category-nav-link" id="nav-mode-categories">
           <i class="fa-solid fa-layer-group"></i> Categories
         </a>
         <!-- Retail Near Me link -->
-        <a href="javascript:void(0)" onclick="handleNearbyStoresNav()" class="category-nav-link retail-only-nav {% if current_shopping_mode != 'RETAIL_NEAR_ME' %}nav-hidden{% endif %}" id="nav-mode-nearby-stores">
+        <a href="/retail#nearby-stores-section" onclick="handleNearbyStoresNav()" class="category-nav-link retail-only-nav {% if current_shopping_mode != 'RETAIL_NEAR_ME' %}nav-hidden{% endif %}" id="nav-mode-nearby-stores">
           <i class="fa-solid fa-location-crosshairs"></i> Nearby Stores <span class="nav-chip-badge">15 km</span>
         </a>
         <!-- Online Shopping link -->

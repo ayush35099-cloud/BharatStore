@@ -30,12 +30,16 @@
           </div>
           <div class="active-store-info">
             <span class="active-store-label">Current Fulfillment Store:</span>
-            <strong class="active-store-name" id="retail-hero-store-name">BharatStore Mumbai MegaHub - Andheri West</strong>
-            <span class="active-store-meta" id="retail-hero-store-meta">Linking Road, Bandra West • 1.8 km away • 2-Hour Express Delivery (₹20) or Pickup (FREE)</span>
+            <strong class="active-store-name" id="retail-hero-store-name">
+              {{ current_delivery_location.nearest_hub if current_delivery_location and current_delivery_location.nearest_hub else 'BharatStore Mumbai Central Store' }}
+            </strong>
+            <span class="active-store-meta" id="retail-hero-store-meta">
+              {{ current_delivery_location.formatted if current_delivery_location and current_delivery_location.formatted else 'Bandra West, Mumbai' }} • {{ current_delivery_location.distance_km if current_delivery_location and current_delivery_location.distance_km else '0.5' }} km away • 2-Hour Express Delivery (₹20) or Pickup (FREE)
+            </span>
           </div>
-          <button type="button" class="btn-primary active-store-change-btn" onclick="openHubSwitchModal()" aria-label="Change Store Location">
+          <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Delivery Location">
             <i class="fa-solid fa-arrows-rotate"></i>
-            <span>Change Store</span>
+            <span>Change Location</span>
           </button>
         </div>
       </div>

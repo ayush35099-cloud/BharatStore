@@ -5,6 +5,7 @@ and seamless ACID-compliant fallback with concurrency locks.
 """
 
 import os
+import re
 import json
 import uuid
 import time
@@ -1692,3 +1693,321 @@ class DatabaseService:
             "low_stock_count": low_stock,
             "total_customers": cust_count
         }
+
+    # =========================================================================
+    # Phase 3: Location & Customer Saved Address Management
+    # =========================================================================
+
+    @staticmethod
+    def validate_pincode(pincode: Any) -> bool:
+        """Validates Indian 6-digit postal PIN code (e.g. 400050, cannot start with 0)."""
+        if not pincode or not isinstance(pincode, (str, int)):
+            return False
+        return bool(re.match(r"^[1-9][0-9]{5}$", str(pincode).strip()))
+
+    @staticmethod
+    def validate_phone(phone: Any) -> bool:
+        """Validates Indian 10-digit mobile number with optional +91 prefix."""
+        if not phone or not isinstance(phone, str):
+            return False
+        clean = re.sub(r"[\s\-\(\)]", "", phone.strip())
+        return bool(re.match(r"^(\+91)?[6-9]\d{9}$", clean))
+
+    @staticmethod
+    def validate_coordinates(lat: Any, lng: Any) -> bool:
+        """Validates geographic latitude (-90 to 90) and longitude (-180 to 180)."""
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+            return -90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0
+        except (ValueError, TypeError):
+            return False
+
+    def get_customer_addresses(self, customer_id: int) -> List[Dict[str, Any]]:
+        """
+        Retrieves all saved delivery addresses for a customer,
+        ordered by default address first, then most recently added.
+        """
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, customer_id, address_type, full_name, phone,
+                           address_line1, address_line2, landmark, city, state, pincode,
+                           latitude, longitude, is_default, created_at
+                    FROM addresses
+                    WHERE customer_id = %s
+                    ORDER BY is_default DESC, id DESC;
+                """, (customer_id,))
+                rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            return rows
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, customer_id, address_type, full_name, phone,
+                       address_line1, address_line2, landmark, city, state, pincode,
+                       latitude, longitude, is_default, created_at
+                FROM addresses
+                WHERE customer_id = ?
+                ORDER BY is_default DESC, id DESC;
+            """, (customer_id,))
+            rows = []
+            for r in cur.fetchall():
+                d = dict(r)
+                d["is_default"] = bool(d.get("is_default"))
+                rows.append(d)
+            conn.close()
+            return rows
+
+    def add_customer_address(self, customer_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates a new delivery address for a customer with strict server-side validation.
+        Guarantees that each customer has only one default address.
+        """
+        full_name = str(data.get("full_name") or "").strip()
+        phone = str(data.get("phone") or "").strip()
+        address_line1 = str(data.get("address_line1") or "").strip()
+        address_line2 = str(data.get("address_line2") or "").strip() or None
+        landmark = str(data.get("landmark") or "").strip() or None
+        city = str(data.get("city") or "").strip()
+        state = str(data.get("state") or "").strip() or "India"
+        pincode = str(data.get("pincode") or "").strip()
+        address_type = str(data.get("address_type") or "HOME").strip().upper()
+
+        if not full_name:
+            raise ValueError("Full name is required for delivery address.")
+        if not phone or not self.validate_phone(phone):
+            raise ValueError("Invalid phone number. Must be a valid 10-digit Indian mobile number (e.g. +91 98201 12345).")
+        if not address_line1:
+            raise ValueError("Street address / apartment line is required.")
+        if not city:
+            raise ValueError("City is required.")
+        if not pincode or not self.validate_pincode(pincode):
+            raise ValueError("Invalid Indian postal PIN code. Must be exactly 6 digits (e.g. 400030).")
+        if address_type not in {"HOME", "WORK", "OTHER"}:
+            address_type = "HOME"
+
+        lat = data.get("latitude")
+        lng = data.get("longitude")
+        if lat is not None and lng is not None and str(lat).strip() != "" and str(lng).strip() != "":
+            if not self.validate_coordinates(lat, lng):
+                raise ValueError("Coordinates out of range (-90 to 90 lat, -180 to 180 lng).")
+            lat_f = float(lat)
+            lng_f = float(lng)
+        else:
+            lat_f = None
+            lng_f = None
+
+        existing = self.get_customer_addresses(customer_id)
+        is_default = bool(data.get("is_default")) or len(existing) == 0
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if is_default:
+                    cur.execute("UPDATE addresses SET is_default = FALSE WHERE customer_id = %s;", (customer_id,))
+                cur.execute("""
+                    INSERT INTO addresses (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, latitude, longitude, is_default)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING *;
+                """, (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, lat_f, lng_f, is_default))
+                new_addr = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return new_addr
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if is_default:
+                cur.execute("UPDATE addresses SET is_default = 0 WHERE customer_id = ?;", (customer_id,))
+            cur.execute("""
+                INSERT INTO addresses (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, latitude, longitude, is_default)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, lat_f, lng_f, 1 if is_default else 0))
+            new_id = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT * FROM addresses WHERE id = ?;", (new_id,))
+            row = dict(cur.fetchone())
+            row["is_default"] = bool(row.get("is_default"))
+            conn.close()
+            return row
+
+    def update_customer_address(self, address_id: int, customer_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Updates an existing address belonging to the specified customer.
+        Returns None if address does not exist or customer is not the owner.
+        """
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM addresses WHERE id = %s AND customer_id = %s;", (address_id, customer_id))
+                row = cur.fetchone()
+                if not row:
+                    conn.close()
+                    return None
+                existing = dict(row)
+            conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM addresses WHERE id = ? AND customer_id = ?;", (address_id, customer_id))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                return None
+            existing = dict(row)
+
+        # Validate updating fields
+        full_name = str(data.get("full_name") if "full_name" in data else existing["full_name"]).strip()
+        phone = str(data.get("phone") if "phone" in data else existing["phone"]).strip()
+        address_line1 = str(data.get("address_line1") if "address_line1" in data else existing["address_line1"]).strip()
+        address_line2 = data.get("address_line2") if "address_line2" in data else existing.get("address_line2")
+        landmark = data.get("landmark") if "landmark" in data else existing.get("landmark")
+        city = str(data.get("city") if "city" in data else existing["city"]).strip()
+        state = str(data.get("state") if "state" in data else existing["state"]).strip()
+        pincode = str(data.get("pincode") if "pincode" in data else existing["pincode"]).strip()
+        address_type = str(data.get("address_type") if "address_type" in data else existing["address_type"]).strip().upper()
+
+        if not full_name:
+            raise ValueError("Full name cannot be empty.")
+        if not self.validate_phone(phone):
+            raise ValueError("Invalid phone number format.")
+        if not address_line1:
+            raise ValueError("Street address cannot be empty.")
+        if not city:
+            raise ValueError("City cannot be empty.")
+        if not self.validate_pincode(pincode):
+            raise ValueError("Invalid Indian postal PIN code format.")
+        if address_type not in {"HOME", "WORK", "OTHER"}:
+            address_type = "HOME"
+
+        lat = data.get("latitude") if "latitude" in data else existing.get("latitude")
+        lng = data.get("longitude") if "longitude" in data else existing.get("longitude")
+        if lat is not None and lng is not None and str(lat).strip() != "" and str(lng).strip() != "":
+            if not self.validate_coordinates(lat, lng):
+                raise ValueError("Coordinates out of range (-90 to 90 lat, -180 to 180 lng).")
+            lat_f = float(lat)
+            lng_f = float(lng)
+        else:
+            lat_f = None
+            lng_f = None
+
+        is_default = bool(data.get("is_default")) if "is_default" in data else bool(existing["is_default"])
+
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if is_default:
+                    cur.execute("UPDATE addresses SET is_default = FALSE WHERE customer_id = %s;", (customer_id,))
+                cur.execute("""
+                    UPDATE addresses
+                    SET address_type = %s, full_name = %s, phone = %s, address_line1 = %s,
+                        address_line2 = %s, landmark = %s, city = %s, state = %s,
+                        pincode = %s, latitude = %s, longitude = %s, is_default = %s
+                    WHERE id = %s AND customer_id = %s
+                    RETURNING *;
+                """, (address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, lat_f, lng_f, is_default, address_id, customer_id))
+                updated = dict(cur.fetchone())
+                conn.commit()
+            conn.close()
+            return updated
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            if is_default:
+                cur.execute("UPDATE addresses SET is_default = 0 WHERE customer_id = ?;", (customer_id,))
+            cur.execute("""
+                UPDATE addresses
+                SET address_type = ?, full_name = ?, phone = ?, address_line1 = ?,
+                    address_line2 = ?, landmark = ?, city = ?, state = ?,
+                    pincode = ?, latitude = ?, longitude = ?, is_default = ?
+                WHERE id = ? AND customer_id = ?;
+            """, (address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, lat_f, lng_f, 1 if is_default else 0, address_id, customer_id))
+            conn.commit()
+            cur.execute("SELECT * FROM addresses WHERE id = ?;", (address_id,))
+            row = dict(cur.fetchone())
+            row["is_default"] = bool(row.get("is_default"))
+            conn.close()
+            return row
+
+    def delete_customer_address(self, address_id: int, customer_id: int) -> bool:
+        """
+        Deletes an address owned by customer.
+        If the deleted address was default, promotes the most recent remaining address to default.
+        """
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id, is_default FROM addresses WHERE id = %s AND customer_id = %s;", (address_id, customer_id))
+                row = cur.fetchone()
+                if not row:
+                    conn.close()
+                    return False
+                was_default = row["is_default"]
+                cur.execute("DELETE FROM addresses WHERE id = %s AND customer_id = %s;", (address_id, customer_id))
+                if was_default:
+                    cur.execute("""
+                        SELECT id FROM addresses WHERE customer_id = %s ORDER BY id DESC LIMIT 1;
+                    """, (customer_id,))
+                    rem = cur.fetchone()
+                    if rem:
+                        cur.execute("UPDATE addresses SET is_default = TRUE WHERE id = %s;", (rem["id"],))
+                conn.commit()
+            conn.close()
+            return True
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id, is_default FROM addresses WHERE id = ? AND customer_id = ?;", (address_id, customer_id))
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False
+            was_default = bool(row["is_default"])
+            cur.execute("DELETE FROM addresses WHERE id = ? AND customer_id = ?;", (address_id, customer_id))
+            if was_default:
+                cur.execute("SELECT id FROM addresses WHERE customer_id = ? ORDER BY id DESC LIMIT 1;", (customer_id,))
+                rem = cur.fetchone()
+                if rem:
+                    cur.execute("UPDATE addresses SET is_default = 1 WHERE id = ?;", (rem["id"],))
+            conn.commit()
+            conn.close()
+            return True
+
+    def set_default_customer_address(self, address_id: int, customer_id: int) -> bool:
+        """
+        Atomically marks a specified address as the customer's sole default address.
+        Returns False if address does not exist or is not owned by customer.
+        """
+        if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
+            conn = self._get_pg_connection()
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id FROM addresses WHERE id = %s AND customer_id = %s;", (address_id, customer_id))
+                if not cur.fetchone():
+                    conn.close()
+                    return False
+                cur.execute("UPDATE addresses SET is_default = FALSE WHERE customer_id = %s;", (customer_id,))
+                cur.execute("UPDATE addresses SET is_default = TRUE WHERE id = %s AND customer_id = %s;", (address_id, customer_id))
+                conn.commit()
+            conn.close()
+            return True
+        else:
+            conn = self._get_sqlite_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM addresses WHERE id = ? AND customer_id = ?;", (address_id, customer_id))
+            if not cur.fetchone():
+                conn.close()
+                return False
+            cur.execute("UPDATE addresses SET is_default = 0 WHERE customer_id = ?;", (customer_id,))
+            cur.execute("UPDATE addresses SET is_default = 1 WHERE id = ? AND customer_id = ?;", (address_id, customer_id))
+            conn.commit()
+            conn.close()
+            return True

@@ -72,6 +72,8 @@ def get_pg_schema_ddl() -> List[str]:
             city VARCHAR(100) NOT NULL,
             state VARCHAR(100) NOT NULL,
             pincode VARCHAR(20) NOT NULL,
+            latitude NUMERIC(10, 6),
+            longitude NUMERIC(10, 6),
             is_default BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -413,6 +415,8 @@ def get_sqlite_schema_ddl() -> List[str]:
             city TEXT NOT NULL,
             state TEXT NOT NULL,
             pincode TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
             is_default INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
@@ -742,7 +746,11 @@ INDEXES_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_shipments_order ON shipments(order_id);",
     "CREATE INDEX IF NOT EXISTS idx_shipments_tracking ON shipments(tracking_number);",
     "CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews(product_id);",
-    "CREATE INDEX IF NOT EXISTS idx_reviews_customer ON product_reviews(customer_id);"
+    "CREATE INDEX IF NOT EXISTS idx_reviews_customer ON product_reviews(customer_id);",
+
+    # Addresses (Phase 3)
+    "CREATE INDEX IF NOT EXISTS idx_addresses_customer ON addresses(customer_id);",
+    "CREATE INDEX IF NOT EXISTS idx_addresses_default ON addresses(customer_id, is_default);"
 ]
 
 # -----------------------------------------------------------------------------
@@ -770,6 +778,69 @@ SAMPLE_CATEGORIES = [
     {"id": 3, "slug": "audio", "name": "Headphones & Audio", "icon": "fa-headphones"},
     {"id": 4, "slug": "wearables", "name": "Wearable Tech", "icon": "fa-clock"},
     {"id": 5, "slug": "appliances", "name": "Home & Kitchen", "icon": "fa-blender"}
+]
+
+SAMPLE_ADDRESSES = [
+    {
+        "customer_id": 1,
+        "address_type": "HOME",
+        "full_name": "Priya Sharma",
+        "phone": "+91 98201 12345",
+        "address_line1": "Flat 402, Sea Green Apts",
+        "address_line2": "Worli Sea Face",
+        "landmark": "Near Coast Guard Station",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400030",
+        "latitude": 19.0178,
+        "longitude": 72.8178,
+        "is_default": True
+    },
+    {
+        "customer_id": 1,
+        "address_type": "WORK",
+        "full_name": "Priya Sharma",
+        "phone": "+91 98201 12345",
+        "address_line1": "Bharat Retail Corp HQ, Level 7",
+        "address_line2": "Linking Road, Bandra West",
+        "landmark": "Opposite National College",
+        "city": "Mumbai",
+        "state": "Maharashtra",
+        "pincode": "400050",
+        "latitude": 19.0596,
+        "longitude": 72.8295,
+        "is_default": False
+    },
+    {
+        "customer_id": 2,
+        "address_type": "HOME",
+        "full_name": "Arjun Patel",
+        "phone": "+91 98450 67890",
+        "address_line1": "Villa 18, Prestige Oasis",
+        "address_line2": "Doddaballapur Road",
+        "landmark": "Near Angsana Resort",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "pincode": "560064",
+        "latitude": 12.9784,
+        "longitude": 77.6408,
+        "is_default": True
+    },
+    {
+        "customer_id": 3,
+        "address_type": "HOME",
+        "full_name": "Simran Kaur",
+        "phone": "+91 98110 54321",
+        "address_line1": "C-4/12, Safdarjung Development Area",
+        "address_line2": "Opposite IIT Main Gate",
+        "landmark": "Near SDA Market",
+        "city": "Delhi NCR",
+        "state": "Delhi",
+        "pincode": "110016",
+        "latitude": 28.5494,
+        "longitude": 77.2001,
+        "is_default": True
+    }
 ]
 
 # -----------------------------------------------------------------------------
@@ -802,7 +873,9 @@ def run_migrations(conn, is_postgres: bool = False):
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS hub_id INT REFERENCES store_hubs(id) ON DELETE SET NULL;",
             "ALTER TABLE inventory ADD COLUMN IF NOT EXISTS min_threshold INT DEFAULT 5;",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id INT REFERENCES sellers(id) ON DELETE SET NULL;",
-            "ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE SET NULL;"
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INT REFERENCES categories(id) ON DELETE SET NULL;",
+            "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 6);",
+            "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 6);"
         ]
         for q in alter_queries:
             try:
@@ -819,7 +892,9 @@ def run_migrations(conn, is_postgres: bool = False):
             ("inventory", "hub_id", "INTEGER REFERENCES store_hubs(id)"),
             ("inventory", "min_threshold", "INTEGER DEFAULT 5"),
             ("products", "seller_id", "INTEGER REFERENCES sellers(id)"),
-            ("products", "category_id", "INTEGER REFERENCES categories(id)")
+            ("products", "category_id", "INTEGER REFERENCES categories(id)"),
+            ("addresses", "latitude", "REAL"),
+            ("addresses", "longitude", "REAL")
         ]
         for tbl, col, col_def in sqlite_alters:
             try:
@@ -881,6 +956,22 @@ def run_migrations(conn, is_postgres: bool = False):
                 INSERT OR IGNORE INTO categories (id, slug, name, icon)
                 VALUES (?, ?, ?, ?);
                 """, (c["id"], c["slug"], c["name"], c["icon"]))
+
+    # Step 7: Seed sample customer addresses if empty
+    cur.execute("SELECT COUNT(*) FROM addresses;")
+    addr_count = cur.fetchone()[0]
+    if addr_count == 0:
+        for a in SAMPLE_ADDRESSES:
+            if is_postgres:
+                cur.execute("""
+                INSERT INTO addresses (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, latitude, longitude, is_default)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """, (a["customer_id"], a["address_type"], a["full_name"], a["phone"], a["address_line1"], a["address_line2"], a["landmark"], a["city"], a["state"], a["pincode"], a["latitude"], a["longitude"], a["is_default"]))
+            else:
+                cur.execute("""
+                INSERT INTO addresses (customer_id, address_type, full_name, phone, address_line1, address_line2, landmark, city, state, pincode, latitude, longitude, is_default)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """, (a["customer_id"], a["address_type"], a["full_name"], a["phone"], a["address_line1"], a["address_line2"], a["landmark"], a["city"], a["state"], a["pincode"], a["latitude"], a["longitude"], 1 if a["is_default"] else 0))
 
     conn.commit()
     logger.info(f"Database schema migrations successfully verified on {'PostgreSQL' if is_postgres else 'SQLite'}.")

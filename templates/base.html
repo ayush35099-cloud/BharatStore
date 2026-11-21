@@ -92,12 +92,18 @@
         </button>
       </div>
 
-      <!-- Delivery Hub Picker -->
-      <div class="hub-selector-box" onclick="openHubSwitchModal()" title="Select your local physical store fulfillment hub">
+      <!-- Delivery Hub / Customer Location Picker (Phase 3) -->
+      <div class="hub-selector-box" id="header-location-picker-btn" onclick="openLocationSelectorModal()" title="Select your delivery location">
         <i class="fa-solid fa-location-dot hub-icon"></i>
         <div class="hub-details">
           <span class="hub-label">Deliver To</span>
-          <span class="hub-name" id="current-hub-display">Mumbai Hub</span>
+          <span class="hub-name" id="current-hub-display">
+            {%- if current_delivery_location and current_delivery_location.formatted -%}
+              {{ current_delivery_location.formatted }}
+            {%- else -%}
+              Bandra West, Mumbai
+            {%- endif -%}
+          </span>
         </div>
         <i class="fa-solid fa-chevron-down" style="font-size: 10px; color: var(--color-text-muted);"></i>
       </div>
@@ -364,27 +370,106 @@
   </div>
 
   <!-- =========================================================================
-       PHYSICAL HUB SWITCH MODAL
+       PHASE 3: INTERACTIVE LOCATION SELECTOR MODAL
        ========================================================================= -->
-  <div class="cart-drawer-overlay" id="hub-modal-overlay" onclick="closeHubSwitchModal(event)">
-    <div style="background:var(--color-bg-surface); padding:28px; border-radius:var(--radius-lg); max-width:480px; width:90%; margin:auto; border:1px solid var(--color-border); box-shadow:var(--shadow-lg);" onclick="event.stopPropagation()">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-        <h3 style="font-size:18px;"><i class="fa-solid fa-location-dot" style="color:var(--color-primary);"></i> Select Local Store Hub</h3>
-        <button onclick="closeHubSwitchModal()" style="background:transparent; border:none; font-size:22px; cursor:pointer;">&times;</button>
+  <div class="cart-drawer-overlay" id="location-selector-modal" onclick="closeLocationSelectorModal(event)">
+    <div class="location-modal-container" onclick="event.stopPropagation()">
+      
+      <!-- Modal Header -->
+      <div class="location-modal-header">
+        <div>
+          <span class="section-kicker" style="font-size:11px; margin-bottom:2px;"><i class="fa-solid fa-location-dot"></i> Delivery Preferences</span>
+          <h2 style="font-size: 20px; font-weight: 700; margin: 0;">Choose Your Delivery Location</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" onclick="closeLocationSelectorModal()" aria-label="Close location selector">&times;</button>
       </div>
-      <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:18px;">
-        Choose your nearest physical store hub to view live hyper-local inventory stock and 2-hour express delivery availability.
+      <p style="font-size: 13px; color: var(--color-text-muted); margin: 6px 0 16px 0;">
+        Enter your delivery address or use device GPS to check real-time stock at your nearest physical store hub (15 km delivery radius).
       </p>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;" id="hub-options-container">
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Mumbai')"><i class="fa-solid fa-store"></i> Mumbai MegaHub</button>
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Bengaluru')"><i class="fa-solid fa-store"></i> Bengaluru Central</button>
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Delhi')"><i class="fa-solid fa-store"></i> Delhi NCR Hub</button>
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Hyderabad')"><i class="fa-solid fa-store"></i> Hyderabad Hub</button>
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Chennai')"><i class="fa-solid fa-store"></i> Chennai Hub</button>
-        <button class="btn-secondary" style="justify-content:flex-start; padding:10px 14px;" onclick="selectDeliveryHub('Kolkata')"><i class="fa-solid fa-store"></i> Kolkata Hub</button>
+
+      <!-- 1. GPS Location Button & Live Status -->
+      <div class="location-gps-card">
+        <button type="button" class="btn-primary gps-trigger-btn" id="gps-detect-btn" onclick="detectGPSLocation()">
+          <i class="fa-solid fa-location-crosshairs"></i>
+          <span>Use My Current Location (GPS)</span>
+        </button>
+        <div class="gps-status-box" id="gps-status-box" style="display:none; margin-top:8px; font-size:12px;">
+          <span id="gps-status-text">Detecting GPS coordinates...</span>
+        </div>
       </div>
+
+      <!-- Quick Divider -->
+      <div class="location-modal-divider">
+        <span>OR SELECT AREA MANUALLY</span>
+      </div>
+
+      <!-- 2. Manual Location Form -->
+      <div class="location-form-grid">
+        <div class="form-group">
+          <label for="loc-modal-city">Metro City *</label>
+          <select id="loc-modal-city" class="form-control" onchange="handleModalCityChange(this.value)">
+            <option value="Mumbai">Mumbai</option>
+            <option value="Bengaluru">Bengaluru</option>
+            <option value="Delhi NCR">Delhi NCR</option>
+            <option value="Hyderabad">Hyderabad</option>
+            <option value="Chennai">Chennai</option>
+            <option value="Kolkata">Kolkata</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="loc-modal-area">Neighbourhood / Area *</label>
+          <select id="loc-modal-area" class="form-control" onchange="handleModalAreaChange(this.value)">
+            <!-- Populated via JS based on selected city -->
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 10px;">
+        <label for="loc-modal-street">Flat, Apartment, Building, Street *</label>
+        <input type="text" id="loc-modal-street" class="form-control" placeholder="e.g. Flat 402, Sea Green Apts, Worli Sea Face" value="Flat 402, Sea Green Apts, Worli Sea Face">
+      </div>
+
+      <div class="form-grid-2" style="margin-top: 10px;">
+        <div class="form-group">
+          <label for="loc-modal-pincode">Postal PIN Code *</label>
+          <input type="text" id="loc-modal-pincode" class="form-control" placeholder="6-digit PIN" maxlength="6" value="400050">
+        </div>
+        <div class="form-group">
+          <label for="loc-modal-landmark">Landmark (Optional)</label>
+          <input type="text" id="loc-modal-landmark" class="form-control" placeholder="e.g. Near Coast Guard Station">
+        </div>
+      </div>
+
+      <!-- 3. Saved Addresses Section (Quick 1-Click Pick) -->
+      <div class="modal-saved-addresses-section" id="modal-saved-addresses-section">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin: 16px 0 8px 0;">
+          <span style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--color-text-muted);">
+            <i class="fa-solid fa-bookmark"></i> Saved Addresses
+          </span>
+          <a href="/profile" style="font-size:12px; color:var(--color-primary); font-weight:600;">Manage in Profile &rarr;</a>
+        </div>
+        <div class="saved-address-pills" id="modal-saved-address-pills">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- Modal Footer Action -->
+      <div class="location-modal-actions" style="margin-top: 20px;">
+        <button type="button" class="btn-primary" style="width: 100%; justify-content: center; padding: 13px; font-size: 15px;" onclick="confirmSelectedDeliveryLocation()">
+          <i class="fa-solid fa-check"></i> Confirm Delivery Location
+        </button>
+      </div>
+
+      <div style="font-size: 11px; color: var(--color-text-muted); text-align: center; margin-top: 12px; line-height: 1.4;">
+        <i class="fa-solid fa-circle-info"></i> Demo geographic data. Distance and delivery rates are calculated from the selected physical store hub.
+      </div>
+
     </div>
   </div>
+
+  <!-- Legacy Hub Switch Modal Wrapper (Backward Compatibility) -->
+  <div class="cart-drawer-overlay" id="hub-modal-overlay" style="display:none;" onclick="closeLocationSelectorModal(event)"></div>
 
   <!-- =========================================================================
        QUICK-VIEW PRODUCT MODAL

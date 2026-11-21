@@ -12,7 +12,7 @@ import uuid
 import concurrent.futures
 from typing import Optional, Dict, Any, List
 from functools import wraps
-from flask import Blueprint, request, jsonify, render_template, Response, session, redirect, url_for
+from flask import Blueprint, request, jsonify, render_template, Response, session, redirect, url_for, flash
 from app.config import Config
 from app.database import DatabaseService, OrderStatus, PaymentStatus
 from app.payment_service import PaymentService
@@ -430,6 +430,101 @@ def retail_page():
     ctx = build_retail_context()
     return render_template("retail.html", **ctx)
 
+@main_bp.route("/retail/stores")
+def retail_stores_page():
+    """
+    Phase 5: Nearby Store Discovery Directory.
+    Displays physical retail grocery shops within 15 km of customer location.
+    Supports distance calculation, sorting, and category/perk filtering.
+    """
+    set_current_shopping_mode("RETAIL_NEAR_ME")
+    
+    loc = session.get("delivery_location") or {}
+    lat_param = request.args.get("lat")
+    lng_param = request.args.get("lng")
+    
+    if lat_param and lng_param:
+        try:
+            cust_lat = float(lat_param)
+            cust_lng = float(lng_param)
+        except (ValueError, TypeError):
+            cust_lat = float(loc.get("lat", 12.9716))
+            cust_lng = float(loc.get("lng", 77.5946))
+    else:
+        cust_lat = float(loc.get("lat", 12.9716))
+        cust_lng = float(loc.get("lng", 77.5946))
+        
+    sort_by = request.args.get("sort", "nearest")
+    cat_filter = request.args.get("filter", "all")
+    open_only = request.args.get("open_now") == "1"
+    delivery_only = request.args.get("delivery") == "1"
+    pickup_only = request.args.get("pickup") == "1"
+    
+    nearby_stores = db_service.get_nearby_stores(
+        lat=cust_lat,
+        lng=cust_lng,
+        max_radius_km=15.0,
+        sort_by=sort_by,
+        category_filter=cat_filter if cat_filter != "all" else None,
+        open_only=open_only,
+        delivery_only=delivery_only,
+        pickup_only=pickup_only
+    )
+    
+    current_store_id = session.get("retail_store_id", 1)
+    
+    return render_template(
+        "retail_stores.html",
+        stores=nearby_stores,
+        total_stores=len(nearby_stores),
+        customer_location={
+            "lat": cust_lat,
+            "lng": cust_lng,
+            "formatted": loc.get("formatted", "Bengaluru, Karnataka"),
+            "city": loc.get("city", "Bengaluru")
+        },
+        active_sort=sort_by,
+        active_filter=cat_filter,
+        open_only=open_only,
+        delivery_only=delivery_only,
+        pickup_only=pickup_only,
+        current_store_id=current_store_id
+    )
+
+@main_bp.route("/retail/store/<int:store_id>")
+def retail_store_front_page(store_id: int):
+    """
+    Phase 5: Dynamic individual storefront for a physical grocery store.
+    Displays store-specific inventory, independent pricing, and stock.
+    """
+    set_current_shopping_mode("RETAIL_NEAR_ME")
+    
+    loc = session.get("delivery_location") or {}
+    cust_lat = loc.get("lat")
+    cust_lng = loc.get("lng")
+    
+    store_catalog = db_service.get_store_detail_with_catalog(store_id, user_lat=cust_lat, user_lng=cust_lng)
+    if not store_catalog:
+        flash(f"Store #{store_id} could not be found.", "warning")
+        return redirect(url_for("main.retail_stores_page"))
+        
+    session["retail_store_id"] = store_id
+    session.modified = True
+    
+    return render_template(
+        "retail_store_detail.html",
+        store=store_catalog["store"],
+        dairy_items=store_catalog["dairy_items"],
+        grains_items=store_catalog["grains_items"],
+        essentials_items=store_catalog["essentials_items"],
+        produce_items=store_catalog["produce_items"],
+        household_items=store_catalog["household_items"],
+        all_products=store_catalog["all_products"],
+        total_products=store_catalog["total_products_count"],
+        current_store=store_catalog["store"],
+        current_delivery_location=loc
+    )
+
 # -----------------------------------------------------------------------------
 # Retail Near Me 5-Shop Price Comparison & Hyperlocal APIs
 # -----------------------------------------------------------------------------
@@ -444,6 +539,97 @@ def get_retail_stores_api():
         "stores": stores,
         "total_stores": len(stores),
         "city": city
+    })
+
+@main_bp.route("/api/retail/stores/nearby", methods=["GET"])
+def get_nearby_retail_stores_api():
+    """
+    Phase 5: Returns physical stores within a maximum 15 km radius
+    calculated using Haversine great-circle distance from customer coordinates.
+    """
+    lat_param = request.args.get("lat")
+    lng_param = request.args.get("lng")
+    radius_param = request.args.get("radius", "15.0")
+    sort_param = request.args.get("sort", "nearest")
+    filter_param = request.args.get("filter")
+    open_only = request.args.get("open_now", "").lower() in ["true", "1", "yes"]
+    delivery_only = request.args.get("delivery", "").lower() in ["true", "1", "yes"]
+    pickup_only = request.args.get("pickup", "").lower() in ["true", "1", "yes"]
+
+    if not lat_param or not lng_param:
+        loc = session.get("delivery_location") or {}
+        if loc.get("lat") and loc.get("lng"):
+            lat_param = loc["lat"]
+            lng_param = loc["lng"]
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Customer latitude ('lat') and longitude ('lng') query parameters are required."
+            }), 400
+
+    try:
+        lat = float(lat_param)
+        lng = float(lng_param)
+        radius = float(radius_param)
+    except (ValueError, TypeError):
+        return jsonify({
+            "success": False,
+            "error": "Latitude, longitude, and radius must be valid numbers."
+        }), 400
+
+    if not (-90.0 <= lat <= 90.0):
+        return jsonify({"success": False, "error": "Latitude must be between -90.0 and 90.0 degrees."}), 400
+    if not (-180.0 <= lng <= 180.0):
+        return jsonify({"success": False, "error": "Longitude must be between -180.0 and 180.0 degrees."}), 400
+    if radius <= 0 or radius > 15.0:
+        return jsonify({"success": False, "error": "Radius must be greater than 0 and cannot exceed 15 km."}), 400
+
+    try:
+        stores = db_service.get_nearby_stores(
+            lat=lat,
+            lng=lng,
+            max_radius_km=radius,
+            sort_by=sort_param,
+            category_filter=filter_param,
+            open_only=open_only,
+            delivery_only=delivery_only,
+            pickup_only=pickup_only
+        )
+        return jsonify({
+            "success": True,
+            "count": len(stores),
+            "radius_km": radius,
+            "customer_location": {
+                "lat": lat,
+                "lng": lng
+            },
+            "stores": stores
+        })
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error(f"Error finding nearby stores: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "Failed to discover nearby stores."}), 500
+
+@main_bp.route("/api/retail/stores/<int:store_id>", methods=["GET"])
+def get_retail_store_by_id_api(store_id: int):
+    """Returns complete details for a specific retail store, enriched with distance if customer coordinates provided."""
+    store = db_service.get_store_by_id(store_id)
+    if not store:
+        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+
+    user_lat = request.args.get("lat")
+    user_lng = request.args.get("lng")
+    if not user_lat or not user_lng:
+        loc = session.get("delivery_location") or {}
+        user_lat = loc.get("lat")
+        user_lng = loc.get("lng")
+
+    store_data = db_service.get_store_detail_with_catalog(store_id, user_lat=user_lat, user_lng=user_lng)
+    return jsonify({
+        "success": True,
+        "store": store_data["store"],
+        "total_products": store_data["total_products_count"]
     })
 
 @main_bp.route("/api/retail/catalog", methods=["GET"])

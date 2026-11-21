@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Nearby Grocery Stores (within 15 km) — BharatStore{% endblock %}
+
+{% block content %}
+<section class="section-wrapper" style="padding-top: 24px; padding-bottom: 50px;">
+  <div class="container">
+
+    <!-- Location Bar -->
+    <div class="active-store-selector-bar" style="margin-bottom: 20px;">
+      <div class="active-store-icon">
+        <i class="fa-solid fa-location-crosshairs"></i>
+      </div>
+      <div class="active-store-info">
+        <span class="active-store-label">Current Discovery Location (15 km Search Radius):</span>
+        <strong class="active-store-name" id="stores-page-location-text">
+          {{ customer_location.formatted if customer_location.formatted else 'Bengaluru, Karnataka' }}
+        </strong>
+        <span class="active-store-meta">
+          Coordinates: {{ '{:.4f}'.format(customer_location.lat) }}, {{ '{:.4f}'.format(customer_location.lng) }} • Distances calculated using Haversine formula (approx. straight-line)
+        </span>
+      </div>
+      <button type="button" class="btn-primary active-store-change-btn" onclick="openLocationSelectorModal()" aria-label="Change Location">
+        <i class="fa-solid fa-location-dot"></i>
+        <span>Change Location</span>
+      </button>
+    </div>
+
+    <!-- Header -->
+    <div style="margin-bottom: 20px;">
+      <span class="section-kicker"><i class="fa-solid fa-shop"></i> 15 km Hyperlocal Radius</span>
+      <h1 style="font-size: 26px; font-weight: 800; color: var(--color-text-main); margin: 6px 0;">
+        Nearby Neighbourhood Grocery Stores
+      </h1>
+      <p style="font-size: 13.5px; color: var(--color-text-muted); max-width: 720px; line-height: 1.5; margin: 0;">
+        Showing verified physical grocery shops within a strict 15 km radius of your location. Compare delivery times, operating hours, and live in-store grocery inventory.
+      </p>
+    </div>
+
+    <!-- Controls Bar (Filters & Sorting) -->
+    <div class="stores-controls-wrapper">
+      <div class="stores-controls-row">
+        <!-- Category Filters -->
+        <div class="stores-filter-group">
+          <span style="font-size:12px; font-weight:700; color:var(--color-text-muted); margin-right:4px;">Filter:</span>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter='all', open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if active_filter == 'all' or not active_filter %}active{% endif %}">
+            All Shops
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter='Supermarket', open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if active_filter == 'Supermarket' %}active{% endif %}">
+            Supermarket
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter='Dairy', open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if active_filter == 'Dairy' %}active{% endif %}">
+            Dairy & Breakfast
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter='Produce', open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if active_filter == 'Produce' %}active{% endif %}">
+            Fresh Produce
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter='Household', open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if active_filter == 'Household' %}active{% endif %}">
+            Household
+          </a>
+        </div>
+
+        <!-- Toggles & Sort Dropdown -->
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter=active_filter, open_now='0' if open_only else '1', delivery='1' if delivery_only else '0', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if open_only %}active{% endif %}">
+            <i class="fa-solid fa-circle-check"></i> Open Now
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter=active_filter, open_now='1' if open_only else '0', delivery='0' if delivery_only else '1', pickup='1' if pickup_only else '0') }}" class="stores-filter-btn {% if delivery_only %}active{% endif %}">
+            <i class="fa-solid fa-truck"></i> Delivery Available
+          </a>
+          <a href="{{ url_for('main.retail_stores_page', sort=active_sort, filter=active_filter, open_now='1' if open_only else '0', delivery='1' if delivery_only else '0', pickup='0' if pickup_only else '1') }}" class="stores-filter-btn {% if pickup_only %}active{% endif %}">
+            <i class="fa-solid fa-bag-shopping"></i> Free Pickup
+          </a>
+
+          <!-- Sort Select -->
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="stores-sort-dropdown" style="font-size:12px; font-weight:700; color:var(--color-text-muted);">Sort:</label>
+            <select id="stores-sort-dropdown" class="stores-sort-select" onchange="handleSortChange(this.value)">
+              <option value="nearest" {% if active_sort == 'nearest' or not active_sort %}selected{% endif %}>Nearest First</option>
+              <option value="farthest" {% if active_sort == 'farthest' %}selected{% endif %}>Farthest First</option>
+              <option value="name_asc" {% if active_sort == 'name_asc' %}selected{% endif %}>Store Name (A–Z)</option>
+              <option value="fee_asc" {% if active_sort == 'fee_asc' %}selected{% endif %}>Lowest Delivery Fee</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Counter -->
+    <div style="font-size: 13px; font-weight: 700; color: var(--color-text-main); margin-bottom: 14px;">
+      Found {{ total_stores }} eligible physical grocery stores within 15 km
+    </div>
+
+    <!-- Stores Grid -->
+    {% if stores and stores|length > 0 %}
+    <div class="nearby-stores-directory-grid">
+      {% for st in stores %}
+      <div class="store-directory-card {% if current_store_id and st.id == current_store_id %}active-store-card{% endif %}" data-store-id="{{ st.id }}">
+        <!-- Cover Banner -->
+        <div class="store-card-cover" style="background-image: url('{{ st.store_banner or 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80' }}');">
+          <div class="store-card-cover-overlay"></div>
+          <div class="store-card-cover-badges">
+            <span class="store-distance-badge">
+              <i class="fa-solid fa-location-arrow"></i> {{ st.distance_text or '{:.1f} km (approx. straight-line)'.format(st.distance_km) }}
+            </span>
+            {% if st.is_open %}
+            <span class="store-status-badge open">
+              <i class="fa-solid fa-circle"></i> Open Now
+            </span>
+            {% else %}
+            <span class="store-status-badge closed">
+              <i class="fa-solid fa-circle"></i> Closed
+            </span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="store-card-body-content">
+          <h3 class="store-card-name-title">
+            <a href="/retail/store/{{ st.id }}" style="color:inherit; text-decoration:none;">{{ st.store_name }}</a>
+          </h3>
+          <div class="store-card-locality">
+            <i class="fa-solid fa-location-dot" style="color:var(--color-primary);"></i>
+            <span>{{ st.area or st.city }} • {{ st.full_address }}</span>
+          </div>
+
+          <div class="store-card-details-row">
+            {% if st.rating %}
+            <span class="store-meta-chip chip-highlight">
+              <i class="fa-solid fa-star" style="color:#D97706;"></i> {{ st.rating }} ★ ({{ st.rating_count or 50 }})
+            </span>
+            {% endif %}
+            <span class="store-meta-chip">
+              <i class="fa-solid fa-clock"></i> {{ st.delivery_time or '20-30m' }}
+            </span>
+            <span class="store-meta-chip">
+              <i class="fa-solid fa-basket-shopping"></i> {{ st.grocery_product_count or 19 }}+ items
+            </span>
+            <span class="store-meta-chip">
+              <i class="fa-solid fa-indian-rupee-sign"></i> Min: ₹{{ st.min_order or 99 }}
+            </span>
+          </div>
+
+          <div style="font-size: 11.5px; color: var(--color-text-muted); margin-bottom: 12px;">
+            Hours: <strong>{{ st.opening_time or '06:30 AM' }} – {{ st.closing_time or '11:30 PM' }}</strong>
+            {% if st.delivery_fee is defined %}
+             • Delivery: ₹{{ '{:.0f}'.format(st.delivery_fee) }}
+            {% endif %}
+          </div>
+
+          <!-- Actions -->
+          <div class="store-card-actions-row">
+            <a href="/retail/store/{{ st.id }}" class="btn-primary" style="flex:1; text-align:center; padding:8px 12px; font-size:12px; text-decoration:none;">
+              <i class="fa-solid fa-store"></i> View Store
+            </a>
+            <button 
+              type="button" 
+              class="btn-primary" 
+              data-store-id="{{ st.id }}"
+              data-store-name="{{ st.store_name }}"
+              data-city="{{ st.city }}"
+              onclick="selectStoreAndShop(this.dataset.storeId, this.dataset.storeName, this.dataset.city)"
+              style="padding:8px 14px; font-size:12px; background:var(--color-bg-subtle); color:var(--color-text-main); border:1px solid var(--color-border);"
+              aria-label="Shop from {{ st.store_name }}"
+            >
+              {% if current_store_id and st.id == current_store_id %}
+                <i class="fa-solid fa-circle-check" style="color:var(--color-primary);"></i> Selected
+              {% else %}
+                <i class="fa-solid fa-cart-shopping"></i> Shop Here
+              {% endif %}
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="ui-state-box ui-empty-state" style="padding: 40px 20px; text-align: center; background: var(--color-bg-surface); border: 1.5px dashed var(--color-border); border-radius: var(--radius-lg); margin-top: 24px;">
+      <div style="font-size: 40px; color: var(--color-text-muted); margin-bottom: 12px;">
+        <i class="fa-solid fa-store-slash"></i>
+      </div>
+      <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">No Retail Grocery Stores Found Within 15 km</h3>
+      <p style="font-size: 13px; color: var(--color-text-muted); max-width: 500px; margin: 0 auto 18px auto;">
+        We could not find any active physical stores within 15 km of your selected coordinates. Try selecting another locality in Bengaluru or switching your delivery address.
+      </p>
+      <button type="button" class="btn-primary" onclick="openLocationSelectorModal()">
+        <i class="fa-solid fa-location-dot"></i> Select Other Location
+      </button>
+    </div>
+    {% endif %}
+
+    <!-- Back to Retail Comparison -->
+    <div style="margin-top: 20px; text-align: center;">
+      <a href="/retail" style="font-size: 13.5px; font-weight: 700; color: var(--color-primary); text-decoration: none;">
+        <i class="fa-solid fa-arrow-left"></i> Back to 5-Shop Price Comparison Marketplace
+      </a>
+    </div>
+
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Ensure page starts at the top upon refresh without jumping down
+  if ('scrollRestoration' in history) {
+    history.scrollRestoration = 'manual';
+  }
+  window.addEventListener('load', () => {
+    if (!window.location.hash) {
+      window.scrollTo(0, 0);
+    }
+  });
+
+  function handleSortChange(sortVal) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("sort", sortVal);
+    window.location.href = url.toString();
+  }
+
+  function selectStoreAndShop(storeId, storeName, city) {
+    if (city) {
+      localStorage.setItem("bharatstore_selected_city", city);
+    }
+    localStorage.setItem("bharatstore_selected_store_id", storeId);
+    showToast("Selected " + storeName + " as fulfillment store.");
+    window.location.href = "/retail?store_id=" + storeId;
+  }
+</script>
+{% endblock %}

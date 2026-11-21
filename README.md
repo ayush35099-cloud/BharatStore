@@ -5,7 +5,7 @@
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20%7C%20SQLite-blue)](https://aiven.io/postgresql)
 [![Streaming](https://img.shields.io/badge/streaming-Apache%20Kafka-red)](https://aiven.io/kafka)
 [![Search](https://img.shields.io/badge/search-OpenSearch%202.x-teal)](https://aiven.io/opensearch)
-[![Tests](https://img.shields.io/badge/tests-90%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
+[![Tests](https://img.shields.io/badge/tests-103%20Passed%20(100%25)-brightgreen.svg)](#-automated-testing--verification)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **BharatStore** is a modern, location-aware, dual-mode e-commerce and quick-commerce platform designed for India's retail ecosystem. It bridges physical neighborhood grocery stores and supermarkets with an enterprise-scale online marketplace. Customers experience the hyper-local speed of quick commerce (Zepto / Swiggy Instamart / Blinkit) alongside the nationwide selection of a full marketplace (Amazon / Flipkart) — unified within a single Flask-driven platform.
@@ -389,11 +389,51 @@ Updates quantity or fulfillment mode (`delivery` / `pickup`) for a specific shop
 #### `DELETE /api/retail/cart/remove`
 Removes an item from the shop-aware retail cart.
 
+#### `GET /api/retail/stores/nearby?lat={lat}&lng={lng}&radius=15`
+Discovers active physical grocery stores within a maximum radius of 15 km using the Haversine spherical distance formula ($R = 6371\text{ km}$). Distances are calculated and labeled as approximate straight-line distances. Supports sorting (`nearest`, `farthest`, `name_asc`, `fee_asc`) and filtering (`category`, `open_now`, `delivery`, `pickup`).
+```json
+{
+  "status": "success",
+  "customer_location": {
+    "lat": 12.9784,
+    "lng": 77.6408,
+    "address": "Indiranagar, Bengaluru"
+  },
+  "max_radius_km": 15.0,
+  "count": 5,
+  "stores": [
+    {
+      "id": 1,
+      "store_name": "Bharat Fresh Mart",
+      "address": "Shop 4, CMH Road, Indiranagar",
+      "distance_km": 0.0,
+      "distance_label": "0.0 km approx. straight-line distance",
+      "is_open": true,
+      "opening_time": "06:30 AM",
+      "closing_time": "11:00 PM",
+      "delivery_available": true,
+      "pickup_available": true,
+      "delivery_fee": 15.0,
+      "grocery_count": 62
+    }
+  ]
+}
+```
+
+#### `GET /api/retail/stores/<store_id>`
+Fetches detailed profile, operational hours, rating, and live inventory count for a specific physical grocery store.
+
+#### `GET /retail/stores`
+Web directory view listing all physical grocery stores within 15 km with interactive sorting, department filtering, operational status badges, and 1-click store selection.
+
+#### `GET /retail/store/<store_id>`
+Dynamic individual store front displaying the physical store's verified grocery inventory across all 5 departments, real-time in-store search, and instant basket checkout.
+
 ---
 
 ## 12. Automated Testing & Verification
 
-All 90 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, and Retail Price Comparison are executed and verified:
+All 103 automated tests across Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, and Retail Price Comparison are executed and verified:
 
 ```powershell
 python -m unittest discover tests -v
@@ -403,11 +443,25 @@ python -m unittest discover tests -v
 
 ```text
 ----------------------------------------------------------------------
-Ran 90 tests in 6.421s
+Ran 103 tests in 9.640s
 
 OK (100% Passed)
 ```
 
+- **Phase 5 Nearby Store Discovery Suite (`tests/test_phase5_nearby_stores.py`):** 13 / 13 PASS
+  - Haversine spherical distance formula mathematically verified ($R = 6371\text{ km}$).
+  - Coordinate range bounds ($\text{lat} \in [-90, 90]$, $\text{lng} \in [-180, 180]$) & radius bounds ($0 < r \le 15$) strictly validated.
+  - Physical grocery stores discovered within 15 km with calculated straight-line distances.
+  - Outside-radius stores (> 15 km, e.g. Mumbai 845 km) strictly and reliably excluded.
+  - Inactive stores strictly excluded from customer discovery results.
+  - All 4 sorting modes (`nearest`, `farthest`, `name_asc`, `fee_asc`) verified.
+  - Delivery, pickup, and department category filters successfully verified.
+  - API `/api/retail/stores/nearby` verified with boundary validation and JSON error handling.
+  - API `/api/retail/stores/<id>` returns store profile with calculated distance.
+  - Web page `/retail/stores` renders complete 15 km discovery directory.
+  - Dynamic individual storefronts (`/retail/store/<id>`) verified with live inventory and department blocks.
+  - Automatic scroll bug permanently eliminated (`scrollRestoration = 'manual'`, zero jumps on reload).
+  - Online Shopping mode completely isolated and preserved without regression.
 - **Retail 5-Shop Price Comparison Suite (`tests/test_retail_price_comparison.py`):** 10 / 10 PASS
   - 5 Bengaluru stores registered with exact coordinates and metadata.
   - Strict grocery-only isolation verified (0 non-grocery items on `/retail`).
@@ -442,7 +496,7 @@ OK (100% Passed)
 - [x] **Phase 3: Location and Address Management** (GPS detection, 6 metro hubs, address book CRUD, zero horizontal scroll).
 - [x] **Phase 4: Store Database & Multi-Store Inventory** (Physical store models, independent pricing, overselling protection).
 - [x] **Retail Near Me 5-Shop Price Comparison Marketplace** (5 Bengaluru shops, 50+ groceries, 5-shop compare modal, shop-aware cart).
-- [ ] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Routing** (Map views, dynamic distance routing, delivery tiers).
+- [x] **Phase 5: Hyper-Local Store Discovery & 15 km Radius Engine** (Haversine math, 15 km cap, directory `/retail/stores`, dynamic storefronts `/retail/store/<id>`, automatic scroll bug fix).
 - [ ] **Phase 6: Admin Store Portal & Partner Merchant Dashboard** (Merchant web UI, inventory reconciliation, order dispatch).
 
 ---

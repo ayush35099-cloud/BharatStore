@@ -2027,6 +2027,29 @@ def run_migrations(conn, is_postgres: bool = False):
                 VALUES (?, ?, ?, ?);
                 """, (c["id"], c["slug"], c["name"], c["icon"]))
 
+    # Step 6b: Seed sample customers if empty (required by addresses foreign key)
+    cur.execute("SELECT COUNT(*) FROM customers;")
+    cust_count = cur.fetchone()[0]
+    if cust_count == 0:
+        from .seed_data import SAMPLE_CUSTOMERS
+        for c in SAMPLE_CUSTOMERS:
+            if is_postgres:
+                cur.execute("""
+                INSERT INTO customers (id, name, email, phone, city, address)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING;
+                """, (c["id"], c["name"], c["email"], c["phone"], c["city"], c["address"]))
+            else:
+                cur.execute("""
+                INSERT OR IGNORE INTO customers (id, name, email, phone, city, address)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """, (c["id"], c["name"], c["email"], c["phone"], c["city"], c["address"]))
+        if is_postgres:
+            try:
+                cur.execute("SELECT setval(pg_get_serial_sequence('customers', 'id'), COALESCE((SELECT MAX(id) FROM customers), 1));")
+            except Exception:
+                pass
+
     # Step 7: Seed sample customer addresses if empty
     cur.execute("SELECT COUNT(*) FROM addresses;")
     addr_count = cur.fetchone()[0]
@@ -2043,7 +2066,40 @@ def run_migrations(conn, is_postgres: bool = False):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """, (a["customer_id"], a["address_type"], a["full_name"], a["phone"], a["address_line1"], a["address_line2"], a["landmark"], a["city"], a["state"], a["pincode"], a["latitude"], a["longitude"], 1 if a["is_default"] else 0))
 
-    # Step 8: Ensure extra grocery products exist in products & global inventory (Phase 4)
+    # Step 8: Ensure base catalog products & extra grocery products exist in products & global inventory
+    from .seed_data import SAMPLE_PRODUCTS
+    for p in SAMPLE_PRODUCTS:
+        if is_postgres:
+            cur.execute("""
+            INSERT INTO products (id, sku, title, brand, category, price, original_price, image_url, rating, rating_count, description, cities_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING;
+            """, (
+                p["id"], p["sku"], p["title"], p["brand"], p["category"],
+                p["price"], p["original_price"], p["image_url"],
+                p["rating"], p["rating_count"], p["description"],
+                json.dumps(p["cities"])
+            ))
+            cur.execute("""
+            INSERT INTO inventory (product_id, stock_quantity, reserved_quantity)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (product_id) DO NOTHING;
+            """, (p["id"], p["stock"]))
+        else:
+            cur.execute("""
+            INSERT OR IGNORE INTO products (id, sku, title, brand, category, price, original_price, image_url, rating, rating_count, description, cities_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """, (
+                p["id"], p["sku"], p["title"], p["brand"], p["category"],
+                p["price"], p["original_price"], p["image_url"],
+                p["rating"], p["rating_count"], p["description"],
+                json.dumps(p["cities"])
+            ))
+            cur.execute("""
+            INSERT OR IGNORE INTO inventory (product_id, stock_quantity, reserved_quantity)
+            VALUES (?, ?, 0);
+            """, (p["id"], p["stock"]))
+
     for p in EXTRA_GROCERY_PRODUCTS:
         subcat = p.get("sub_category", "Daily Essentials & Groceries")
         if is_postgres:

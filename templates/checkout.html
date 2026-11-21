@@ -80,29 +80,20 @@
         </div>
       </div>
 
-      <!-- Step 2: Delivery Option -->
+      <!-- Step 2: Delivery Method -->
       <div class="checkout-step-card">
-        <h3><i class="fa-solid fa-truck-fast" style="color:var(--color-primary);"></i> 2. Hub Dispatch Mode</h3>
+        <h3><i class="fa-solid fa-truck-fast" style="color:var(--color-primary);"></i> 2. Delivery Method</h3>
         
-        <div style="display:flex; flex-direction:column; gap:12px;">
-          <label style="display:flex; align-items:flex-start; gap:12px; padding:14px; border:1.5px solid var(--color-primary); border-radius:var(--radius-md); background:var(--color-primary-light); cursor:pointer;">
-            <input type="radio" name="shipping_speed" value="express" checked style="margin-top:4px;">
-            <div>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <strong style="color:var(--color-text-main); font-size:14px;">Hyperlocal 2-Hour Express Delivery</strong>
-                <span class="badge-status badge-confirmed" style="font-size:10px;">FREE</span>
-              </div>
-              <p style="font-size:12px; color:var(--color-text-body); margin-top:2px;">Dispatched immediately via BlueDart / Hub Courier from your metro store hub.</p>
+        <label style="display:flex; align-items:flex-start; gap:12px; padding:14px; border:1.5px solid var(--color-primary); border-radius:var(--radius-md); background:var(--color-primary-light); cursor:pointer;">
+          <input type="radio" name="shipping_speed" value="standard" checked style="margin-top:4px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <strong style="color:var(--color-text-main); font-size:14px;">Standard Doorstep Delivery</strong>
+              <span class="badge-status badge-confirmed" style="font-size:10px;">FREE</span>
             </div>
-          </label>
-          <label style="display:flex; align-items:flex-start; gap:12px; padding:14px; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-bg-base); cursor:pointer;">
-            <input type="radio" name="shipping_speed" value="store_pickup" style="margin-top:4px;">
-            <div>
-              <strong style="color:var(--color-text-main); font-size:14px;">Store Counter Pickup (Click & Collect)</strong>
-              <p style="font-size:12px; color:var(--color-text-body); margin-top:2px;">Ready for immediate pickup at the front counter of your selected city store hub.</p>
-            </div>
-          </label>
-        </div>
+            <p style="font-size:12px; color:var(--color-text-body); margin-top:2px;">Safely packaged and delivered directly to your saved address.</p>
+          </div>
+        </label>
       </div>
 
       <!-- Step 3: Payment Method (Gateway Ready / PENDING_PAYMENT Notice) -->
@@ -172,7 +163,7 @@
             <span id="checkout-subtotal" style="font-weight:700; color:var(--color-text-main);">₹0</span>
           </div>
           <div style="display:flex; justify-content:space-between; color:var(--color-text-muted);">
-            <span>Hub Express Delivery</span>
+            <span>Standard Delivery</span>
             <span style="color:var(--color-sage); font-weight:700;">FREE</span>
           </div>
           <div style="display:flex; justify-content:space-between; font-size:18px; font-weight:800; color:var(--color-text-main); padding-top:10px; border-top:1.5px solid var(--color-border);">

@@ -425,35 +425,32 @@ def build_retail_context() -> Dict[str, Any]:
             item["is_store_lowest"] = item["is_available"]
 
     # 4. Categorize into essential departments
-    dairy_items = []
-    grains_items = []
-    essentials_items = []
-    produce_items = []
-    household_items = []
+    fruits_vegetables_items = []
+    dairy_bakery_items = []
+    rice_atta_dal_items = []
+    snacks_beverages_items = []
+    household_personal_items = []
 
     for item in inventory_items:
         sub = item.get("sub_category", "")
         t = (item.get("title") or "").lower()
-        if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg", "flake", "oat"]):
-            item["department"] = "Dairy & Breakfast"
-            dairy_items.append(item)
-        elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana", "rajma", "poha"]):
-            item["department"] = "Rice & Grains"
-            grains_items.append(item)
-        elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice", "turmeric", "chilli", "coriander", "tea", "coffee"]):
-            item["department"] = "Cooking Essentials"
-            essentials_items.append(item)
-        elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "orange", "capsicum", "chilli", "coriander", "ginger", "adrak", "fruit", "vegetable"]):
-            item["department"] = "Fresh Produce"
-            produce_items.append(item)
-        elif sub == "Household Essentials" or any(k in t for k in ["surf", "vim", "lizol", "dettol", "harpic", "colin", "goodknight", "scrub", "detergent", "cleaner"]):
-            item["department"] = "Household Essentials"
-            household_items.append(item)
+        if sub in ("Fruits & Vegetables", "Fresh Produce") or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "orange", "capsicum", "chilli", "coriander", "ginger", "adrak", "fruit", "vegetable"]):
+            item["department"] = "Fruits & Vegetables"
+            fruits_vegetables_items.append(item)
+        elif sub in ("Dairy & Bakery", "Dairy & Breakfast") or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+            item["department"] = "Dairy & Bakery"
+            dairy_bakery_items.append(item)
+        elif sub in ("Rice, Atta & Dal", "Rice & Grains") or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana", "rajma", "poha"]):
+            item["department"] = "Rice, Atta & Dal"
+            rice_atta_dal_items.append(item)
+        elif sub == "Snacks & Beverages" or any(k in t for k in ["tea", "coffee", "sugar", "honey", "oat", "flake", "cereal"]):
+            item["department"] = "Snacks & Beverages"
+            snacks_beverages_items.append(item)
         else:
-            item["department"] = "Cooking Essentials"
-            essentials_items.append(item)
+            item["department"] = "Household & Personal Care"
+            household_personal_items.append(item)
 
-    ordered_products = dairy_items + grains_items + essentials_items + produce_items + household_items
+    ordered_products = dairy_bakery_items + rice_atta_dal_items + fruits_vegetables_items + snacks_beverages_items + household_personal_items
 
     # Top deals highlight
     top_deals = sorted([p for p in ordered_products if p.get("max_savings", 0) > 0], key=lambda x: x.get("max_savings", 0), reverse=True)[:6]
@@ -463,11 +460,18 @@ def build_retail_context() -> Dict[str, Any]:
         "stores": stores,
         "current_store": selected_store,
         "selected_store_id": selected_store["id"] if selected_store else 1,
-        "dairy_items": dairy_items,
-        "grains_items": grains_items,
-        "essentials_items": essentials_items,
-        "produce_items": produce_items,
-        "household_items": household_items,
+        # Phase 14 simplified 5 categories
+        "fruits_vegetables_items": fruits_vegetables_items,
+        "dairy_bakery_items": dairy_bakery_items,
+        "rice_atta_dal_items": rice_atta_dal_items,
+        "snacks_beverages_items": snacks_beverages_items,
+        "household_personal_items": household_personal_items,
+        # Backward compatibility aliases
+        "dairy_items": dairy_bakery_items,
+        "grains_items": rice_atta_dal_items,
+        "produce_items": fruits_vegetables_items,
+        "essentials_items": snacks_beverages_items + [x for x in household_personal_items if any(k in (x.get("title") or "").lower() for k in ["oil", "salt", "masala"])],
+        "household_items": household_personal_items,
         "products": ordered_products,
         "all_store_products": ordered_products,
         "top_deals": top_deals,
@@ -574,6 +578,11 @@ def retail_store_front_page(store_id: int):
     return render_template(
         "retail_store_detail.html",
         store=store_catalog["store"],
+        fruits_vegetables_items=store_catalog["fruits_vegetables_items"],
+        dairy_bakery_items=store_catalog["dairy_bakery_items"],
+        rice_atta_dal_items=store_catalog["rice_atta_dal_items"],
+        snacks_beverages_items=store_catalog["snacks_beverages_items"],
+        household_personal_items=store_catalog["household_personal_items"],
         dairy_items=store_catalog["dairy_items"],
         grains_items=store_catalog["grains_items"],
         essentials_items=store_catalog["essentials_items"],
@@ -699,6 +708,11 @@ def get_retail_catalog_api():
     return jsonify({
         "success": True,
         "current_store": ctx["current_store"],
+        "fruits_vegetables_items": ctx["fruits_vegetables_items"],
+        "dairy_bakery_items": ctx["dairy_bakery_items"],
+        "rice_atta_dal_items": ctx["rice_atta_dal_items"],
+        "snacks_beverages_items": ctx["snacks_beverages_items"],
+        "household_personal_items": ctx["household_personal_items"],
         "dairy_items": ctx["dairy_items"],
         "grains_items": ctx["grains_items"],
         "essentials_items": ctx["essentials_items"],

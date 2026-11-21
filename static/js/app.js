@@ -136,7 +136,7 @@ function updateDeliveryLocationUI(loc) {
   const heroMeta = document.getElementById("retail-hero-store-meta");
   if (heroMeta && loc.formatted) {
     const distText = loc.distance_km ? `${loc.distance_km} km away` : '1.8 km away';
-    heroMeta.textContent = `${loc.formatted} • ${distText} • 2-Hour Express Delivery (₹20) or Pickup (FREE)`;
+    heroMeta.textContent = `${loc.formatted} • ${distText} • Fast Doorstep Delivery`;
   }
 }
 
@@ -489,6 +489,41 @@ function updateModeUI() {
   const modalCardOnline = document.getElementById("modal-card-online");
   if (modalCardRetail) modalCardRetail.classList.toggle("active-mode-card", isRetail);
   if (modalCardOnline) modalCardOnline.classList.toggle("active-mode-card", !isRetail);
+
+  // Mode-Aware Search Input Placeholder & Categories
+  const searchInput = document.getElementById("header-search-input");
+  if (searchInput) {
+    if (isRetail) {
+      searchInput.placeholder = "Search grocery essentials across nearby shops (e.g. 'milk', 'atta', 'ghee', 'oil', 'paneer')...";
+    } else {
+      searchInput.placeholder = "Search 50+ authentic products (e.g. 'A2 ghee', 'laptop', 'iphone', 'kurta')...";
+    }
+  }
+
+  const categorySelect = document.getElementById("header-search-category");
+  if (categorySelect) {
+    if (isRetail) {
+      categorySelect.innerHTML = `
+        <option value="">All Groceries</option>
+        <option value="Fruits & Vegetables">Fruits & Vegetables</option>
+        <option value="Dairy & Bakery">Dairy & Bakery</option>
+        <option value="Rice, Atta & Dal">Rice, Atta & Dal</option>
+        <option value="Snacks & Beverages">Snacks & Beverages</option>
+        <option value="Household & Personal Care">Household & Personal Care</option>
+      `;
+    } else {
+      categorySelect.innerHTML = `
+        <option value="">All Categories</option>
+        <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
+        <option value="Mobiles & Tablets">Mobiles & Tablets</option>
+        <option value="Laptops & Computers">Laptops & Tech</option>
+        <option value="Audio & Wearables">Audio & Wearables</option>
+        <option value="Home & Kitchen">Home & Kitchen</option>
+        <option value="Fashion & Apparel">Fashion & Apparel</option>
+        <option value="Beauty & Personal Care">Beauty & Wellness</option>
+      `;
+    }
+  }
 }
 
 function updateModeNav() {
@@ -963,7 +998,7 @@ async function updateShopFulfillment(storeIdOrShopName, value) {
     }
   }
   await syncCartWithBackend();
-  showToast(`Fulfillment updated: ${value === 'pickup' ? 'Store Counter Pickup (FREE)' : '2-Hour Delivery'}`);
+  showToast(`Fulfillment updated: ${value === 'pickup' ? 'Store Counter Pickup (FREE)' : 'Doorstep Delivery'}`);
 }
 
 function openCartDrawer() {
@@ -2085,7 +2120,7 @@ function renderCartPage() {
                 <span style="font-weight:700; color:var(--color-text-main);"><i class="fa-solid fa-truck-fast"></i> Delivery Method:</span>
                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                   <input type="radio" name="store_fulfill_${shop.store_id}" value="delivery" ${shop.fulfillment !== 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'delivery')">
-                  <span>2-Hour Delivery (₹${shop.delivery_fee})</span>
+                  <span>Doorstep Delivery (₹${shop.delivery_fee})</span>
                 </label>
                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                   <input type="radio" name="store_fulfill_${shop.store_id}" value="pickup" ${shop.fulfillment === 'pickup' ? 'checked' : ''} onchange="updateShopFulfillment(${shop.store_id}, 'pickup')">
@@ -2429,7 +2464,7 @@ async function initCheckoutPage() {
             </div>
           `).join("")}
           <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--color-text-muted); margin-top:8px; padding-top:6px; border-top:1px dashed var(--color-border);">
-            <span>Fulfillment (${isPickup ? 'Store Counter Pickup' : 'Hyperlocal 2-Hour Delivery'})</span>
+            <span>Fulfillment (${isPickup ? 'Store Counter Pickup' : 'Doorstep Delivery'})</span>
             <span style="font-weight:700; color:${fee === 0 ? 'var(--color-sage)' : 'var(--color-primary)'};">${fee === 0 ? 'FREE' : '₹' + fee}</span>
           </div>
         </div>

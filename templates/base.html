@@ -114,14 +114,11 @@
           <select name="category" class="search-category-select" id="header-search-category">
             {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
               <option value="">All Groceries</option>
-              <option value="Dairy & Breakfast">Dairy & Breakfast</option>
-              <option value="Rice & Grains">Rice & Grains</option>
-              <option value="Cooking Essentials">Cooking Essentials</option>
-              <option value="Fresh Produce">Fresh Produce</option>
+              <option value="Fruits & Vegetables">Fruits & Vegetables</option>
+              <option value="Dairy & Bakery">Dairy & Bakery</option>
+              <option value="Rice, Atta & Dal">Rice, Atta & Dal</option>
               <option value="Snacks & Beverages">Snacks & Beverages</option>
-              <option value="Household Essentials">Household Essentials</option>
-              <option value="Personal Care">Personal Care</option>
-              <option value="Packaged Foods">Packaged Foods</option>
+              <option value="Household & Personal Care">Household & Personal Care</option>
             {% else %}
               <option value="">All Categories</option>
               <option value="Daily Essentials & Groceries">Pure Organic & Foods</option>
@@ -133,15 +130,18 @@
               <option value="Beauty & Personal Care">Beauty & Wellness</option>
             {% endif %}
           </select>
-          <input 
-            type="text" 
-            name="q" 
-            id="header-search-input" 
-            class="search-input-field" 
-            placeholder="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}Search grocery essentials across nearby shops (e.g. 'milk', 'atta', 'ghee', 'oil', 'paneer')...{% else %}Search 50+ authentic products (e.g. 'A2 ghee', 'lapop', 'iphone', 'kurta')...{% endif %}"
-            autocomplete="off"
-            oninput="handleSearchAutocomplete(this.value)"
-          >
+          <div class="search-input-inner-container">
+            <i class="fa-solid fa-magnifying-glass search-inner-icon"></i>
+            <input 
+              type="text" 
+              name="q" 
+              id="header-search-input" 
+              class="search-input-field" 
+              placeholder="{% if current_shopping_mode == 'RETAIL_NEAR_ME' %}Search grocery essentials across nearby shops (e.g. 'milk', 'atta', 'ghee', 'oil', 'paneer')...{% else %}Search 50+ authentic products (e.g. 'A2 ghee', 'laptop', 'iphone', 'kurta')...{% endif %}"
+              autocomplete="off"
+              oninput="handleSearchAutocomplete(this.value)"
+            >
+          </div>
           <button type="submit" class="search-submit-btn" aria-label="Search">
             <i class="fa-solid fa-magnifying-glass"></i>
           </button>
@@ -224,29 +224,20 @@
 
       <!-- Fast Category Shortcuts (Mode-Aware) -->
       {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}
+        <a href="/retail#produce-section" class="category-nav-link">
+          <i class="fa-solid fa-apple-whole"></i> Fruits & Vegetables
+        </a>
         <a href="/retail#dairy-section" class="category-nav-link">
-          <i class="fa-solid fa-cow"></i> Dairy & Breakfast
+          <i class="fa-solid fa-cow"></i> Dairy & Bakery
         </a>
         <a href="/retail#grains-section" class="category-nav-link">
-          <i class="fa-solid fa-seedling"></i> Rice & Grains
+          <i class="fa-solid fa-seedling"></i> Rice, Atta & Dal
         </a>
-        <a href="/retail#essentials-section" class="category-nav-link">
-          <i class="fa-solid fa-bottle-droplet"></i> Cooking Essentials
-        </a>
-        <a href="/retail#produce-section" class="category-nav-link">
-          <i class="fa-solid fa-apple-whole"></i> Fresh Produce
+        <a href="/retail#snacks-section" class="category-nav-link">
+          <i class="fa-solid fa-mug-hot"></i> Snacks & Beverages
         </a>
         <a href="/retail#household-section" class="category-nav-link">
-          <i class="fa-solid fa-spray-can-sparkles"></i> Household Essentials
-        </a>
-        <a href="/products?category=Personal+Care" class="category-nav-link">
-          <i class="fa-solid fa-pump-soap"></i> Personal Care
-        </a>
-        <a href="/products?category=Packaged+Foods" class="category-nav-link">
-          <i class="fa-solid fa-box"></i> Packaged Foods
-        </a>
-        <a href="/products?category=Snacks+%26+Beverages" class="category-nav-link">
-          <i class="fa-solid fa-mug-hot"></i> Snacks & Beverages
+          <i class="fa-solid fa-spray-can-sparkles"></i> Household & Personal Care
         </a>
       {% else %}
         <a href="/products?category=Daily+Essentials+%26+Groceries" class="category-nav-link">

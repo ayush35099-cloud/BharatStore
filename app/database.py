@@ -2201,6 +2201,18 @@ class DatabaseService:
             lng_f = None
 
         existing = self.get_customer_addresses(customer_id)
+        if len(existing) >= 5:
+            raise ValueError("Maximum limit of 5 saved addresses reached. Please delete an address to add a new one.")
+
+        norm_line1 = address_line1.strip().lower()
+        norm_city = city.strip().lower()
+        norm_pin = pincode.strip()
+        for addr in existing:
+            if (str(addr.get("address_line1") or "").strip().lower() == norm_line1 and
+                str(addr.get("city") or "").strip().lower() == norm_city and
+                str(addr.get("pincode") or "").strip() == norm_pin):
+                raise ValueError("This delivery address is already saved. Duplicate addresses are not allowed.")
+
         is_default = bool(data.get("is_default")) or len(existing) == 0
 
         if self.is_live_postgres:
@@ -2284,6 +2296,19 @@ class DatabaseService:
             raise ValueError("Invalid Indian postal PIN code format.")
         if address_type not in {"HOME", "WORK", "OTHER"}:
             address_type = "HOME"
+
+        # Check for duplicate with other saved addresses of this customer
+        existing_all = self.get_customer_addresses(customer_id)
+        norm_line1 = address_line1.strip().lower()
+        norm_city = city.strip().lower()
+        norm_pin = pincode.strip()
+        for addr in existing_all:
+            if addr["id"] != address_id and (
+                str(addr.get("address_line1") or "").strip().lower() == norm_line1 and
+                str(addr.get("city") or "").strip().lower() == norm_city and
+                str(addr.get("pincode") or "").strip() == norm_pin
+            ):
+                raise ValueError("Another saved address already has this street address, city, and PIN code. Duplicate addresses are not allowed.")
 
         lat = data.get("latitude") if "latitude" in data else existing.get("latitude")
         lng = data.get("longitude") if "longitude" in data else existing.get("longitude")
@@ -2824,17 +2849,35 @@ class DatabaseService:
 
         def _classify_subcat(title: str, subcat: Optional[str] = None) -> str:
             if subcat and str(subcat).strip():
-                return subcat
+                sc = str(subcat).strip()
+                if sc in ("Fruits & Vegetables", "Fresh Produce"):
+                    return "Fruits & Vegetables"
+                if sc in ("Dairy & Bakery", "Dairy & Breakfast"):
+                    return "Dairy & Bakery"
+                if sc in ("Rice, Atta & Dal", "Rice & Grains"):
+                    return "Rice, Atta & Dal"
+                if sc in ("Cooking Essentials", "Packaged Foods"):
+                    t_lower = (title or "").lower()
+                    if any(k in t_lower for k in ["tea", "coffee", "sugar", "honey", "oat", "flake", "cereal"]):
+                        return "Snacks & Beverages"
+                    return "Household & Personal Care"
+                if sc in ("Household Essentials", "Household & Personal Care"):
+                    return "Household & Personal Care"
+                if sc == "Snacks & Beverages":
+                    return "Snacks & Beverages"
+                return sc
             t = (title or "").lower()
+            if any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "orange", "capsicum", "chilli", "ginger", "adrak", "dhaniya", "coriander", "fruit", "vegetable"]):
+                return "Fruits & Vegetables"
             if any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
-                return "Dairy & Breakfast"
-            if any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana"]):
-                return "Rice & Grains"
-            if any(k in t for k in ["oil", "sugar", "salt", "masala", "spice"]):
-                return "Cooking Essentials"
-            if any(k in t for k in ["potato", "onion", "tomato", "banana", "fruit", "vegetable"]):
-                return "Fresh Produce"
-            return "Daily Essentials & Groceries"
+                return "Dairy & Bakery"
+            if any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "grain", "chana", "rajma", "poha"]):
+                return "Rice, Atta & Dal"
+            if any(k in t for k in ["tea", "coffee", "sugar", "honey", "oat", "flake", "cereal"]):
+                return "Snacks & Beverages"
+            if any(k in t for k in ["oil", "salt", "masala", "spice", "haldi", "turmeric", "cleaner", "surf", "vim", "lizol", "dettol", "harpic", "colin", "goodknight", "scrub"]):
+                return "Household & Personal Care"
+            return "Household & Personal Care"
 
         if self.is_live_postgres:
             from psycopg2.extras import RealDictCursor
@@ -3481,35 +3524,40 @@ class DatabaseService:
         inv = self.get_store_inventory(store_id)
         grocery_items = [p for p in inv if p.get("category") == "Daily Essentials & Groceries"]
 
-        dairy_items = []
-        grains_items = []
-        essentials_items = []
-        produce_items = []
-        household_items = []
+        fruits_vegetables_items = []
+        dairy_bakery_items = []
+        rice_atta_dal_items = []
+        snacks_beverages_items = []
+        household_personal_items = []
 
         for item in grocery_items:
             sub = item.get("sub_category", "")
             t = (item.get("title") or "").lower()
-            if sub == "Dairy & Breakfast" or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
-                dairy_items.append(item)
-            elif sub == "Rice & Grains" or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "chana", "poha"]):
-                grains_items.append(item)
-            elif sub == "Cooking Essentials" or any(k in t for k in ["oil", "sugar", "salt", "masala", "spice", "tea", "coffee"]):
-                essentials_items.append(item)
-            elif sub == "Fresh Produce" or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "capsicum", "vegetable"]):
-                produce_items.append(item)
-            elif sub == "Household Essentials" or any(k in t for k in ["surf", "vim", "lizol", "dettol", "harpic", "cleaner"]):
-                household_items.append(item)
+            if sub in ("Fruits & Vegetables", "Fresh Produce") or any(k in t for k in ["potato", "onion", "tomato", "banana", "apple", "orange", "capsicum", "vegetable", "coriander", "chillies", "ginger"]):
+                fruits_vegetables_items.append(item)
+            elif sub in ("Dairy & Bakery", "Dairy & Breakfast") or any(k in t for k in ["milk", "curd", "dahi", "paneer", "butter", "ghee", "cheese", "bread", "egg"]):
+                dairy_bakery_items.append(item)
+            elif sub in ("Rice, Atta & Dal", "Rice & Grains") or any(k in t for k in ["rice", "atta", "wheat", "dal", "besan", "chana", "poha", "rajma"]):
+                rice_atta_dal_items.append(item)
+            elif sub == "Snacks & Beverages" or any(k in t for k in ["tea", "coffee", "sugar", "honey", "oat", "flake"]):
+                snacks_beverages_items.append(item)
             else:
-                essentials_items.append(item)
+                household_personal_items.append(item)
 
         return {
             "store": enriched,
-            "dairy_items": dairy_items,
-            "grains_items": grains_items,
-            "essentials_items": essentials_items,
-            "produce_items": produce_items,
-            "household_items": household_items,
+            # Phase 14 simplified 5 categories
+            "fruits_vegetables_items": fruits_vegetables_items,
+            "dairy_bakery_items": dairy_bakery_items,
+            "rice_atta_dal_items": rice_atta_dal_items,
+            "snacks_beverages_items": snacks_beverages_items,
+            "household_personal_items": household_personal_items,
+            # Aliases for backward compatibility
+            "dairy_items": dairy_bakery_items,
+            "grains_items": rice_atta_dal_items,
+            "produce_items": fruits_vegetables_items,
+            "essentials_items": snacks_beverages_items + [x for x in household_personal_items if any(k in (x.get("title") or "").lower() for k in ["oil", "salt", "masala"])],
+            "household_items": household_personal_items,
             "all_products": grocery_items,
             "total_products_count": len([p for p in grocery_items if p.get("is_available") and p.get("stock_quantity", 0) > 0])
         }

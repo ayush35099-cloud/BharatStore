@@ -42,14 +42,18 @@
       <!-- Saved Delivery Addresses (Phase 3) -->
       <div class="checkout-step-card" id="saved-addresses">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-          <h3><i class="fa-solid fa-map-location-dot" style="color:var(--color-primary);"></i> Saved Delivery Addresses</h3>
-          <button class="btn-primary" style="font-size:12px; padding:7px 12px;" onclick="openAddressEditorModal()">
+          <h3><i class="fa-solid fa-map-location-dot" style="color:var(--color-primary);"></i> Saved Delivery Addresses <span id="address-count-badge" style="font-size:12px; font-weight:700; color:var(--color-text-muted); margin-left:6px;">(0 / 5)</span></h3>
+          <button class="btn-primary" id="btn-add-address" style="font-size:12px; padding:7px 12px;" onclick="openAddressEditorModal()">
             <i class="fa-solid fa-plus"></i> Add New Address
           </button>
         </div>
 
+        <div id="max-addr-limit-banner" style="display:none; background:#FFFBEB; border:1px solid #FCD34D; color:#92400E; padding:10px 14px; border-radius:var(--radius-md); font-size:13px; margin-bottom:14px; line-height:1.4;">
+          <i class="fa-solid fa-circle-exclamation"></i> <strong>Maximum limit of 5 saved addresses reached.</strong> Please delete an address to add a new one.
+        </div>
+
         <p style="font-size:13px; color:var(--color-text-muted); margin-bottom:16px;">
-          Manage your saved home, work, and other delivery destinations. Your default address is automatically selected during checkout.
+          Manage your saved home, work, and other delivery destinations (maximum 5 saved addresses). Your default address is automatically selected during checkout.
         </p>
 
         <!-- Dynamic Saved Addresses Container -->
@@ -219,10 +223,17 @@
 
   async function loadProfileAddresses() {
     const listEl = document.getElementById("profile-saved-addresses-list");
+    const countBadge = document.getElementById("address-count-badge");
+    const limitBanner = document.getElementById("max-addr-limit-banner");
+    const addBtn = document.getElementById("btn-add-address");
     try {
       const res = await fetch("/api/customer/addresses");
       const data = await res.json();
       if (!data.success || !data.addresses || data.addresses.length === 0) {
+        userAddresses = [];
+        if (countBadge) countBadge.textContent = "(0 / 5)";
+        if (limitBanner) limitBanner.style.display = "none";
+        if (addBtn) addBtn.style.opacity = "1";
         listEl.innerHTML = `
           <div style="text-align:center; padding:24px; color:var(--color-text-muted); background:var(--color-bg-subtle); border-radius:var(--radius-md);">
             <i class="fa-solid fa-map-location" style="font-size:28px; margin-bottom:8px; display:block;"></i>
@@ -233,6 +244,14 @@
       }
 
       userAddresses = data.addresses;
+      if (countBadge) countBadge.textContent = `(${data.addresses.length} / 5)`;
+      if (limitBanner) {
+        limitBanner.style.display = data.addresses.length >= 5 ? "block" : "none";
+      }
+      if (addBtn) {
+        addBtn.title = data.addresses.length >= 5 ? "Maximum limit of 5 saved addresses reached" : "Add New Address";
+      }
+
       listEl.innerHTML = data.addresses.map(addr => `
         <div style="background:var(--color-bg-subtle); padding:16px; border-radius:var(--radius-md); border:1.5px solid ${addr.is_default ? 'var(--color-primary)' : 'var(--color-border)'}; box-shadow:var(--shadow-sm); transition:all var(--transition-fast);">
           <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
@@ -264,6 +283,10 @@
   }
 
   function openAddressEditorModal(addr = null) {
+    if (!addr && (userAddresses || []).length >= 5) {
+      showToast("Maximum limit of 5 saved addresses reached. Please delete an address to add a new one.", "error");
+      return;
+    }
     document.getElementById("address-editor-modal").classList.add("open");
     document.getElementById("addr-modal-title").innerHTML = addr 
       ? '<i class="fa-solid fa-pen-to-square" style="color:var(--color-primary);"></i> Edit Delivery Address'

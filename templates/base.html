@@ -208,13 +208,14 @@
         <a href="/products?deals=true" class="category-nav-link online-only-nav {% if current_shopping_mode == 'RETAIL_NEAR_ME' %}nav-hidden{% endif %}" id="nav-mode-offers">
           <i class="fa-solid fa-tag"></i> Offers
         </a>
-        <a href="/wishlist" class="category-nav-link" id="nav-mode-wishlist">
-          <i class="fa-regular fa-heart"></i> Wishlist
-        </a>
         <a href="/orders" class="category-nav-link" id="nav-mode-orders" style="color: var(--color-accent-navy);">
           <i class="fa-solid fa-box"></i> Orders
         </a>
-        <a href="javascript:void(0)" onclick="toggleCartDrawer()" class="category-nav-link" id="nav-mode-cart">
+        <!-- Duplicate center navbar links hidden: Wishlist and Cart are accessible ONLY via top-right action icons -->
+        <a href="/wishlist" class="category-nav-link nav-hidden" id="nav-mode-wishlist" style="display:none;" aria-hidden="true">
+          <i class="fa-regular fa-heart"></i> Wishlist
+        </a>
+        <a href="javascript:void(0)" onclick="toggleCartDrawer()" class="category-nav-link nav-hidden" id="nav-mode-cart" style="display:none;" aria-hidden="true">
           <i class="fa-solid fa-bag-shopping"></i> Cart
         </a>
       </div>
@@ -406,7 +407,7 @@
           <span id="drawer-cart-total">₹0</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:10px;">
-          <a href="/checkout" class="btn-primary" style="justify-content: center; text-align: center;">
+          <a href="/checkout" id="drawer-checkout-btn" class="btn-primary" onclick="proceedToCheckoutFromDrawer(); return false;" style="justify-content: center; text-align: center;">
             <i class="fa-solid fa-lock"></i> Proceed to Checkout
           </a>
           <a href="/cart" class="btn-secondary" style="justify-content: center; text-align: center;">

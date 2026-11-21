@@ -162,7 +162,7 @@
       <div class="checkout-summary-box">
         <h3 style="font-size:18px; margin-bottom:16px;">Items in Order</h3>
         
-        <div id="checkout-items-preview" style="max-height:220px; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:10px;">
+        <div id="checkout-items-preview" style="max-height:420px; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:10px; padding-right:4px;">
           <!-- Injected via app.js -->
         </div>
 
@@ -247,8 +247,8 @@
 
 {% block scripts %}
 <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    initCheckoutPage();
+  document.addEventListener("DOMContentLoaded", async () => {
+    await initCheckoutPage();
   });
 </script>
 {% endblock %}

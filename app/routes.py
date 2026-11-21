@@ -83,10 +83,14 @@ def on_kafka_order_consumed(event_payload):
 
 kafka_service = KafkaService(on_order_consumed_callback=on_kafka_order_consumed)
 
-# Pre-populate OpenSearch index with all products on startup
+# Pre-populate OpenSearch index with all products and store inventory on startup
 try:
     all_prods = db_service.get_all_products()
     opensearch_service.index_all_products(all_prods)
+    stores = db_service.get_retail_stores("Bengaluru")
+    for st in stores:
+        s_inv = db_service.get_store_inventory(st["id"])
+        opensearch_service.index_store_inventory(st["id"], s_inv)
 except Exception as e:
     logger.error(f"Error seeding OpenSearch on launch: {e}")
 
@@ -1978,57 +1982,67 @@ def api_validate_cart_item():
 @main_bp.route("/api/search", methods=["GET"])
 def search_catalog():
     """
-    Search bar endpoint powered by OpenSearch with typo tolerance:
-    handles queries like 'lapop', 'bluetoth', 'samsng' and filters by category, city, price.
+    Search endpoint powered by Mode-Aware OpenSearch:
+    - In ONLINE Mode: searches entire marketplace with brand, category, city, price range, sorting, pagination.
+    - In RETAIL_NEAR_ME Mode: strictly returns grocery items, incorporates store-specific selling prices and stock levels.
     """
     query = request.args.get("q", "").strip()
     category = request.args.get("category")
+    brand = request.args.get("brand")
     city = request.args.get("city")
     min_price = request.args.get("min_price", type=float)
     max_price = request.args.get("max_price", type=float)
-    mode = resolve_shopping_mode()
+    store_id = request.args.get("store_id", type=int)
+    sort_by = request.args.get("sort") or request.args.get("sort_by")
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    in_stock_param = request.args.get("in_stock") or request.args.get("in_stock_only")
+    in_stock_only = in_stock_param.lower() in ("true", "1", "yes") if in_stock_param else False
 
-    if mode == "RETAIL_NEAR_ME":
-        if category and category in NON_GROCERY_CATEGORIES:
-            return jsonify({
-                "total": 0,
-                "hits": [],
-                "took_ms": 1,
-                "engine": "opensearch_mode_filtered"
-            })
-        search_result = opensearch_service.search(
-            query_text=query,
-            category=category,
-            city=city,
-            min_price=min_price,
-            max_price=max_price
-        )
-        hits = search_result.get("hits") or search_result.get("results") or []
-        filtered_hits = [h for h in hits if is_retail_grocery_product(h)]
-        search_result["hits"] = filtered_hits
-        search_result["results"] = filtered_hits
-        search_result["total"] = len(filtered_hits)
-        return jsonify(search_result)
+    mode = resolve_shopping_mode()
 
     search_result = opensearch_service.search(
         query_text=query,
         category=category,
+        brand=brand,
         city=city,
         min_price=min_price,
-        max_price=max_price
+        max_price=max_price,
+        shopping_mode=mode,
+        store_id=store_id,
+        sort_by=sort_by,
+        page=page,
+        per_page=per_page,
+        in_stock_only=in_stock_only
     )
     return jsonify(search_result)
 
+
 @main_bp.route("/api/search/suggestions", methods=["GET"])
 def search_suggestions():
+    """
+    Mode-Aware Search Autocomplete Suggestions:
+    - In RETAIL_NEAR_ME Mode: strictly grocery products only.
+    - In ONLINE Mode: catalog-wide suggestions.
+    """
     query = request.args.get("q", "").strip()
     mode = resolve_shopping_mode()
-    suggestions = opensearch_service.get_suggestions(query, limit=10)
-    if mode == "RETAIL_NEAR_ME":
-        non_grocery_keywords = {"laptop", "macbook", "phone", "iphone", "samsung galaxy", "headphone", "t-shirt", "watch", "tablet", "audio", "shirt", "apparel"}
-        filtered = [s for s in suggestions if not any(ng in s.lower() for ng in non_grocery_keywords)]
-        return jsonify({"query": query, "suggestions": filtered[:5]})
-    return jsonify({"query": query, "suggestions": suggestions[:5]})
+    store_id = request.args.get("store_id", type=int)
+    limit = request.args.get("limit", 5, type=int)
+
+    suggestions = opensearch_service.get_suggestions(
+        prefix_or_typo=query,
+        limit=limit,
+        shopping_mode=mode,
+        store_id=store_id
+    )
+
+    return jsonify({
+        "query": query,
+        "shopping_mode": mode,
+        "store_id": store_id,
+        "suggestions": suggestions
+    })
 
 # -------------------------------------------------------------------------
 # Transactional Checkout & Kafka Producer API
@@ -2807,6 +2821,15 @@ def api_update_store_inventory(store_id: int, product_id: int):
     data = request.get_json() or {}
     try:
         updated = db_service.update_store_inventory(store_id, product_id, data)
+        if updated:
+            opensearch_service.update_store_inventory_item(
+                store_id=store_id,
+                product_id=product_id,
+                selling_price=updated.get("selling_price"),
+                original_price=updated.get("original_price"),
+                stock_quantity=updated.get("stock_quantity"),
+                is_available=updated.get("is_available")
+            )
         return jsonify({
             "success": True,
             "message": "Store inventory updated successfully.",
@@ -2834,6 +2857,7 @@ def api_remove_store_inventory(store_id: int, product_id: int):
 
     deleted = db_service.remove_store_inventory(store_id, product_id)
     if deleted:
+        opensearch_service.remove_store_inventory_item(store_id, product_id)
         return jsonify({
             "success": True,
             "message": f"Product #{product_id} successfully removed from Store #{store_id} inventory."

@@ -5,6 +5,16 @@
  * OpenSearch typo-tolerant search & suggestions, ACID row locking checkout, and Admin portal.
  */
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 // Global State
 const initialMode = localStorage.getItem("bharatstore_shopping_mode") || "ONLINE";
 const appState = {
@@ -945,6 +955,7 @@ function openCartDrawer() {
   const drawer = document.getElementById("cart-drawer-overlay");
   if (drawer && !drawer.classList.contains("open")) {
     drawer.classList.add("open");
+    document.body.style.overflow = "hidden";
     renderCartDrawer();
   }
 }
@@ -954,14 +965,37 @@ function toggleCartDrawer() {
   if (drawer) {
     drawer.classList.toggle("open");
     if (drawer.classList.contains("open")) {
+      document.body.style.overflow = "hidden";
       renderCartDrawer();
+    } else {
+      document.body.style.overflow = "";
     }
   }
 }
 
 function closeCartDrawer(e) {
   const drawer = document.getElementById("cart-drawer-overlay");
-  if (drawer) drawer.classList.remove("open");
+  if (drawer) {
+    drawer.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+}
+
+function proceedToCheckoutFromDrawer() {
+  closeCartDrawer();
+  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  if (isRetail) {
+    const storeIds = (appState.retailCarts || [])
+      .filter(s => (s.items || []).length > 0)
+      .map(s => s.store_id);
+    if (storeIds.length > 0) {
+      window.location.href = `/checkout?mode=retail&stores=${storeIds.join(",")}`;
+    } else {
+      window.location.href = "/checkout?mode=retail";
+    }
+  } else {
+    window.location.href = "/checkout?mode=online";
+  }
 }
 
 function renderCartDrawer() {
@@ -1598,7 +1632,9 @@ async function handleSearchAutocomplete(query) {
 
   searchDebounceTimer = setTimeout(async () => {
     try {
-      const res = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query.trim())}`);
+      const modeParam = appState.shoppingMode ? `&mode=${encodeURIComponent(appState.shoppingMode)}` : '';
+      const storeParam = appState.selectedStoreId ? `&store_id=${encodeURIComponent(appState.selectedStoreId)}` : '';
+      const res = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query.trim())}${modeParam}${storeParam}`);
       const data = await res.json();
       const suggestions = data.suggestions || [];
 
@@ -1611,9 +1647,12 @@ async function handleSearchAutocomplete(query) {
         <div class="suggestion-item" onclick="selectSearchSuggestion('${s.title.replace(/'/g, "\\'")}')">
           <div class="suggestion-left">
             <i class="fa-solid fa-magnifying-glass" style="color:var(--color-primary); font-size:12px;"></i>
-            <span>${s.title}</span>
+            <span>${escapeHtml(s.title)}</span>
           </div>
-          <span class="suggestion-cat">${s.category}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-weight:700; color:var(--color-primary); font-size:12px;">₹${(s.selling_price || s.price || 0).toLocaleString('en-IN')}</span>
+            <span class="suggestion-cat">${escapeHtml(s.category)}</span>
+          </div>
         </div>
       `).join("");
       box.style.display = "block";
@@ -1629,7 +1668,11 @@ function selectSearchSuggestion(title) {
   if (input) input.value = title;
   const box = document.getElementById("search-suggestions-box");
   if (box) box.style.display = "none";
-  window.location.href = `/products?q=${encodeURIComponent(title)}`;
+  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+    window.location.href = `/products?q=${encodeURIComponent(title)}&mode=retail`;
+  } else {
+    window.location.href = `/products?q=${encodeURIComponent(title)}&mode=online`;
+  }
 }
 
 document.addEventListener("click", (e) => {
@@ -2075,21 +2118,91 @@ async function renderWishlistPage() {
 // -----------------------------------------------------------------------------
 // 11. Checkout & Transactional ACID Execution (/checkout) — Multi-Store Support
 // -----------------------------------------------------------------------------
-function initCheckoutPage() {
+async function initCheckoutPage() {
   const container = document.getElementById("checkout-items-preview");
   const subtotalEl = document.getElementById("checkout-subtotal");
   const totalEl = document.getElementById("checkout-grand-total");
+  const btn = document.getElementById("btn-submit-order");
   if (!container) return;
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const checkoutMode = urlParams.get("mode") || (appState.shoppingMode === "RETAIL_NEAR_ME" ? "retail" : "online");
+  container.innerHTML = `
+    <div style="text-align:center; padding:24px 12px; color:var(--color-text-muted); font-size:13px;">
+      <i class="fa-solid fa-spinner fa-spin" style="color:var(--color-primary); font-size:18px; margin-bottom:8px;"></i>
+      <div>Loading your store baskets & calculating totals...</div>
+    </div>
+  `;
 
-  const items = Object.values(appState.cart);
-  if (items.length === 0) {
-    container.innerHTML = `<p style="font-size:13px; color:var(--color-text-muted);">No items in cart. <a href="/products" style="color:var(--color-primary); font-weight:700;">Browse catalog</a></p>`;
-    const btn = document.getElementById("btn-submit-order");
-    if (btn) btn.disabled = true;
-    return;
+  if (typeof initShoppingMode === "function") {
+    await initShoppingMode();
+  }
+
+  const urlParams = new URLSearchParams(window.location.search);
+  let checkoutMode = urlParams.get("mode");
+  if (!checkoutMode) {
+    checkoutMode = (appState.shoppingMode === "RETAIL_NEAR_ME") ? "retail" : "online";
+  } else {
+    checkoutMode = checkoutMode.toLowerCase();
+  }
+
+  let retailShops = [];
+  let onlineItems = [];
+
+  if (checkoutMode === "retail") {
+    try {
+      let locParams = "";
+      if (appState.deliveryLocation && appState.deliveryLocation.latitude && appState.deliveryLocation.longitude) {
+        locParams = `?customer_lat=${appState.deliveryLocation.latitude}&customer_lng=${appState.deliveryLocation.longitude}`;
+      }
+      const res = await fetch(`/api/cart/retail${locParams}`);
+      if (res.ok) {
+        const data = await res.json();
+        retailShops = data.shops || [];
+        appState.retailCarts = retailShops;
+      }
+    } catch (e) {
+      console.error("Retail checkout sync error:", e);
+    }
+
+    // Auto-detect fallback if retail cart is empty and mode wasn't explicitly set in URL
+    if (retailShops.length === 0 && !urlParams.get("mode")) {
+      try {
+        const resO = await fetch("/api/cart/online");
+        if (resO.ok) {
+          const dataO = await resO.json();
+          const oItems = (dataO.cart && dataO.cart.items) || [];
+          if (oItems.length > 0) {
+            checkoutMode = "online";
+            onlineItems = oItems;
+          }
+        }
+      } catch (e) {}
+    }
+  } else {
+    try {
+      const resO = await fetch("/api/cart/online");
+      if (resO.ok) {
+        const dataO = await resO.json();
+        onlineItems = (dataO.cart && dataO.cart.items) || [];
+      }
+    } catch (e) {
+      console.error("Online checkout sync error:", e);
+    }
+
+    // Auto-detect fallback if online cart is empty and mode wasn't explicitly set in URL
+    if (onlineItems.length === 0 && !urlParams.get("mode")) {
+      try {
+        const resR = await fetch("/api/cart/retail");
+        if (resR.ok) {
+          const dataR = await resR.json();
+          const rShops = dataR.shops || [];
+          if (rShops.length > 0) {
+            checkoutMode = "retail";
+            retailShops = rShops;
+            appState.retailCarts = retailShops;
+          }
+        }
+      } catch (e) {}
+    }
   }
 
   if (checkoutMode === "retail") {
@@ -2100,52 +2213,47 @@ function initCheckoutPage() {
       targetStoreIds = [Number(urlStoreId)];
     } else if (urlStores) {
       targetStoreIds = urlStores.split(",").map(Number);
-    } else if (appState.selectedRetailStores && appState.selectedRetailStores.size > 0) {
-      targetStoreIds = Array.from(appState.selectedRetailStores);
     }
 
-    const checkoutItems = targetStoreIds ? items.filter(it => targetStoreIds.includes(it.store_id)) : items;
+    let activeShops = retailShops.filter(s => (s.items || []).length > 0);
+    if (targetStoreIds && targetStoreIds.length > 0) {
+      activeShops = activeShops.filter(s => targetStoreIds.includes(s.store_id));
+    }
 
-    const storeMap = {};
-    checkoutItems.forEach(it => {
-      const sId = it.store_id || 1;
-      if (!storeMap[sId]) {
-        const matchingShop = (appState.retailCarts || []).find(s => s.store_id === sId);
-        storeMap[sId] = {
-          store_id: sId,
-          store_name: it.store_name || matchingShop?.store_name || `Store #${sId}`,
-          fulfillment: it.fulfillment || "delivery",
-          delivery_fee: matchingShop?.delivery_fee != null ? matchingShop.delivery_fee : 20.0,
-          items: [],
-          subtotal: 0
-        };
-      }
-      storeMap[sId].items.push(it);
-      storeMap[sId].subtotal += ((it.product && it.product.price) || 0) * it.qty;
-    });
+    if (activeShops.length === 0) {
+      container.innerHTML = `<p style="font-size:13px; color:var(--color-text-muted);">No items in selected store basket. <a href="/retail" style="color:var(--color-primary); font-weight:700;">Browse Retail Near Me</a></p>`;
+      if (btn) btn.disabled = true;
+      if (subtotalEl) subtotalEl.textContent = "₹0";
+      if (totalEl) totalEl.textContent = "₹0";
+      return;
+    }
 
     let combinedSubtotal = 0;
     let combinedDelivery = 0;
 
-    container.innerHTML = Object.values(storeMap).map(st => {
-      const fee = st.fulfillment === "pickup" ? 0 : st.delivery_fee;
+    container.innerHTML = activeShops.map(st => {
+      const isPickup = (st.fulfillment === "pickup" || st.fulfillment_type === "pickup");
+      const fee = isPickup ? 0 : (st.delivery_fee != null ? st.delivery_fee : 20.0);
       combinedSubtotal += st.subtotal;
       combinedDelivery += fee;
+
       return `
-        <div style="background:var(--color-bg-base); padding:10px 12px; border-radius:var(--radius-md); border:1px solid var(--color-border-subtle); margin-bottom:10px;">
-          <div style="display:flex; justify-content:space-between; font-weight:700; font-size:12.5px; margin-bottom:6px; color:var(--color-primary);">
+        <div class="checkout-store-basket-card" style="background:var(--color-bg-base); padding:12px 14px; border-radius:var(--radius-md); border:1px solid var(--color-border); margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:13px; margin-bottom:8px; color:var(--color-primary); border-bottom:1px solid var(--color-border-subtle); padding-bottom:6px;">
             <span><i class="fa-solid fa-shop"></i> ${escapeHtml(st.store_name)}</span>
             <span>Subtotal: ₹${st.subtotal.toLocaleString('en-IN')}</span>
           </div>
-          ${st.items.map(it => `
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--color-text-body); padding:2px 0;">
-              <span style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${it.qty}x ${it.product.title}</span>
-              <strong>₹${(((it.product && it.product.price) || 0) * it.qty).toLocaleString('en-IN')}</strong>
+          ${(st.items || []).map(it => `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--color-text-body); padding:4px 0; gap:8px;">
+              <span style="flex:1; word-break:break-word; overflow-wrap:anywhere; white-space:normal;">
+                <strong>${it.quantity}x</strong> ${escapeHtml(it.title)}
+              </span>
+              <strong style="white-space:nowrap; color:var(--color-text-main);">₹${((it.unit_price || 0) * it.quantity).toLocaleString('en-IN')}</strong>
             </div>
           `).join("")}
-          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--color-text-muted); margin-top:6px; padding-top:4px; border-top:1px dashed var(--color-border);">
-            <span>Fulfillment (${st.fulfillment === 'pickup' ? 'Store Pickup' : '2-Hour Delivery'})</span>
-            <span style="font-weight:700; color:var(--color-sage);">${fee === 0 ? 'FREE' : '₹' + fee}</span>
+          <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--color-text-muted); margin-top:8px; padding-top:6px; border-top:1px dashed var(--color-border);">
+            <span>Fulfillment (${isPickup ? 'Store Counter Pickup' : 'Hyperlocal 2-Hour Delivery'})</span>
+            <span style="font-weight:700; color:${fee === 0 ? 'var(--color-sage)' : 'var(--color-primary)'};">${fee === 0 ? 'FREE' : '₹' + fee}</span>
           </div>
         </div>
       `;
@@ -2154,27 +2262,38 @@ function initCheckoutPage() {
     if (subtotalEl) subtotalEl.textContent = `₹${combinedSubtotal.toLocaleString('en-IN')}`;
     const grandTotal = combinedSubtotal + combinedDelivery;
     if (totalEl) totalEl.textContent = `₹${grandTotal.toLocaleString('en-IN')}`;
+    if (btn) btn.disabled = false;
 
   } else {
+    if (onlineItems.length === 0) {
+      container.innerHTML = `<p style="font-size:13px; color:var(--color-text-muted);">No items in cart. <a href="/products" style="color:var(--color-primary); font-weight:700;">Browse catalog</a></p>`;
+      if (btn) btn.disabled = true;
+      if (subtotalEl) subtotalEl.textContent = "₹0";
+      if (totalEl) totalEl.textContent = "₹0";
+      return;
+    }
+
     let subtotal = 0;
-    container.innerHTML = items.map(item => {
-      const p = item.product;
-      const itemTotal = ((p && p.price) || 0) * item.qty;
+    container.innerHTML = onlineItems.map(it => {
+      const itemTotal = (it.unit_price || 0) * it.quantity;
       subtotal += itemTotal;
       return `
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px;">
-          <span style="max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.qty}x ${p.title}</span>
-          <strong style="color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</strong>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12.5px; padding:4px 0; gap:8px;">
+          <span style="flex:1; word-break:break-word; overflow-wrap:anywhere; white-space:normal;">
+            <strong>${it.quantity}x</strong> ${escapeHtml(it.title)}
+          </span>
+          <strong style="white-space:nowrap; color:var(--color-text-main);">₹${itemTotal.toLocaleString('en-IN')}</strong>
         </div>
       `;
     }).join("");
 
     if (subtotalEl) subtotalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
     if (totalEl) totalEl.textContent = `₹${subtotal.toLocaleString('en-IN')}`;
+    if (btn) btn.disabled = false;
   }
 
   // Phase 3: Load Saved Addresses into Checkout
-  loadCheckoutSavedAddresses();
+  await loadCheckoutSavedAddresses();
 }
 
 async function loadCheckoutSavedAddresses() {
@@ -2326,6 +2445,8 @@ async function placeOrderFromCheckout() {
       targetStoreIds = urlStores.split(",").map(Number);
     } else if (appState.selectedRetailStores && appState.selectedRetailStores.size > 0) {
       targetStoreIds = Array.from(appState.selectedRetailStores);
+    } else if (appState.retailCarts && appState.retailCarts.length > 0) {
+      targetStoreIds = appState.retailCarts.filter(s => (s.items || []).length > 0).map(s => s.store_id);
     } else {
       targetStoreIds = Array.from(new Set(Object.values(appState.cart).map(it => it.store_id || 1)));
     }

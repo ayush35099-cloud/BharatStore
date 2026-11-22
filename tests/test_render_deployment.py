@@ -54,7 +54,9 @@ class TestRenderDeployment(unittest.TestCase):
             content = f.read().strip()
         self.assertTrue(content.startswith("web: gunicorn run:app"))
         self.assertIn("--bind 0.0.0.0:$PORT", content)
-        self.assertIn("--workers 2", content)
+        self.assertIn("--workers 1", content)
+        self.assertIn("--worker-class gthread", content)
+        self.assertIn("--threads 4", content)
         self.assertIn("--timeout 120", content)
         print(" [PASSED] 3. Procfile contains compliant Gunicorn start command with dynamic $PORT")
 

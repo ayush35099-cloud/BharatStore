@@ -20,9 +20,9 @@ class TestRenderPortBinding(unittest.TestCase):
         os.environ["PORT"] = "10055"
         conf = runpy.run_path("gunicorn.conf.py")
         self.assertEqual(conf.get("bind"), "0.0.0.0:10055")
-        self.assertEqual(conf.get("workers"), 2)
+        self.assertEqual(conf.get("workers"), 1)
         self.assertEqual(conf.get("worker_class"), "gthread")
-        self.assertEqual(conf.get("threads"), 8)
+        self.assertEqual(conf.get("threads"), 4)
         self.assertEqual(conf.get("timeout"), 120)
 
         # Case 2: PORT unset defaults gracefully to 10000

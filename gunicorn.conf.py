@@ -8,10 +8,24 @@ import os
 port = os.environ.get("PORT", "10000").strip()
 bind = f"0.0.0.0:{port}"
 
-# High-concurrency threaded workers for real-time SSE streams and fast responses
-workers = 2
+# Worker & Thread Architecture:
+# Engineered for Aiven PostgreSQL capacity (20 total max connections, 3 superuser reserved = 17 slots).
+# Render sets WEB_CONCURRENCY=2 by default on standard dynos, which would double connection pools.
+# During zero-downtime rolling deploys, 2 containers run in parallel.
+# Running 1 worker process with 4 gthread threads guarantees:
+# 2 containers * 1 worker * 3 maxconn = 6 connections total (well under 17).
+raw_workers = os.environ.get("GUNICORN_WORKERS") or os.environ.get("WEB_CONCURRENCY") or "1"
+try:
+    workers = min(int(raw_workers), 2)
+except (ValueError, TypeError):
+    workers = 1
+
+# Enforce 1 worker by default on Render unless explicitly overridden via GUNICORN_WORKERS
+if not os.environ.get("GUNICORN_WORKERS"):
+    workers = 1
+
 worker_class = "gthread"
-threads = 8
+threads = int(os.environ.get("GUNICORN_THREADS", "4"))
 
 # Timeouts: allow ample time for graceful shutdowns without hanging
 timeout = 120

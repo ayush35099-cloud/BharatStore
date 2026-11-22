@@ -4014,70 +4014,77 @@ class DatabaseService:
         scope_key = self._get_cart_scope_key(customer_id, session_id, mode, s_id)
 
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    if customer_id:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                            FROM carts
+                            WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                            LIMIT 1;
+                        """, (customer_id, mode, s_id, s_id))
+                    else:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
+                            FROM carts
+                            WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                            LIMIT 1;
+                        """, (scope_key, session_id, mode, s_id, s_id))
+                    row = cur.fetchone()
+                    if row:
+                        return dict(row)
+
+                    cur.execute("""
+                        INSERT INTO carts (customer_id, session_id, shopping_mode, store_id, status)
+                        VALUES (%s, %s, %s, %s, 'ACTIVE')
+                        RETURNING id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at;
+                    """, (customer_id, scope_key, mode, s_id))
+                    new_row = cur.fetchone()
+                    conn.commit()
+                    return dict(new_row)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 if customer_id:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
                         FROM carts
-                        WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
                         LIMIT 1;
                     """, (customer_id, mode, s_id, s_id))
                 else:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
                         FROM carts
-                        WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
                         LIMIT 1;
                     """, (scope_key, session_id, mode, s_id, s_id))
                 row = cur.fetchone()
                 if row:
-                    return dict(row)
+                    cols = [c[0] for c in cur.description]
+                    return dict(zip(cols, row))
 
                 cur.execute("""
                     INSERT INTO carts (customer_id, session_id, shopping_mode, store_id, status)
-                    VALUES (%s, %s, %s, %s, 'ACTIVE')
-                    RETURNING id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at;
+                    VALUES (?, ?, ?, ?, 'ACTIVE');
                 """, (customer_id, scope_key, mode, s_id))
-                new_row = cur.fetchone()
                 conn.commit()
-                return dict(new_row)
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            if customer_id:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
-                    FROM carts
-                    WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
-                    LIMIT 1;
-                """, (customer_id, mode, s_id, s_id))
-            else:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status, created_at, updated_at
-                    FROM carts
-                    WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
-                    LIMIT 1;
-                """, (scope_key, session_id, mode, s_id, s_id))
-            row = cur.fetchone()
-            if row:
-                cols = [c[0] for c in cur.description]
-                return dict(zip(cols, row))
-
-            cur.execute("""
-                INSERT INTO carts (customer_id, session_id, shopping_mode, store_id, status)
-                VALUES (?, ?, ?, ?, 'ACTIVE');
-            """, (customer_id, scope_key, mode, s_id))
-            conn.commit()
-            new_id = cur.lastrowid
-            return {
-                "id": new_id,
-                "customer_id": customer_id,
-                "session_id": scope_key,
-                "shopping_mode": mode,
-                "store_id": s_id,
-                "status": "ACTIVE"
-            }
+                new_id = cur.lastrowid
+                return {
+                    "id": new_id,
+                    "customer_id": customer_id,
+                    "session_id": scope_key,
+                    "shopping_mode": mode,
+                    "store_id": s_id,
+                    "status": "ACTIVE"
+                }
+            finally:
+                conn.close()
 
     def get_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", store_id: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -4089,46 +4096,53 @@ class DatabaseService:
 
         cart_record = None
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    if customer_id:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                            FROM carts
+                            WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                            LIMIT 1;
+                        """, (customer_id, mode, s_id, s_id))
+                    else:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                            FROM carts
+                            WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                            LIMIT 1;
+                        """, (scope_key, session_id, mode, s_id, s_id))
+                    row = cur.fetchone()
+                    if row:
+                        cart_record = dict(row)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 if customer_id:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status
                         FROM carts
-                        WHERE customer_id = %s AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
                         LIMIT 1;
                     """, (customer_id, mode, s_id, s_id))
                 else:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status
                         FROM carts
-                        WHERE (session_id = %s OR session_id = %s) AND shopping_mode = %s AND (store_id = %s OR (store_id IS NULL AND %s IS NULL)) AND status = 'ACTIVE'
+                        WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
                         LIMIT 1;
                     """, (scope_key, session_id, mode, s_id, s_id))
                 row = cur.fetchone()
                 if row:
-                    cart_record = dict(row)
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            if customer_id:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
-                    FROM carts
-                    WHERE customer_id = ? AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
-                    LIMIT 1;
-                """, (customer_id, mode, s_id, s_id))
-            else:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
-                    FROM carts
-                    WHERE (session_id = ? OR session_id = ?) AND shopping_mode = ? AND (store_id = ? OR (store_id IS NULL AND ? IS NULL)) AND status = 'ACTIVE'
-                    LIMIT 1;
-                """, (scope_key, session_id, mode, s_id, s_id))
-            row = cur.fetchone()
-            if row:
-                cols = [c[0] for c in cur.description]
-                cart_record = dict(zip(cols, row))
+                    cols = [c[0] for c in cur.description]
+                    cart_record = dict(zip(cols, row))
+            finally:
+                conn.close()
 
         if not cart_record:
             return {
@@ -4143,8 +4157,29 @@ class DatabaseService:
         cart_id = cart_record["id"]
         items = []
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                               p.title, p.brand, p.image_url, p.category, p.sub_category, p.price as catalog_price,
+                               COALESCE(i.stock_quantity, 0) as catalog_stock
+                        FROM cart_items ci
+                        JOIN products p ON ci.product_id = p.id
+                        LEFT JOIN inventory i ON p.id = i.product_id
+                        WHERE ci.cart_id = %s
+                        ORDER BY ci.id ASC;
+                    """, (cart_id,))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        items.append(dict(r))
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 cur.execute("""
                     SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
                            p.title, p.brand, p.image_url, p.category, p.sub_category, p.price as catalog_price,
@@ -4152,28 +4187,14 @@ class DatabaseService:
                     FROM cart_items ci
                     JOIN products p ON ci.product_id = p.id
                     LEFT JOIN inventory i ON p.id = i.product_id
-                    WHERE ci.cart_id = %s
+                    WHERE ci.cart_id = ?
                     ORDER BY ci.id ASC;
                 """, (cart_id,))
-                rows = cur.fetchall()
-                for r in rows:
-                    items.append(dict(r))
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
-                       p.title, p.brand, p.image_url, p.category, p.sub_category, p.price as catalog_price,
-                       COALESCE(i.stock_quantity, 0) as catalog_stock
-                FROM cart_items ci
-                JOIN products p ON ci.product_id = p.id
-                LEFT JOIN inventory i ON p.id = i.product_id
-                WHERE ci.cart_id = ?
-                ORDER BY ci.id ASC;
-            """, (cart_id,))
-            cols = [c[0] for c in cur.description]
-            for r in cur.fetchall():
-                items.append(dict(zip(cols, r)))
+                cols = [c[0] for c in cur.description]
+                for r in cur.fetchall():
+                    items.append(dict(zip(cols, r)))
+            finally:
+                conn.close()
 
         total_qty = 0
         grand_subtotal = 0.0
@@ -4203,6 +4224,7 @@ class DatabaseService:
             grand_subtotal = round(grand_subtotal + item_sub, 2)
 
             enriched_items.append({
+                "id": it["id"],
                 "item_id": it["id"],
                 "cart_id": cart_id,
                 "product_id": pid,
@@ -4243,43 +4265,50 @@ class DatabaseService:
         user_sess_prefix = f"c_{customer_id}:RETAIL_NEAR_ME:%" if customer_id else f"s_{session_id or 'anon'}:RETAIL_NEAR_ME:%"
 
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    if customer_id:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                            FROM carts
+                            WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            ORDER BY store_id ASC;
+                        """, (customer_id,))
+                    else:
+                        cur.execute("""
+                            SELECT id, customer_id, session_id, shopping_mode, store_id, status
+                            FROM carts
+                            WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            ORDER BY store_id ASC;
+                        """, (user_sess_prefix, session_id))
+                    rows = cur.fetchall()
+                    carts_list = [dict(r) for r in rows]
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 if customer_id:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status
                         FROM carts
-                        WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
                         ORDER BY store_id ASC;
                     """, (customer_id,))
                 else:
                     cur.execute("""
                         SELECT id, customer_id, session_id, shopping_mode, store_id, status
                         FROM carts
-                        WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                        WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
                         ORDER BY store_id ASC;
                     """, (user_sess_prefix, session_id))
-                rows = cur.fetchall()
-                carts_list = [dict(r) for r in rows]
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            if customer_id:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
-                    FROM carts
-                    WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
-                    ORDER BY store_id ASC;
-                """, (customer_id,))
-            else:
-                cur.execute("""
-                    SELECT id, customer_id, session_id, shopping_mode, store_id, status
-                    FROM carts
-                    WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
-                    ORDER BY store_id ASC;
-                """, (user_sess_prefix, session_id))
-            cols = [c[0] for c in cur.description]
-            carts_list = [dict(zip(cols, r)) for r in cur.fetchall()]
+                cols = [c[0] for c in cur.description]
+                carts_list = [dict(zip(cols, r)) for r in cur.fetchall()]
+            finally:
+                conn.close()
 
         shops_breakdown = []
         grand_total_items = 0
@@ -4417,21 +4446,28 @@ class DatabaseService:
         existing_qty = 0
         existing_item_id = None
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
-                cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = %s AND product_id = %s LIMIT 1;", (cart_id, product_id))
-                row = cur.fetchone()
-                if row:
-                    existing_item_id = row["id"]
-                    existing_qty = row["quantity"]
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = %s AND product_id = %s LIMIT 1;", (cart_id, product_id))
+                    row = cur.fetchone()
+                    if row:
+                        existing_item_id = row["id"]
+                        existing_qty = row["quantity"]
+            finally:
+                conn.close()
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? LIMIT 1;", (cart_id, product_id))
-            row = cur.fetchone()
-            if row:
-                existing_item_id = row[0]
-                existing_qty = row[1]
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT id, quantity FROM cart_items WHERE cart_id = ? AND product_id = ? LIMIT 1;", (cart_id, product_id))
+                row = cur.fetchone()
+                if row:
+                    existing_item_id = row[0]
+                    existing_qty = row[1]
+            finally:
+                conn.close()
 
         new_qty = existing_qty + quantity
         if new_qty > available_stock:
@@ -4441,34 +4477,40 @@ class DatabaseService:
 
         if self.is_live_postgres:
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor() as cur:
+                    if existing_item_id:
+                        cur.execute("""
+                            UPDATE cart_items
+                            SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s;
+                        """, (new_qty, unit_price, fulfillment_val, existing_item_id))
+                    else:
+                        cur.execute("""
+                            INSERT INTO cart_items (cart_id, product_id, store_id, quantity, unit_price, fulfillment)
+                            VALUES (%s, %s, %s, %s, %s, %s);
+                        """, (cart_id, product_id, s_id, quantity, unit_price, fulfillment_val))
+                    conn.commit()
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 if existing_item_id:
                     cur.execute("""
                         UPDATE cart_items
-                        SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = %s;
+                        SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?;
                     """, (new_qty, unit_price, fulfillment_val, existing_item_id))
                 else:
                     cur.execute("""
                         INSERT INTO cart_items (cart_id, product_id, store_id, quantity, unit_price, fulfillment)
-                        VALUES (%s, %s, %s, %s, %s, %s);
+                        VALUES (?, ?, ?, ?, ?, ?);
                     """, (cart_id, product_id, s_id, quantity, unit_price, fulfillment_val))
                 conn.commit()
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            if existing_item_id:
-                cur.execute("""
-                    UPDATE cart_items
-                    SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?;
-                """, (new_qty, unit_price, fulfillment_val, existing_item_id))
-            else:
-                cur.execute("""
-                    INSERT INTO cart_items (cart_id, product_id, store_id, quantity, unit_price, fulfillment)
-                    VALUES (?, ?, ?, ?, ?, ?);
-                """, (cart_id, product_id, s_id, quantity, unit_price, fulfillment_val))
-            conn.commit()
+            finally:
+                conn.close()
 
         return self.get_cart(customer_id, session_id, mode, s_id)
 
@@ -4478,32 +4520,39 @@ class DatabaseService:
         """
         item_row = None
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
+                               c.customer_id, c.session_id, c.shopping_mode
+                        FROM cart_items ci
+                        JOIN carts c ON ci.cart_id = c.id
+                        WHERE ci.id = %s;
+                    """, (item_id,))
+                    row = cur.fetchone()
+                    if row:
+                        item_row = dict(row)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 cur.execute("""
                     SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
                            c.customer_id, c.session_id, c.shopping_mode
                     FROM cart_items ci
                     JOIN carts c ON ci.cart_id = c.id
-                    WHERE ci.id = %s;
+                    WHERE ci.id = ?;
                 """, (item_id,))
+                cols = [c[0] for c in cur.description]
                 row = cur.fetchone()
                 if row:
-                    item_row = dict(row)
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, ci.quantity, ci.unit_price, ci.fulfillment,
-                       c.customer_id, c.session_id, c.shopping_mode
-                FROM cart_items ci
-                JOIN carts c ON ci.cart_id = c.id
-                WHERE ci.id = ?;
-            """, (item_id,))
-            cols = [c[0] for c in cur.description]
-            row = cur.fetchone()
-            if row:
-                item_row = dict(zip(cols, row))
+                    item_row = dict(zip(cols, row))
+            finally:
+                conn.close()
 
         if not item_row:
             raise ValueError(f"Cart item #{item_id} not found.")
@@ -4525,14 +4574,20 @@ class DatabaseService:
             if quantity <= 0:
                 if self.is_live_postgres:
                     conn = self._get_pg_connection()
-                    with conn.cursor() as cur:
-                        cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
-                        conn.commit()
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
+                            conn.commit()
+                    finally:
+                        conn.close()
                 else:
                     conn = self._get_sqlite_connection()
-                    cur = conn.cursor()
-                    cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
-                    conn.commit()
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
+                        conn.commit()
+                    finally:
+                        conn.close()
             else:
                 if mode == "RETAIL_NEAR_ME" and store_id:
                     inv = self.get_store_product(store_id, product_id)
@@ -4554,33 +4609,45 @@ class DatabaseService:
                 f_val = fulfillment if fulfillment in ["delivery", "pickup"] else item_row["fulfillment"]
                 if self.is_live_postgres:
                     conn = self._get_pg_connection()
-                    with conn.cursor() as cur:
-                        cur.execute("""
-                            UPDATE cart_items
-                            SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s;
-                        """, (quantity, unit_price, f_val, item_id))
-                        conn.commit()
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                                UPDATE cart_items
+                                SET quantity = %s, unit_price = %s, fulfillment = %s, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = %s;
+                            """, (quantity, unit_price, f_val, item_id))
+                            conn.commit()
+                    finally:
+                        conn.close()
                 else:
                     conn = self._get_sqlite_connection()
-                    cur = conn.cursor()
-                    cur.execute("""
-                        UPDATE cart_items
-                        SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?;
-                    """, (quantity, unit_price, f_val, item_id))
-                    conn.commit()
+                    try:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            UPDATE cart_items
+                            SET quantity = ?, unit_price = ?, fulfillment = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                        """, (quantity, unit_price, f_val, item_id))
+                        conn.commit()
+                    finally:
+                        conn.close()
         elif fulfillment in ["delivery", "pickup"]:
             if self.is_live_postgres:
                 conn = self._get_pg_connection()
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE cart_items SET fulfillment = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (fulfillment, item_id))
-                    conn.commit()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE cart_items SET fulfillment = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (fulfillment, item_id))
+                        conn.commit()
+                finally:
+                    conn.close()
             else:
                 conn = self._get_sqlite_connection()
-                cur = conn.cursor()
-                cur.execute("UPDATE cart_items SET fulfillment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (fulfillment, item_id))
-                conn.commit()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE cart_items SET fulfillment = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (fulfillment, item_id))
+                    conn.commit()
+                finally:
+                    conn.close()
 
         return self.get_cart(customer_id, session_id, mode, store_id)
 
@@ -4590,30 +4657,37 @@ class DatabaseService:
         """
         item_row = None
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, c.customer_id, c.session_id, c.shopping_mode
+                        FROM cart_items ci
+                        JOIN carts c ON ci.cart_id = c.id
+                        WHERE ci.id = %s;
+                    """, (item_id,))
+                    row = cur.fetchone()
+                    if row:
+                        item_row = dict(row)
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 cur.execute("""
                     SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, c.customer_id, c.session_id, c.shopping_mode
                     FROM cart_items ci
                     JOIN carts c ON ci.cart_id = c.id
-                    WHERE ci.id = %s;
+                    WHERE ci.id = ?;
                 """, (item_id,))
+                cols = [c[0] for c in cur.description]
                 row = cur.fetchone()
                 if row:
-                    item_row = dict(row)
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT ci.id, ci.cart_id, ci.product_id, ci.store_id, c.customer_id, c.session_id, c.shopping_mode
-                FROM cart_items ci
-                JOIN carts c ON ci.cart_id = c.id
-                WHERE ci.id = ?;
-            """, (item_id,))
-            cols = [c[0] for c in cur.description]
-            row = cur.fetchone()
-            if row:
-                item_row = dict(zip(cols, row))
+                    item_row = dict(zip(cols, row))
+            finally:
+                conn.close()
 
         if not item_row:
             raise ValueError(f"Cart item #{item_id} not found.")
@@ -4632,14 +4706,20 @@ class DatabaseService:
 
         if self.is_live_postgres:
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
-                conn.commit()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM cart_items WHERE id = %s;", (item_id,))
+                    conn.commit()
+            finally:
+                conn.close()
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
-            conn.commit()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM cart_items WHERE id = ?;", (item_id,))
+                conn.commit()
+            finally:
+                conn.close()
 
         return self.get_cart(customer_id, session_id, mode, store_id)
 
@@ -4651,14 +4731,20 @@ class DatabaseService:
         cart_id = cart["id"]
         if self.is_live_postgres:
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM cart_items WHERE cart_id = %s;", (cart_id,))
-                conn.commit()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM cart_items WHERE cart_id = %s;", (cart_id,))
+                    conn.commit()
+            finally:
+                conn.close()
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cart_items WHERE cart_id = ?;", (cart_id,))
-            conn.commit()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM cart_items WHERE cart_id = ?;", (cart_id,))
+                conn.commit()
+            finally:
+                conn.close()
         return True
 
     def clear_all_retail_carts(self, customer_id: Optional[int] = None, session_id: Optional[str] = None) -> bool:
@@ -4668,40 +4754,46 @@ class DatabaseService:
         user_sess_prefix = f"c_{customer_id}:RETAIL_NEAR_ME:%" if customer_id else f"s_{session_id or 'anon'}:RETAIL_NEAR_ME:%"
         if self.is_live_postgres:
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
+            try:
+                with conn.cursor() as cur:
+                    if customer_id:
+                        cur.execute("""
+                            DELETE FROM cart_items
+                            WHERE cart_id IN (
+                                SELECT id FROM carts WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            );
+                        """, (customer_id,))
+                    else:
+                        cur.execute("""
+                            DELETE FROM cart_items
+                            WHERE cart_id IN (
+                                SELECT id FROM carts WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            );
+                        """, (user_sess_prefix, session_id))
+                    conn.commit()
+            finally:
+                conn.close()
+        else:
+            conn = self._get_sqlite_connection()
+            try:
+                cur = conn.cursor()
                 if customer_id:
                     cur.execute("""
                         DELETE FROM cart_items
                         WHERE cart_id IN (
-                            SELECT id FROM carts WHERE customer_id = %s AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            SELECT id FROM carts WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
                         );
                     """, (customer_id,))
                 else:
                     cur.execute("""
                         DELETE FROM cart_items
                         WHERE cart_id IN (
-                            SELECT id FROM carts WHERE (session_id LIKE %s OR session_id = %s) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
+                            SELECT id FROM carts WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
                         );
                     """, (user_sess_prefix, session_id))
                 conn.commit()
-        else:
-            conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            if customer_id:
-                cur.execute("""
-                    DELETE FROM cart_items
-                    WHERE cart_id IN (
-                        SELECT id FROM carts WHERE customer_id = ? AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
-                    );
-                """, (customer_id,))
-            else:
-                cur.execute("""
-                    DELETE FROM cart_items
-                    WHERE cart_id IN (
-                        SELECT id FROM carts WHERE (session_id LIKE ? OR session_id = ?) AND shopping_mode = 'RETAIL_NEAR_ME' AND status = 'ACTIVE'
-                    );
-                """, (user_sess_prefix, session_id))
-            conn.commit()
+            finally:
+                conn.close()
         return True
 
     def checkout_online_cart(self, customer_id: int, session_id: Optional[str], customer_info: Dict[str, Any], payment_method: str = "UPI") -> Dict[str, Any]:
@@ -4726,14 +4818,20 @@ class DatabaseService:
         if cart_id:
             if self.is_live_postgres:
                 conn = self._get_pg_connection()
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (cart_id,))
-                    conn.commit()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = %s;", (cart_id,))
+                        conn.commit()
+                finally:
+                    conn.close()
             else:
                 conn = self._get_sqlite_connection()
-                cur = conn.cursor()
-                cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (cart_id,))
-                conn.commit()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE carts SET status = 'CONVERTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?;", (cart_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
 
         return order
 
@@ -4793,9 +4891,10 @@ class DatabaseService:
         single_order_num = None
 
         if self.is_live_postgres:
+            from psycopg2.extras import RealDictCursor
             conn = self._get_pg_connection()
             try:
-                with conn.cursor() as cur:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     if not is_single_store:
                         cur.execute("""
                             INSERT INTO orders (order_number, customer_id, total_amount, shipping_fee, status, payment_method, payment_status, shipping_city, shipping_address, shopping_mode)
@@ -4845,6 +4944,8 @@ class DatabaseService:
             except Exception:
                 conn.rollback()
                 raise
+            finally:
+                conn.close()
         else:
             conn = self._get_sqlite_connection()
             cur = conn.cursor()

@@ -47,6 +47,8 @@ class Config:
     AIVEN_PG_SSLMODE = os.getenv("AIVEN_PG_SSLMODE", "require").strip()
     PG_POOL_MIN = int(os.getenv("PG_POOL_MIN", 1))
     PG_POOL_MAX = int(os.getenv("PG_POOL_MAX", 3))
+    PG_POOL_TIMEOUT = float(os.getenv("PG_POOL_TIMEOUT", 10.0))
+    PG_POOL_RECYCLE = float(os.getenv("PG_POOL_RECYCLE", 1800.0))
     
     # --- Aiven Apache Kafka ---
     AIVEN_KAFKA_BOOTSTRAP_SERVERS = os.getenv("AIVEN_KAFKA_BOOTSTRAP_SERVERS", "").strip()

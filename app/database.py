@@ -10,6 +10,7 @@ import math
 import json
 import uuid
 import time
+import queue
 import logging
 import sqlite3
 import threading
@@ -44,9 +45,247 @@ def _get_product_lock(product_id: int) -> threading.Lock:
         return _product_locks[product_id]
 
 
+class BoundedConnectionPool:
+    """
+    Production-grade bounded connection pool engineered for Aiven PostgreSQL.
+    Features:
+    - Conservative hard ceiling (maxconn): strictly guarantees never exceeding Aiven connection limits.
+    - True queue-based checkout (pool_timeout): requests wait on a thread-safe queue for up to pool_timeout seconds
+      instead of failing immediately or creating unbounded direct connections.
+    - Pre-ping liveness probe (pool_pre_ping): validates connection health before handing it to a caller.
+    - Connection recycling (pool_recycle): transparently recycles connections older than recycle_seconds.
+    - LIFO queue reuse: reuses the most recently used connection to minimize active server-side resources.
+    - Safe cleanup: rolls back transactions on return and ensures connections are closed on pool shutdown.
+    - Leak prevention: idempotent tracking of all created and checked-out connections with graceful shutdown.
+    """
+    def __init__(
+        self,
+        minconn: int = 1,
+        maxconn: int = 3,
+        timeout: float = 10.0,
+        recycle: float = 1800.0,
+        connect_fn = None
+    ):
+        self.minconn = max(1, int(minconn))
+        self.maxconn = max(self.minconn, int(maxconn))
+        self.timeout = float(timeout)
+        self.recycle = float(recycle)
+        self.connect_fn = connect_fn
+        self._pool = queue.LifoQueue(maxsize=self.maxconn)
+        self._all_conns = set()
+        self._checked_out = set()
+        self._created_count = 0
+        self._lock = threading.RLock()
+        self._closed = False
+
+    def _create_raw_connection(self):
+        """Creates a single raw PostgreSQL connection using the provided connect function."""
+        if not self.connect_fn:
+            raise RuntimeError("connect_fn is not defined for BoundedConnectionPool.")
+        conn = self.connect_fn()
+        return conn
+
+    def _is_conn_healthy(self, conn) -> bool:
+        """Pre-ping liveness probe validating socket health."""
+        if not conn or getattr(conn, "closed", 1):
+            return False
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1;")
+            if not getattr(conn, "autocommit", False):
+                conn.rollback()
+            return True
+        except Exception:
+            return False
+
+    def _destroy_connection(self, conn):
+        """Safely closes a connection and decrements the active count idempotently."""
+        if not conn:
+            return
+        with self._lock:
+            was_tracked = (conn in self._all_conns)
+            self._all_conns.discard(conn)
+            self._checked_out.discard(conn)
+            if was_tracked:
+                self._created_count = max(0, self._created_count - 1)
+        try:
+            if not getattr(conn, "closed", 1):
+                conn.close()
+        except Exception:
+            pass
+
+    def getconn(self, timeout: Optional[float] = None):
+        """
+        Checks out an active, healthy connection from the pool.
+        Waits up to timeout seconds if the pool is currently at maxconn capacity.
+        """
+        if self._closed:
+            raise RuntimeError("Connection pool is closed.")
+
+        wait_timeout = self.timeout if timeout is None else float(timeout)
+        deadline = time.time() + wait_timeout
+
+        while time.time() < deadline:
+            # 1. Try to pop an existing idle connection from the pool without waiting
+            try:
+                conn, created_at = self._pool.get_nowait()
+                # Check pool_recycle
+                if (time.time() - created_at) > self.recycle:
+                    self._destroy_connection(conn)
+                    continue
+                # Pre-ping probe
+                if self._is_conn_healthy(conn):
+                    with self._lock:
+                        if self._closed:
+                            self._destroy_connection(conn)
+                            raise RuntimeError("Connection pool is closed.")
+                        self._checked_out.add(conn)
+                    return conn
+                else:
+                    self._destroy_connection(conn)
+                    continue
+            except queue.Empty:
+                pass
+
+            # 2. Pool queue is currently empty. Atomically reserve a slot under lock
+            can_create = False
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("Connection pool is closed.")
+                if self._created_count < self.maxconn:
+                    self._created_count += 1
+                    can_create = True
+
+            if can_create:
+                try:
+                    conn = self._create_raw_connection()
+                    with self._lock:
+                        if self._closed:
+                            self._created_count = max(0, self._created_count - 1)
+                            try:
+                                if not getattr(conn, "closed", 1):
+                                    conn.close()
+                            except Exception:
+                                pass
+                            raise RuntimeError("Connection pool is closed.")
+                        self._all_conns.add(conn)
+                        self._checked_out.add(conn)
+                    return conn
+                except Exception as ce:
+                    with self._lock:
+                        self._created_count = max(0, self._created_count - 1)
+                    logger.warning(f"Connection creation attempt notice in pool: {ce}")
+                    raise
+
+            # 3. Pool is at max capacity. Wait on queue until a worker returns one.
+            remaining = max(0.05, deadline - time.time())
+            try:
+                conn, created_at = self._pool.get(timeout=min(remaining, 1.0))
+                if (time.time() - created_at) > self.recycle:
+                    self._destroy_connection(conn)
+                    continue
+                if self._is_conn_healthy(conn):
+                    with self._lock:
+                        if self._closed:
+                            self._destroy_connection(conn)
+                            raise RuntimeError("Connection pool is closed.")
+                        self._checked_out.add(conn)
+                    return conn
+                else:
+                    self._destroy_connection(conn)
+                    continue
+            except queue.Empty:
+                continue
+
+        raise TimeoutError(
+            f"PostgreSQL connection pool checkout timed out after {wait_timeout}s "
+            f"(max={self.maxconn}, active={self._created_count})."
+        )
+
+    def putconn(self, conn, close: bool = False):
+        """Returns a connection to the pool or closes it if requested/unhealthy/pool closed."""
+        if not conn:
+            return
+
+        should_destroy = False
+        with self._lock:
+            if self._closed or close or getattr(conn, "closed", 1):
+                should_destroy = True
+            elif conn not in self._checked_out:
+                # Idempotency: connection was already returned or not checked out from this pool
+                return
+            else:
+                self._checked_out.discard(conn)
+
+        if should_destroy:
+            self._destroy_connection(conn)
+            return
+
+        # Rollback any active or uncommitted transaction before returning to pool
+        try:
+            import psycopg2.extensions
+            if getattr(conn, "status", None) != psycopg2.extensions.STATUS_READY:
+                conn.rollback()
+        except Exception:
+            self._destroy_connection(conn)
+            return
+
+        # Return to pool queue
+        try:
+            self._pool.put_nowait((conn, time.time()))
+        except queue.Full:
+            self._destroy_connection(conn)
+
+    def closeall(self):
+        """Closes all connections in the pool safely."""
+        with self._lock:
+            self._closed = True
+            # 1. Drain and close all idle connections in the pool
+            while not self._pool.empty():
+                try:
+                    conn, _ = self._pool.get_nowait()
+                    try:
+                        if not getattr(conn, "closed", 1):
+                            conn.close()
+                    except Exception:
+                        pass
+                    self._all_conns.discard(conn)
+                except queue.Empty:
+                    break
+
+            # 2. For any connections still checked out, close their sockets and clear tracking
+            for conn in list(self._checked_out):
+                try:
+                    if not getattr(conn, "closed", 1):
+                        conn.close()
+                except Exception:
+                    pass
+                self._all_conns.discard(conn)
+                self._checked_out.discard(conn)
+
+            self._created_count = 0
+
+    def get_status(self) -> Dict[str, Any]:
+        """Returns thread-safe metrics for diagnostics."""
+        with self._lock:
+            created = self._created_count
+            checked_out = len(self._checked_out)
+            idle = self._pool.qsize()
+            return {
+                "minconn": self.minconn,
+                "maxconn": self.maxconn,
+                "timeout": self.timeout,
+                "recycle": self.recycle,
+                "created_connections": created,
+                "idle_connections": idle,
+                "checked_out_connections": checked_out,
+                "closed": self._closed
+            }
+
+
 class PooledConnectionProxy:
     """
-    Transparent proxy wrapping a PostgreSQL connection checked out from ThreadedConnectionPool.
+    Transparent proxy wrapping a PostgreSQL connection checked out from BoundedConnectionPool.
     Delegates all operations to the underlying connection and safely returns it to the pool
     upon close() or context exit without terminating the TCP socket.
     """
@@ -60,7 +299,7 @@ class PooledConnectionProxy:
             self._returned = True
             try:
                 import psycopg2.extensions
-                if not self._conn.closed and self._conn.status != psycopg2.extensions.STATUS_READY:
+                if not getattr(self._conn, "closed", 1) and getattr(self._conn, "status", None) != psycopg2.extensions.STATUS_READY:
                     self._conn.rollback()
             except Exception:
                 pass
@@ -72,7 +311,7 @@ class PooledConnectionProxy:
                     logger.debug(f"putconn notice: {pe}")
             # If putconn failed or pool unavailable, safely close raw TCP socket directly
             try:
-                if not self._conn.closed:
+                if not getattr(self._conn, "closed", 1):
                     self._conn.close()
             except Exception:
                 pass
@@ -85,6 +324,13 @@ class PooledConnectionProxy:
             return self._conn.__exit__(exc_type, exc_val, exc_tb)
         finally:
             self.close()
+
+    def __del__(self):
+        """Finalizer fallback in case caller forgot to call close()."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
@@ -191,7 +437,7 @@ class DatabaseService:
             self._pool_pid = None
 
     def _get_pg_pool(self):
-        """Returns thread-safe connection pool strictly isolated to the current process PID."""
+        """Returns thread-safe BoundedConnectionPool strictly isolated to current worker PID."""
         if not self.is_live_postgres:
             return None
         current_pid = os.getpid()
@@ -204,24 +450,22 @@ class DatabaseService:
             with self._pool_lock:
                 if self._pg_pool is None:
                     try:
-                        from psycopg2.pool import ThreadedConnectionPool
-                        pg_url = Config.get_pg_url()
                         min_conn = getattr(Config, "PG_POOL_MIN", 1)
                         max_conn = getattr(Config, "PG_POOL_MAX", 3)
-                        if pg_url:
-                            self._pg_pool = ThreadedConnectionPool(minconn=min_conn, maxconn=max_conn, dsn=pg_url)
-                        else:
-                            self._pg_pool = ThreadedConnectionPool(
-                                minconn=min_conn, maxconn=max_conn,
-                                host=Config.AIVEN_PG_HOST,
-                                port=Config.AIVEN_PG_PORT,
-                                user=Config.AIVEN_PG_USER,
-                                password=Config.AIVEN_PG_PASSWORD,
-                                dbname=Config.AIVEN_PG_DATABASE,
-                                sslmode=Config.AIVEN_PG_SSLMODE
-                            )
+                        timeout = getattr(Config, "PG_POOL_TIMEOUT", 10.0)
+                        recycle = getattr(Config, "PG_POOL_RECYCLE", 1800.0)
+                        self._pg_pool = BoundedConnectionPool(
+                            minconn=min_conn,
+                            maxconn=max_conn,
+                            timeout=timeout,
+                            recycle=recycle,
+                            connect_fn=self._connect_pg_direct
+                        )
                         self._pool_pid = current_pid
-                        logger.info(f"Initialized isolated PostgreSQL connection pool for PID {current_pid} (min={min_conn}, max={max_conn})")
+                        logger.info(
+                            f"Initialized isolated BoundedConnectionPool for PID {current_pid} "
+                            f"(min={min_conn}, max={max_conn}, timeout={timeout}s, recycle={recycle}s)"
+                        )
                     except Exception as pe:
                         logger.warning(f"Connection pool init notice for PID {current_pid}: {pe}")
         return self._pg_pool
@@ -259,26 +503,55 @@ class DatabaseService:
 
     def _init_connection(self):
         if Config.is_pg_configured():
-            try:
-                import psycopg2
+            max_attempts = 6 if Config.is_production() else 1
+            # 6 total attempts (1 initial + 5 retries) with progressive backoff delays: [3s, 6s, 9s, 12s, 12s]
+            retry_delays = [3, 6, 9, 12, 12]
+            start_time = time.time()
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    import psycopg2
 
-                conn = self._connect_pg_direct()
-                with conn.cursor() as cur:
-                    cur.execute("SELECT 1;")
-                conn.close()
+                    conn = self._connect_pg_direct()
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1;")
+                    conn.close()
 
-                self.is_live_postgres = True
-                logger.info("Successfully connected to PostgreSQL database with lazy isolated worker pooling!")
-                self._init_pg_schema()
-                return
-            except Exception as e:
-                clean_err = self._sanitize_db_error(str(e))
-                self.connection_error = clean_err
-                if Config.is_production():
-                    logger.error(f"CRITICAL: Failed to connect to PostgreSQL in production! Error: {clean_err}.")
-                    raise RuntimeError(f"Production PostgreSQL connection failed: {clean_err}. BharatStore requires persistent PostgreSQL in production.")
-                else:
-                    logger.warning(f"Failed to connect to PostgreSQL: {clean_err}. Falling back to ACID SQLite.")
+                    self.is_live_postgres = True
+                    logger.info("Successfully connected to PostgreSQL database with bounded worker pooling!")
+                    self._init_pg_schema()
+                    return
+                except Exception as e:
+                    clean_err = self._sanitize_db_error(str(e))
+                    self.connection_error = clean_err
+                    if attempt < max_attempts:
+                        delay_override = os.getenv("PG_STARTUP_RETRY_DELAY")
+                        if delay_override is not None:
+                            wait_sec = int(delay_override)
+                        elif getattr(Config, "TESTING", False):
+                            wait_sec = 0
+                        else:
+                            idx = min(attempt - 1, len(retry_delays) - 1)
+                            wait_sec = retry_delays[idx]
+
+                        logger.warning(
+                            f"PostgreSQL startup connection attempt {attempt}/{max_attempts} failed ({clean_err}). "
+                            f"Waiting {wait_sec}s for existing container connections to release..."
+                        )
+                        if wait_sec > 0:
+                            time.sleep(wait_sec)
+                    else:
+                        elapsed = int(time.time() - start_time)
+                        if Config.is_production():
+                            logger.error(
+                                f"CRITICAL: Failed to connect to PostgreSQL in production after {max_attempts} attempts ({elapsed}s)! "
+                                f"Error: {clean_err}."
+                            )
+                            raise RuntimeError(
+                                f"Production PostgreSQL connection failed: {clean_err}. "
+                                "BharatStore requires persistent PostgreSQL in production."
+                            )
+                        else:
+                            logger.warning(f"Failed to connect to PostgreSQL: {clean_err}. Falling back to ACID SQLite.")
         elif Config.is_production():
             err_msg = "CRITICAL: DATABASE_URL / AIVEN_PG_URL not configured. BharatStore requires persistent PostgreSQL in production."
             logger.error(err_msg)
@@ -310,28 +583,89 @@ class DatabaseService:
     def _get_pg_connection(self):
         pool = self._get_pg_pool()
         if pool:
-            try:
-                raw_conn = pool.getconn()
-                # Probe idle connection before reuse
-                try:
-                    if raw_conn.closed:
-                        raise Exception("Closed connection")
-                    with raw_conn.cursor() as cur:
-                        cur.execute("SELECT 1;")
-                    if not raw_conn.autocommit:
-                        raw_conn.rollback()
-                except Exception:
-                    try:
-                        pool.putconn(raw_conn, close=True)
-                    except Exception:
-                        pass
-                    raw_conn = pool.getconn()
-                    if not raw_conn.autocommit:
-                        raw_conn.rollback()
-                return PooledConnectionProxy(pool, raw_conn)
-            except Exception as e:
-                logger.warning(f"Connection pool checkout notice ({e}), creating direct connection")
+            raw_conn = pool.getconn()
+            return PooledConnectionProxy(pool, raw_conn)
         return self._connect_pg_direct()
+
+    def get_db_diagnostics(self) -> Dict[str, Any]:
+        """
+        Executes read-only diagnostic queries against PostgreSQL system catalogs
+        (pg_stat_activity, pg_settings) to inspect connection usage, state, and limits.
+        Completely non-destructive: never runs DROP, TRUNCATE, DELETE, or terminates connections.
+        """
+        pool_status = self._pg_pool.get_status() if self._pg_pool else None
+        if not self.is_live_postgres:
+            return {
+                "engine": "SQLite",
+                "pool_status": pool_status,
+                "message": "Live PostgreSQL is not active; running in SQLite mode."
+            }
+
+        conn = None
+        try:
+            conn = self._get_pg_connection()
+            from psycopg2.extras import RealDictCursor
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. Server settings
+                cur.execute("""
+                    SELECT 
+                        current_setting('max_connections')::int AS max_connections,
+                        current_setting('superuser_reserved_connections')::int AS superuser_reserved;
+                """)
+                settings_row = cur.fetchone() or {}
+                max_conn = settings_row.get("max_connections", 20)
+                su_reserved = settings_row.get("superuser_reserved", 3)
+                usable_slots = max(0, max_conn - su_reserved)
+
+                # 2. Connection breakdown by state
+                cur.execute("""
+                    SELECT 
+                        count(*) AS total_connections,
+                        count(*) FILTER (WHERE state = 'active') AS active_connections,
+                        count(*) FILTER (WHERE state = 'idle') AS idle_connections,
+                        count(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_transaction_connections,
+                        count(*) FILTER (WHERE state = 'idle in transaction (aborted)') AS idle_in_trans_aborted_connections,
+                        count(*) FILTER (WHERE state IS NULL OR state = 'disabled') AS other_connections
+                    FROM pg_stat_activity;
+                """)
+                summary_row = cur.fetchone() or {}
+
+                # 3. Connections grouped by application_name, usename, and state
+                cur.execute("""
+                    SELECT 
+                        COALESCE(NULLIF(application_name, ''), '[unnamed]') AS application_name,
+                        COALESCE(usename, '[unknown]') AS usename,
+                        COALESCE(state, 'unknown') AS state,
+                        count(*) AS connection_count
+                    FROM pg_stat_activity
+                    GROUP BY application_name, usename, state
+                    ORDER BY connection_count DESC;
+                """)
+                grouped_rows = [dict(r) for r in cur.fetchall()]
+
+                return {
+                    "engine": "PostgreSQL (Aiven Cloud)",
+                    "limits": {
+                        "max_connections": max_conn,
+                        "superuser_reserved_connections": su_reserved,
+                        "usable_application_slots": usable_slots
+                    },
+                    "summary": dict(summary_row),
+                    "connections_grouped": grouped_rows,
+                    "pool_status": pool_status
+                }
+        except Exception as e:
+            logger.warning(f"DB diagnostics query notice: {e}")
+            return {
+                "error": self._sanitize_db_error(str(e)),
+                "pool_status": pool_status
+            }
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _get_sqlite_connection(self):
         conn = sqlite3.connect(self.sqlite_path, check_same_thread=False, timeout=30.0)

@@ -56,6 +56,22 @@ def create_app():
 
         return response
 
+    @app.teardown_appcontext
+    def cleanup_request_db_resources(exception=None):
+        """
+        Guarantees that any database connection checked out during the request lifecycle
+        is safely returned to the connection pool, even if an unhandled exception occurred.
+        """
+        from flask import g
+        conn = getattr(g, "db_conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception as e:
+                logging.getLogger("BharatKart.App").warning(f"Error closing request-scoped DB connection: {e}")
+            finally:
+                g.db_conn = None
+
     from app.routes import main_bp
     app.register_blueprint(main_bp)
 

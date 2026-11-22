@@ -1737,7 +1737,11 @@ def health_check():
                 "product_count": product_count,
                 "store_count": store_count,
                 "query_error": query_error,
-                "error": db_service.connection_error
+                "error": db_service.connection_error,
+                "pool": db_service._pg_pool.get_status() if getattr(db_service, "_pg_pool", None) else {
+                    "minconn": Config.PG_POOL_MIN,
+                    "maxconn": Config.PG_POOL_MAX
+                }
             },
             "kafka": {
                 "configured": Config.is_kafka_configured(),
@@ -1756,6 +1760,19 @@ def health_check():
             }
         },
         "all_aiven_live": db_service.is_live_postgres and kafka_service.is_live_kafka and opensearch_service.is_live_opensearch
+    })
+
+@main_bp.route("/api/admin/db-diagnostics", methods=["GET"])
+@require_admin_auth
+def db_diagnostics():
+    """
+    Non-destructive read-only diagnostics on connection pools, limits, and pg_stat_activity.
+    Requires admin authentication (X-Admin-Token or Authorization: Bearer).
+    """
+    diagnostics = db_service.get_db_diagnostics()
+    return jsonify({
+        "status": "success",
+        "diagnostics": diagnostics
     })
 
 # -------------------------------------------------------------------------

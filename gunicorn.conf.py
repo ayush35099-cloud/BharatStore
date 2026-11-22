@@ -22,3 +22,15 @@ keepalive = 5
 accesslog = "-"
 errorlog = "-"
 loglevel = "info"
+
+def post_fork(server, worker):
+    """
+    Hook called immediately after a worker process is forked.
+    Ensures that each worker initializes an isolated PostgreSQL connection pool
+    instead of inheriting parent sockets across fork.
+    """
+    try:
+        from app.routes import db_service
+        db_service.reset_connection_pool()
+    except Exception:
+        pass

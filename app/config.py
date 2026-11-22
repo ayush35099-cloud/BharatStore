@@ -45,8 +45,8 @@ class Config:
     AIVEN_PG_PASSWORD = os.getenv("AIVEN_PG_PASSWORD", "").strip()
     AIVEN_PG_DATABASE = os.getenv("AIVEN_PG_DATABASE", "defaultdb").strip()
     AIVEN_PG_SSLMODE = os.getenv("AIVEN_PG_SSLMODE", "require").strip()
-    PG_POOL_MIN = int(os.getenv("PG_POOL_MIN", 2))
-    PG_POOL_MAX = int(os.getenv("PG_POOL_MAX", 10))
+    PG_POOL_MIN = int(os.getenv("PG_POOL_MIN", 1))
+    PG_POOL_MAX = int(os.getenv("PG_POOL_MAX", 3))
     
     # --- Aiven Apache Kafka ---
     AIVEN_KAFKA_BOOTSTRAP_SERVERS = os.getenv("AIVEN_KAFKA_BOOTSTRAP_SERVERS", "").strip()

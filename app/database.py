@@ -56,7 +56,7 @@ class PooledConnectionProxy:
         self._returned = False
 
     def close(self):
-        if not self._returned and self._pool and self._conn:
+        if not self._returned and self._conn:
             self._returned = True
             try:
                 import psycopg2.extensions
@@ -64,8 +64,16 @@ class PooledConnectionProxy:
                     self._conn.rollback()
             except Exception:
                 pass
+            if self._pool:
+                try:
+                    self._pool.putconn(self._conn)
+                    return
+                except Exception as pe:
+                    logger.debug(f"putconn notice: {pe}")
+            # If putconn failed or pool unavailable, safely close raw TCP socket directly
             try:
-                self._pool.putconn(self._conn)
+                if not self._conn.closed:
+                    self._conn.close()
             except Exception:
                 pass
 
@@ -172,7 +180,51 @@ class DatabaseService:
         self.sqlite_path = os.path.join(os.path.dirname(__file__), "..", "bharatkart_local.db")
         self.connection_error = None
         self._pg_pool = None
+        self._pool_pid = None
+        self._pool_lock = threading.Lock()
         self._init_connection()
+
+    def reset_connection_pool(self):
+        """Safely resets pool reference for worker process isolation after fork."""
+        with self._pool_lock:
+            self._pg_pool = None
+            self._pool_pid = None
+
+    def _get_pg_pool(self):
+        """Returns thread-safe connection pool strictly isolated to the current process PID."""
+        if not self.is_live_postgres:
+            return None
+        current_pid = os.getpid()
+        if self._pg_pool is not None and self._pool_pid != current_pid:
+            logger.info(f"Worker PID changed ({self._pool_pid} -> {current_pid}); resetting connection pool for worker isolation.")
+            self._pg_pool = None
+            self._pool_pid = None
+
+        if self._pg_pool is None:
+            with self._pool_lock:
+                if self._pg_pool is None:
+                    try:
+                        from psycopg2.pool import ThreadedConnectionPool
+                        pg_url = Config.get_pg_url()
+                        min_conn = getattr(Config, "PG_POOL_MIN", 1)
+                        max_conn = getattr(Config, "PG_POOL_MAX", 3)
+                        if pg_url:
+                            self._pg_pool = ThreadedConnectionPool(minconn=min_conn, maxconn=max_conn, dsn=pg_url)
+                        else:
+                            self._pg_pool = ThreadedConnectionPool(
+                                minconn=min_conn, maxconn=max_conn,
+                                host=Config.AIVEN_PG_HOST,
+                                port=Config.AIVEN_PG_PORT,
+                                user=Config.AIVEN_PG_USER,
+                                password=Config.AIVEN_PG_PASSWORD,
+                                dbname=Config.AIVEN_PG_DATABASE,
+                                sslmode=Config.AIVEN_PG_SSLMODE
+                            )
+                        self._pool_pid = current_pid
+                        logger.info(f"Initialized isolated PostgreSQL connection pool for PID {current_pid} (min={min_conn}, max={max_conn})")
+                    except Exception as pe:
+                        logger.warning(f"Connection pool init notice for PID {current_pid}: {pe}")
+        return self._pg_pool
 
     def _sanitize_db_error(self, err_msg: str) -> str:
         """Removes credentials and passwords from database error messages before logging or reporting."""
@@ -209,36 +261,14 @@ class DatabaseService:
         if Config.is_pg_configured():
             try:
                 import psycopg2
-                from psycopg2.pool import ThreadedConnectionPool
-                from psycopg2.extras import RealDictCursor
 
                 conn = self._connect_pg_direct()
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1;")
                 conn.close()
 
-                # Initialize connection pool after verifying connectivity
-                try:
-                    pg_url = Config.get_pg_url()
-                    min_conn = getattr(Config, "PG_POOL_MIN", 1)
-                    max_conn = getattr(Config, "PG_POOL_MAX", 10)
-                    if pg_url:
-                        self._pg_pool = ThreadedConnectionPool(minconn=min_conn, maxconn=max_conn, dsn=pg_url)
-                    else:
-                        self._pg_pool = ThreadedConnectionPool(
-                            minconn=min_conn, maxconn=max_conn,
-                            host=Config.AIVEN_PG_HOST,
-                            port=Config.AIVEN_PG_PORT,
-                            user=Config.AIVEN_PG_USER,
-                            password=Config.AIVEN_PG_PASSWORD,
-                            dbname=Config.AIVEN_PG_DATABASE,
-                            sslmode=Config.AIVEN_PG_SSLMODE
-                        )
-                except Exception as pe:
-                    logger.warning(f"Connection pooling initialization notice: {pe}")
-
                 self.is_live_postgres = True
-                logger.info("Successfully connected to PostgreSQL database with connection pooling!")
+                logger.info("Successfully connected to PostgreSQL database with lazy isolated worker pooling!")
                 self._init_pg_schema()
                 return
             except Exception as e:
@@ -278,22 +308,27 @@ class DatabaseService:
         )
 
     def _get_pg_connection(self):
-        if self._pg_pool:
+        pool = self._get_pg_pool()
+        if pool:
             try:
-                raw_conn = self._pg_pool.getconn()
+                raw_conn = pool.getconn()
                 # Probe idle connection before reuse
                 try:
                     if raw_conn.closed:
                         raise Exception("Closed connection")
                     with raw_conn.cursor() as cur:
                         cur.execute("SELECT 1;")
+                    if not raw_conn.autocommit:
+                        raw_conn.rollback()
                 except Exception:
                     try:
-                        self._pg_pool.putconn(raw_conn, close=True)
+                        pool.putconn(raw_conn, close=True)
                     except Exception:
                         pass
-                    raw_conn = self._pg_pool.getconn()
-                return PooledConnectionProxy(self._pg_pool, raw_conn)
+                    raw_conn = pool.getconn()
+                    if not raw_conn.autocommit:
+                        raw_conn.rollback()
+                return PooledConnectionProxy(pool, raw_conn)
             except Exception as e:
                 logger.warning(f"Connection pool checkout notice ({e}), creating direct connection")
         return self._connect_pg_direct()
@@ -3139,6 +3174,10 @@ class DatabaseService:
                     for r in cur.fetchall():
                         d = dict(r)
                         d["is_available"] = bool(d.get("is_available"))
+                        d["selling_price"] = float(d["selling_price"]) if d.get("selling_price") is not None else 0.0
+                        d["original_price"] = float(d["original_price"]) if d.get("original_price") is not None else None
+                        d["stock_quantity"] = int(d.get("stock_quantity") or 0)
+                        d["available_quantity"] = int(d.get("available_quantity") or 0)
                         d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
                         rows.append(d)
             finally:
@@ -3154,6 +3193,10 @@ class DatabaseService:
                 for r in cur.fetchall():
                     d = dict(r)
                     d["is_available"] = bool(d.get("is_available"))
+                    d["selling_price"] = float(d["selling_price"]) if d.get("selling_price") is not None else 0.0
+                    d["original_price"] = float(d["original_price"]) if d.get("original_price") is not None else None
+                    d["stock_quantity"] = int(d.get("stock_quantity") or 0)
+                    d["available_quantity"] = int(d.get("available_quantity") or 0)
                     d["sub_category"] = _classify_subcat(d.get("title", ""), d.get("sub_category"))
                     rows.append(d)
             finally:
@@ -3202,6 +3245,10 @@ class DatabaseService:
                 return None
             d = dict(row)
             d["is_available"] = bool(d.get("is_available"))
+            d["selling_price"] = float(d["selling_price"]) if d.get("selling_price") is not None else 0.0
+            d["original_price"] = float(d["original_price"]) if d.get("original_price") is not None else None
+            d["stock_quantity"] = int(d.get("stock_quantity") or 0)
+            d["available_quantity"] = int(d.get("available_quantity") or 0)
             return d
         else:
             conn = self._get_sqlite_connection()
@@ -3215,6 +3262,10 @@ class DatabaseService:
                 return None
             d = dict(row)
             d["is_available"] = bool(d.get("is_available"))
+            d["selling_price"] = float(d["selling_price"]) if d.get("selling_price") is not None else 0.0
+            d["original_price"] = float(d["original_price"]) if d.get("original_price") is not None else None
+            d["stock_quantity"] = int(d.get("stock_quantity") or 0)
+            d["available_quantity"] = int(d.get("available_quantity") or 0)
             return d
 
     def update_store_inventory(self, store_id: int, product_id: int, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -3713,6 +3764,8 @@ class DatabaseService:
         stores = self.get_retail_stores(city)
         stores_comparison = []
         for st in stores:
+            orig_p = prod.get("original_price")
+            op = float(orig_p) if orig_p is not None else float(prod["price"])
             stores_comparison.append({
                 "store_id": st["id"],
                 "store_name": st["store_name"],
@@ -3725,7 +3778,7 @@ class DatabaseService:
                 "badge": st.get("badge", ""),
                 "price": round(float(prod["price"]), 2),
                 "selling_price": round(float(prod["price"]), 2),
-                "original_price": round(float(prod.get("original_price", prod["price"])), 2),
+                "original_price": round(op, 2),
                 "stock_quantity": 0,
                 "is_available": False,
                 "status_text": "Out of Stock",
@@ -4385,14 +4438,20 @@ class DatabaseService:
         """Sets stock for a product at a physical store directly."""
         if self.is_live_postgres:
             conn = self._get_pg_connection()
-            with conn.cursor() as cur:
-                cur.execute("UPDATE store_inventory SET stock_quantity = %s, is_available = %s, updated_at = CURRENT_TIMESTAMP WHERE store_id = %s AND product_id = %s;", (stock, stock > 0, store_id, product_id))
-                conn.commit()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE store_inventory SET stock_quantity = %s, is_available = %s, updated_at = CURRENT_TIMESTAMP WHERE store_id = %s AND product_id = %s;", (stock, stock > 0, store_id, product_id))
+                    conn.commit()
+            finally:
+                conn.close()
         else:
             conn = self._get_sqlite_connection()
-            cur = conn.cursor()
-            cur.execute("UPDATE store_inventory SET stock_quantity = ?, is_available = ?, updated_at = CURRENT_TIMESTAMP WHERE store_id = ? AND product_id = ?;", (stock, 1 if stock > 0 else 0, store_id, product_id))
-            conn.commit()
+            try:
+                cur = conn.cursor()
+                cur.execute("UPDATE store_inventory SET stock_quantity = ?, is_available = ?, updated_at = CURRENT_TIMESTAMP WHERE store_id = ? AND product_id = ?;", (stock, 1 if stock > 0 else 0, store_id, product_id))
+                conn.commit()
+            finally:
+                conn.close()
         return True
 
     def add_to_cart(self, customer_id: Optional[int] = None, session_id: Optional[str] = None, shopping_mode: str = "ONLINE", product_id: int = 0, quantity: int = 1, store_id: Optional[int] = None, fulfillment: str = "delivery") -> Dict[str, Any]:

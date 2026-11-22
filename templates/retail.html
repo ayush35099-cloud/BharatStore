@@ -59,7 +59,8 @@
               class="retail-store-showcase-card {% if current_store and st.id == current_store.id %}active-shop{% endif %}"
               data-store-id="{{ st.id }}"
               data-store-url="/retail?store_id={{ st.id }}"
-              onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
+              onclick="switchRetailStore({{ st.id }}, '{{ st.store_name|replace("'", "\\'") }}', '{{ st.city }}')"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); switchRetailStore({{ st.id }}, '{{ st.store_name|replace("'", "\\'") }}', '{{ st.city }}');}"
               role="button"
               tabindex="0"
               aria-label="Shop from {{ st.store_name }} in {{ st.locality or st.city }}"
@@ -711,7 +712,7 @@
           <button 
             type="button" 
             class="btn-primary store-select-btn" 
-            onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
+            onclick="switchRetailStore({{ st.id }}, '{{ st.store_name|replace("'", "\\'") }}', '{{ st.city }}')"
             aria-label="Shop from {{ st.store_name }}"
           >
             <i class="fa-solid fa-basket-shopping"></i>

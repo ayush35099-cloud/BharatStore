@@ -560,7 +560,11 @@ def retail_page():
         return render_template("retail.html", **ctx)
     except Exception as e:
         logger.error(f"Error building retail context on /retail: {e}", exc_info=True)
-        stores = db_service.get_retail_stores("Bengaluru")
+        try:
+            stores = db_service.get_retail_stores("Bengaluru")
+        except Exception as se:
+            logger.error(f"Error getting retail stores fallback on /retail: {se}")
+            stores = []
         return render_template("retail.html", hubs=[], stores=stores, products=[], top_deals=[], current_store=stores[0] if stores else None, active_mode="RETAIL_NEAR_ME")
 
 @main_bp.route("/retail/stores")
@@ -670,14 +674,24 @@ def retail_store_front_page(store_id: int):
 @main_bp.route("/api/retail/stores", methods=["GET"])
 def get_retail_stores_api():
     """Returns the 5 Bengaluru retail shops with complete metadata."""
-    city = request.args.get("city", "Bengaluru")
-    stores = db_service.get_retail_stores(city)
-    return jsonify({
-        "success": True,
-        "stores": stores,
-        "total_stores": len(stores),
-        "city": city
-    })
+    try:
+        city = request.args.get("city", "Bengaluru")
+        stores = db_service.get_retail_stores(city)
+        return jsonify({
+            "success": True,
+            "stores": stores,
+            "total_stores": len(stores),
+            "city": city
+        })
+    except Exception as e:
+        logger.error(f"Error in /api/retail/stores: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": "Failed to retrieve retail stores.",
+            "stores": [],
+            "total_stores": 0,
+            "city": request.args.get("city", "Bengaluru")
+        }), 500
 
 @main_bp.route("/api/retail/stores/nearby", methods=["GET"])
 def get_nearby_retail_stores_api():
@@ -752,45 +766,56 @@ def get_nearby_retail_stores_api():
 @main_bp.route("/api/retail/stores/<int:store_id>", methods=["GET"])
 def get_retail_store_by_id_api(store_id: int):
     """Returns complete details for a specific retail store, enriched with distance if customer coordinates provided."""
-    store = db_service.get_store_by_id(store_id)
-    if not store:
-        return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
+    try:
+        store = db_service.get_store_by_id(store_id)
+        if not store:
+            return jsonify({"success": False, "error": f"Store #{store_id} not found."}), 404
 
-    user_lat = request.args.get("lat")
-    user_lng = request.args.get("lng")
-    if not user_lat or not user_lng:
-        loc = get_current_delivery_location()
-        user_lat = loc.get("lat")
-        user_lng = loc.get("lng")
+        user_lat = request.args.get("lat")
+        user_lng = request.args.get("lng")
+        if not user_lat or not user_lng:
+            loc = get_current_delivery_location()
+            user_lat = loc.get("lat")
+            user_lng = loc.get("lng")
 
-    store_data = db_service.get_store_detail_with_catalog(store_id, user_lat=user_lat, user_lng=user_lng)
-    return jsonify({
-        "success": True,
-        "store": store_data["store"],
-        "total_products": store_data["total_products_count"]
-    })
+        store_data = db_service.get_store_detail_with_catalog(store_id, user_lat=user_lat, user_lng=user_lng)
+        if not store_data or not store_data.get("store"):
+            return jsonify({"success": False, "error": f"Store #{store_id} details not available."}), 404
+
+        return jsonify({
+            "success": True,
+            "store": store_data["store"],
+            "total_products": store_data["total_products_count"]
+        })
+    except Exception as e:
+        logger.error(f"Error in /api/retail/stores/{store_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to retrieve store #{store_id}."}), 500
 
 @main_bp.route("/api/retail/catalog", methods=["GET"])
 def get_retail_catalog_api():
     """Returns dynamic retail grocery-only catalog grouped by department with 5-shop price comparisons."""
-    ctx = build_retail_context()
-    return jsonify({
-        "success": True,
-        "current_store": ctx["current_store"],
-        "fruits_vegetables_items": ctx["fruits_vegetables_items"],
-        "dairy_bakery_items": ctx["dairy_bakery_items"],
-        "rice_atta_dal_items": ctx["rice_atta_dal_items"],
-        "snacks_beverages_items": ctx["snacks_beverages_items"],
-        "household_personal_items": ctx["household_personal_items"],
-        "dairy_items": ctx["dairy_items"],
-        "grains_items": ctx["grains_items"],
-        "essentials_items": ctx["essentials_items"],
-        "produce_items": ctx["produce_items"],
-        "household_items": ctx.get("household_items", []),
-        "all_products": ctx["products"],
-        "top_deals": ctx.get("top_deals", []),
-        "total_items": len(ctx["products"])
-    })
+    try:
+        ctx = build_retail_context()
+        return jsonify({
+            "success": True,
+            "current_store": ctx["current_store"],
+            "fruits_vegetables_items": ctx["fruits_vegetables_items"],
+            "dairy_bakery_items": ctx["dairy_bakery_items"],
+            "rice_atta_dal_items": ctx["rice_atta_dal_items"],
+            "snacks_beverages_items": ctx["snacks_beverages_items"],
+            "household_personal_items": ctx["household_personal_items"],
+            "dairy_items": ctx["dairy_items"],
+            "grains_items": ctx["grains_items"],
+            "essentials_items": ctx["essentials_items"],
+            "produce_items": ctx["produce_items"],
+            "household_items": ctx.get("household_items", []),
+            "all_products": ctx["products"],
+            "top_deals": ctx.get("top_deals", []),
+            "total_items": len(ctx["products"])
+        })
+    except Exception as e:
+        logger.error(f"Error in /api/retail/catalog: {e}", exc_info=True)
+        return jsonify({"success": False, "error": "Failed to retrieve retail catalog.", "total_items": 0, "all_products": []}), 500
 
 @main_bp.route("/api/retail/products/<int:product_id>/compare", methods=["GET"])
 @main_bp.route("/api/retail/compare/<int:product_id>", methods=["GET"])

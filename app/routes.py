@@ -1763,9 +1763,11 @@ def health_check():
     })
 
 @main_bp.route("/api/admin/db-diagnostics", methods=["GET"])
+@require_admin_auth
 def db_diagnostics():
     """
     Non-destructive read-only diagnostics on connection pools, limits, and pg_stat_activity.
+    Requires admin authentication (X-Admin-Token or Authorization: Bearer).
     """
     diagnostics = db_service.get_db_diagnostics()
     return jsonify({

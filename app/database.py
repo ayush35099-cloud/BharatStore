@@ -56,6 +56,7 @@ class BoundedConnectionPool:
     - Connection recycling (pool_recycle): transparently recycles connections older than recycle_seconds.
     - LIFO queue reuse: reuses the most recently used connection to minimize active server-side resources.
     - Safe cleanup: rolls back transactions on return and ensures connections are closed on pool shutdown.
+    - Leak prevention: idempotent tracking of all created and checked-out connections with graceful shutdown.
     """
     def __init__(
         self,
@@ -71,8 +72,10 @@ class BoundedConnectionPool:
         self.recycle = float(recycle)
         self.connect_fn = connect_fn
         self._pool = queue.LifoQueue(maxsize=self.maxconn)
+        self._all_conns = set()
+        self._checked_out = set()
         self._created_count = 0
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._closed = False
 
     def _create_raw_connection(self):
@@ -96,11 +99,17 @@ class BoundedConnectionPool:
             return False
 
     def _destroy_connection(self, conn):
-        """Safely closes a connection and decrements the active count."""
+        """Safely closes a connection and decrements the active count idempotently."""
+        if not conn:
+            return
         with self._lock:
-            self._created_count = max(0, self._created_count - 1)
+            was_tracked = (conn in self._all_conns)
+            self._all_conns.discard(conn)
+            self._checked_out.discard(conn)
+            if was_tracked:
+                self._created_count = max(0, self._created_count - 1)
         try:
-            if conn and not getattr(conn, "closed", 1):
+            if not getattr(conn, "closed", 1):
                 conn.close()
         except Exception:
             pass
@@ -126,6 +135,11 @@ class BoundedConnectionPool:
                     continue
                 # Pre-ping probe
                 if self._is_conn_healthy(conn):
+                    with self._lock:
+                        if self._closed:
+                            self._destroy_connection(conn)
+                            raise RuntimeError("Connection pool is closed.")
+                        self._checked_out.add(conn)
                     return conn
                 else:
                     self._destroy_connection(conn)
@@ -133,16 +147,35 @@ class BoundedConnectionPool:
             except queue.Empty:
                 pass
 
-            # 2. Pool is currently empty. Can we create a new connection under maxconn?
+            # 2. Pool queue is currently empty. Atomically reserve a slot under lock
+            can_create = False
             with self._lock:
+                if self._closed:
+                    raise RuntimeError("Connection pool is closed.")
                 if self._created_count < self.maxconn:
-                    try:
-                        conn = self._create_raw_connection()
-                        self._created_count += 1
-                        return conn
-                    except Exception as ce:
-                        logger.warning(f"Connection creation attempt notice in pool: {ce}")
-                        raise
+                    self._created_count += 1
+                    can_create = True
+
+            if can_create:
+                try:
+                    conn = self._create_raw_connection()
+                    with self._lock:
+                        if self._closed:
+                            self._created_count = max(0, self._created_count - 1)
+                            try:
+                                if not getattr(conn, "closed", 1):
+                                    conn.close()
+                            except Exception:
+                                pass
+                            raise RuntimeError("Connection pool is closed.")
+                        self._all_conns.add(conn)
+                        self._checked_out.add(conn)
+                    return conn
+                except Exception as ce:
+                    with self._lock:
+                        self._created_count = max(0, self._created_count - 1)
+                    logger.warning(f"Connection creation attempt notice in pool: {ce}")
+                    raise
 
             # 3. Pool is at max capacity. Wait on queue until a worker returns one.
             remaining = max(0.05, deadline - time.time())
@@ -152,6 +185,11 @@ class BoundedConnectionPool:
                     self._destroy_connection(conn)
                     continue
                 if self._is_conn_healthy(conn):
+                    with self._lock:
+                        if self._closed:
+                            self._destroy_connection(conn)
+                            raise RuntimeError("Connection pool is closed.")
+                        self._checked_out.add(conn)
                     return conn
                 else:
                     self._destroy_connection(conn)
@@ -165,18 +203,28 @@ class BoundedConnectionPool:
         )
 
     def putconn(self, conn, close: bool = False):
-        """Returns a connection to the pool or closes it if requested/unhealthy."""
+        """Returns a connection to the pool or closes it if requested/unhealthy/pool closed."""
         if not conn:
             return
 
-        if close or self._closed or getattr(conn, "closed", 1):
+        should_destroy = False
+        with self._lock:
+            if self._closed or close or getattr(conn, "closed", 1):
+                should_destroy = True
+            elif conn not in self._checked_out:
+                # Idempotency: connection was already returned or not checked out from this pool
+                return
+            else:
+                self._checked_out.discard(conn)
+
+        if should_destroy:
             self._destroy_connection(conn)
             return
 
-        # Ensure transaction is rolled back and clean
+        # Rollback any active or uncommitted transaction before returning to pool
         try:
             import psycopg2.extensions
-            if conn.status != psycopg2.extensions.STATUS_READY:
+            if getattr(conn, "status", None) != psycopg2.extensions.STATUS_READY:
                 conn.rollback()
         except Exception:
             self._destroy_connection(conn)
@@ -189,26 +237,40 @@ class BoundedConnectionPool:
             self._destroy_connection(conn)
 
     def closeall(self):
-        """Closes all connections in the pool."""
-        self._closed = True
-        while not self._pool.empty():
-            try:
-                conn, _ = self._pool.get_nowait()
+        """Closes all connections in the pool safely."""
+        with self._lock:
+            self._closed = True
+            # 1. Drain and close all idle connections in the pool
+            while not self._pool.empty():
                 try:
-                    conn.close()
+                    conn, _ = self._pool.get_nowait()
+                    try:
+                        if not getattr(conn, "closed", 1):
+                            conn.close()
+                    except Exception:
+                        pass
+                    self._all_conns.discard(conn)
+                except queue.Empty:
+                    break
+
+            # 2. For any connections still checked out, close their sockets and clear tracking
+            for conn in list(self._checked_out):
+                try:
+                    if not getattr(conn, "closed", 1):
+                        conn.close()
                 except Exception:
                     pass
-            except queue.Empty:
-                break
-        with self._lock:
+                self._all_conns.discard(conn)
+                self._checked_out.discard(conn)
+
             self._created_count = 0
 
     def get_status(self) -> Dict[str, Any]:
         """Returns thread-safe metrics for diagnostics."""
         with self._lock:
             created = self._created_count
+            checked_out = len(self._checked_out)
             idle = self._pool.qsize()
-            checked_out = max(0, created - idle)
             return {
                 "minconn": self.minconn,
                 "maxconn": self.maxconn,
@@ -237,7 +299,7 @@ class PooledConnectionProxy:
             self._returned = True
             try:
                 import psycopg2.extensions
-                if not self._conn.closed and self._conn.status != psycopg2.extensions.STATUS_READY:
+                if not getattr(self._conn, "closed", 1) and getattr(self._conn, "status", None) != psycopg2.extensions.STATUS_READY:
                     self._conn.rollback()
             except Exception:
                 pass
@@ -249,7 +311,7 @@ class PooledConnectionProxy:
                     logger.debug(f"putconn notice: {pe}")
             # If putconn failed or pool unavailable, safely close raw TCP socket directly
             try:
-                if not self._conn.closed:
+                if not getattr(self._conn, "closed", 1):
                     self._conn.close()
             except Exception:
                 pass
@@ -262,6 +324,13 @@ class PooledConnectionProxy:
             return self._conn.__exit__(exc_type, exc_val, exc_tb)
         finally:
             self.close()
+
+    def __del__(self):
+        """Finalizer fallback in case caller forgot to call close()."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
@@ -434,8 +503,11 @@ class DatabaseService:
 
     def _init_connection(self):
         if Config.is_pg_configured():
-            max_retries = 6 if Config.is_production() else 1
-            for attempt in range(1, max_retries + 1):
+            max_attempts = 6 if Config.is_production() else 1
+            # 6 total attempts (1 initial + 5 retries) with progressive backoff delays: [3s, 6s, 9s, 12s, 12s]
+            retry_delays = [3, 6, 9, 12, 12]
+            start_time = time.time()
+            for attempt in range(1, max_attempts + 1):
                 try:
                     import psycopg2
 
@@ -451,19 +523,27 @@ class DatabaseService:
                 except Exception as e:
                     clean_err = self._sanitize_db_error(str(e))
                     self.connection_error = clean_err
-                    if attempt < max_retries:
+                    if attempt < max_attempts:
                         delay_override = os.getenv("PG_STARTUP_RETRY_DELAY")
-                        wait_sec = int(delay_override) if delay_override is not None else (0 if getattr(Config, "TESTING", False) else min(attempt * 3, 12))
+                        if delay_override is not None:
+                            wait_sec = int(delay_override)
+                        elif getattr(Config, "TESTING", False):
+                            wait_sec = 0
+                        else:
+                            idx = min(attempt - 1, len(retry_delays) - 1)
+                            wait_sec = retry_delays[idx]
+
                         logger.warning(
-                            f"PostgreSQL startup connection attempt {attempt}/{max_retries} failed ({clean_err}). "
+                            f"PostgreSQL startup connection attempt {attempt}/{max_attempts} failed ({clean_err}). "
                             f"Waiting {wait_sec}s for existing container connections to release..."
                         )
                         if wait_sec > 0:
                             time.sleep(wait_sec)
                     else:
+                        elapsed = int(time.time() - start_time)
                         if Config.is_production():
                             logger.error(
-                                f"CRITICAL: Failed to connect to PostgreSQL in production after {max_retries} attempts! "
+                                f"CRITICAL: Failed to connect to PostgreSQL in production after {max_attempts} attempts ({elapsed}s)! "
                                 f"Error: {clean_err}."
                             )
                             raise RuntimeError(

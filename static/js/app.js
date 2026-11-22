@@ -787,9 +787,6 @@ function handleNearbyStoresNav(e) {
     window.location.href = "/retail/stores";
   }
 }
-    window.location.href = "/retail/stores";
-  }
-}
 
 // -----------------------------------------------------------------------------
 // 2. Cart Management (Backend Database Authoritative Source of Truth)
@@ -855,9 +852,10 @@ async function syncCartWithBackend() {
           appState.cart = {};
           let totalItems = 0;
           items.forEach(it => {
-            appState.cart[it.product_id] = {
-              id: it.item_id,
-              key: it.product_id,
+            const key = `online_${it.product_id}`;
+            appState.cart[key] = {
+              id: it.item_id || it.id,
+              key: key,
               product: {
                 id: it.product_id,
                 title: it.title,
@@ -920,9 +918,10 @@ function updateHeaderBadges() {
 }
 
 async function addToCart(productId, qty = 1, storeId = null, storeName = null, fulfillment = "delivery") {
-  const isRetail = appState.shoppingMode === "RETAIL_NEAR_ME";
+  const hasExplicitStore = (storeId !== null && storeId !== undefined && storeId !== "null" && Number(storeId) > 0);
+  const isRetail = (appState.shoppingMode === "RETAIL_NEAR_ME") || hasExplicitStore || (window.CURRENT_SHOPPING_MODE === "RETAIL_NEAR_ME") || (window.location && window.location.pathname.startsWith("/retail"));
   if (isRetail) {
-    const sId = storeId || appState.selectedStoreId || parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1");
+    const sId = (hasExplicitStore ? Number(storeId) : null) || appState.selectedStoreId || parseInt(localStorage.getItem("bharatstore_selected_store_id") || "1");
     try {
       const res = await fetch(`/api/cart/retail/${sId}/add`, {
         method: "POST",
@@ -984,6 +983,9 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
         localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
         updateHeaderBadges();
         renderCartDrawer();
+        if (document.getElementById("cart-page-items-list")) {
+          renderCartPage();
+        }
       } else {
         await syncCartWithBackend();
       }
@@ -1033,6 +1035,9 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
         localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
         updateHeaderBadges();
         renderCartDrawer();
+        if (document.getElementById("cart-page-items-list")) {
+          renderCartPage();
+        }
       } else {
         await syncCartWithBackend();
       }
@@ -1047,7 +1052,13 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
 async function updateCartItemQty(keyOrId, delta) {
   let item = appState.cart[keyOrId];
   if (!item) {
-    item = Object.values(appState.cart).find(it => it.id === Number(keyOrId) || (it.product && it.product.id === Number(keyOrId)) || it.key === String(keyOrId));
+    item = Object.values(appState.cart).find(it => 
+      it.id === Number(keyOrId) || 
+      (it.product && it.product.id === Number(keyOrId)) || 
+      it.key === String(keyOrId) ||
+      `online_${it.product?.id}` === String(keyOrId) ||
+      String(keyOrId).endsWith(`_${it.product?.id}`)
+    );
   }
   if (!item) return;
 
@@ -1101,7 +1112,13 @@ async function updateCartItemQty(keyOrId, delta) {
 async function removeCartItem(keyOrId) {
   let item = appState.cart[keyOrId];
   if (!item) {
-    item = Object.values(appState.cart).find(it => it.id === Number(keyOrId) || (it.product && it.product.id === Number(keyOrId)) || it.key === String(keyOrId));
+    item = Object.values(appState.cart).find(it => 
+      it.id === Number(keyOrId) || 
+      (it.product && it.product.id === Number(keyOrId)) || 
+      it.key === String(keyOrId) ||
+      `online_${it.product?.id}` === String(keyOrId) ||
+      String(keyOrId).endsWith(`_${it.product?.id}`)
+    );
   }
   const itemId = item ? item.id : keyOrId;
   const cartKey = item ? item.key : keyOrId;
@@ -1142,10 +1159,6 @@ async function removeCartItem(keyOrId) {
     if (savedItem) appState.cart[cartKey] = savedItem;
     updateHeaderBadges();
     renderCartDrawer();
-  }
-}
-  } catch (err) {
-    console.error("Remove cart item error:", err);
   }
 }
 

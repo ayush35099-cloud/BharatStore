@@ -185,7 +185,7 @@ function updateDeliveryLocationUI(loc) {
     label.textContent = `${loc.city} Hub`;
   }
   const heroStore = document.getElementById("retail-hero-store-name");
-  if (heroStore && loc.nearest_hub) {
+  if (heroStore && loc.nearest_hub && (!heroStore.textContent.trim() || !window.location.pathname.startsWith("/retail"))) {
     heroStore.textContent = loc.nearest_hub;
   }
   const heroMeta = document.getElementById("retail-hero-store-meta");

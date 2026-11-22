@@ -59,28 +59,36 @@ const appState = {
 // -----------------------------------------------------------------------------
 // 1. Initialization & Theme Switching
 // -----------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initDealTimer();
 
-  // Run shopping mode sync and delivery location initialization in parallel
-  await Promise.allSettled([
-    initShoppingMode(),
-    initDeliveryLocation()
-  ]);
+  // Instant synchronous UI state hydration from local cache (0ms)
+  updateModeUI();
+  updateModeNav();
+  updateDeliveryLocationUI(appState.deliveryLocation);
+  updateHeaderBadges();
+  renderCartDrawer();
 
-  // Synchronize cart with backend once mode is established
-  await syncCartWithBackend();
+  // Instant hover prefetching for snappy zero-delay page navigation
+  initInstantHoverPrefetch();
 
-  // If on Homepage
+  // Trigger page-specific data views immediately without blocking on background syncs
   if (document.getElementById("deals-products-container")) {
     loadHomepageSections();
   }
 
-  // If on Products Catalog Page
   if (document.getElementById("catalog-products-grid")) {
     initCatalogPage();
   }
+
+  // Background non-blocking session and cart synchronization
+  Promise.allSettled([
+    initShoppingMode(),
+    initDeliveryLocation()
+  ]).then(() => {
+    syncCartWithBackend();
+  });
 });
 
 function initTheme() {
@@ -104,6 +112,48 @@ function toggleTheme() {
 }
 
 // -----------------------------------------------------------------------------
+// Instant Hover & Navigation Prefetch Engine (Turbo-speed page transitions)
+// -----------------------------------------------------------------------------
+const _prefetchedUrls = new Set();
+function prefetchUrl(url) {
+  if (!url || _prefetchedUrls.has(url)) return;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin !== window.location.origin) return;
+    const path = parsed.pathname;
+    // Don't prefetch modifying endpoints or auth/admin
+    if (path.startsWith("/api/") || path.startsWith("/auth/") || path.startsWith("/admin/") || path === "/logout") return;
+    _prefetchedUrls.add(url);
+    const link = document.createElement("link");
+    link.rel = "prefetch";
+    link.href = url;
+    link.as = "document";
+    document.head.appendChild(link);
+  } catch (e) {}
+}
+
+function initInstantHoverPrefetch() {
+  document.addEventListener("pointerover", (e) => {
+    const a = e.target.closest("a[href]");
+    if (a && a.href && !a.target && !a.download) {
+      prefetchUrl(a.href);
+    }
+    const storeCard = e.target.closest(".retail-store-showcase-card, .shop-selection-card");
+    if (storeCard) {
+      const storeUrl = storeCard.getAttribute("data-store-url") || (storeCard.getAttribute("data-store-id") ? `/retail?store_id=${storeCard.getAttribute("data-store-id")}` : null);
+      if (storeUrl) prefetchUrl(storeUrl);
+    }
+  }, { passive: true });
+
+  document.addEventListener("touchstart", (e) => {
+    const a = e.target.closest("a[href]");
+    if (a && a.href && !a.target && !a.download) {
+      prefetchUrl(a.href);
+    }
+  }, { passive: true });
+}
+
+// -----------------------------------------------------------------------------
 // Phase 3: Dynamic Delivery Location & GPS Selector Engine
 // -----------------------------------------------------------------------------
 async function initDeliveryLocation() {
@@ -122,7 +172,6 @@ async function initDeliveryLocation() {
     console.warn("Could not sync server delivery location:", err);
   }
   updateDeliveryLocationUI(appState.deliveryLocation);
-  loadSupportedCitiesAndAreas();
 }
 
 function updateDeliveryLocationUI(loc) {
@@ -154,6 +203,9 @@ function openLocationSelectorModal() {
   const modal = document.getElementById("location-selector-modal");
   if (modal) {
     modal.classList.add("open");
+    if (!appState.citiesData) {
+      loadSupportedCitiesAndAreas();
+    }
     // Ensure form is filled with active state
     if (appState.deliveryLocation) {
       const citySelect = document.getElementById("loc-modal-city");
@@ -457,33 +509,38 @@ async function confirmSelectedDeliveryLocation() {
 // -----------------------------------------------------------------------------
 // 1b. Dual Shopping Mode Management & Basket Isolation
 // -----------------------------------------------------------------------------
+let _modeInitPromise = null;
 async function initShoppingMode() {
-  // 1. Sync mode with server Flask session
-  try {
-    const res = await fetch("/api/shopping-mode");
-    if (res.ok) {
-      const data = await res.json();
-      if (data.mode && ["RETAIL_NEAR_ME", "ONLINE"].includes(data.mode)) {
-        appState.shoppingMode = data.mode;
-        localStorage.setItem("bharatstore_shopping_mode", data.mode);
+  if (_modeInitPromise) return _modeInitPromise;
+  _modeInitPromise = (async () => {
+    // 1. Sync mode with server Flask session
+    try {
+      const res = await fetch("/api/shopping-mode");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mode && ["RETAIL_NEAR_ME", "ONLINE"].includes(data.mode)) {
+          appState.shoppingMode = data.mode;
+          localStorage.setItem("bharatstore_shopping_mode", data.mode);
+        }
       }
+    } catch (err) {
+      console.debug("Shopping mode session sync check:", err);
     }
-  } catch (err) {
-    console.debug("Shopping mode session sync check:", err);
-  }
 
-  // 2. Point active cart to the mode-specific basket
-  if (appState.shoppingMode === "RETAIL_NEAR_ME") {
-    appState.cart = appState.retailCart || {};
-  } else {
-    appState.cart = appState.onlineCart || {};
-  }
-  localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+    // 2. Point active cart to the mode-specific basket
+    if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+      appState.cart = appState.retailCart || {};
+    } else {
+      appState.cart = appState.onlineCart || {};
+    }
+    localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
 
-  // 3. Update UI states
-  updateModeUI();
-  updateModeNav();
-  updateHeaderBadges();
+    // 3. Update UI states
+    updateModeUI();
+    updateModeNav();
+    updateHeaderBadges();
+  })();
+  return _modeInitPromise;
 }
 
 function updateModeUI() {
@@ -633,7 +690,7 @@ function confirmModeSwitchProceed() {
   }
 }
 
-async function executeModeSwitch(targetMode) {
+function executeModeSwitch(targetMode) {
   // 1. Save current cart to its specific bucket
   if (appState.shoppingMode === "RETAIL_NEAR_ME") {
     appState.retailCart = appState.cart;
@@ -643,27 +700,12 @@ async function executeModeSwitch(targetMode) {
     localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
   }
 
-  // 2. Persist to server session
-  try {
-    const res = await fetch("/api/shopping-mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: targetMode })
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      console.warn("Server mode update notice:", data.error);
-    }
-  } catch (err) {
-    console.debug("Offline mode sync fallback:", err);
-  }
-
-  // 3. Switch active state
+  // 2. Switch active state locally IMMEDIATELY (0ms)
   appState.shoppingMode = targetMode;
   localStorage.setItem("bharatstore_shopping_mode", targetMode);
   localStorage.setItem("bharatstore_mode_selected", "true");
 
-  // 4. Restore the other basket
+  // 3. Restore the target mode basket
   if (targetMode === "RETAIL_NEAR_ME") {
     appState.cart = appState.retailCart || {};
   } else {
@@ -671,7 +713,7 @@ async function executeModeSwitch(targetMode) {
   }
   localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
 
-  // 5. Update UI
+  // 4. Update UI instantly with zero lag
   updateModeUI();
   updateModeNav();
   updateHeaderBadges();
@@ -685,28 +727,33 @@ async function executeModeSwitch(targetMode) {
     renderCartPage();
   }
 
-  // 6. Seamless Mode-Aware Navigation Transition
+  // 5. Asynchronously persist to server session in background (non-blocking, keepalive enabled)
+  try {
+    fetch("/api/shopping-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: targetMode }),
+      keepalive: true
+    }).catch(err => {
+      console.debug("Offline mode sync fallback:", err);
+    });
+  } catch (err) {
+    console.debug("Mode sync dispatch error:", err);
+  }
+
+  // 6. Seamless Immediate Mode Navigation Transition (0ms delay)
   const currentPath = window.location.pathname;
   if (targetMode === "RETAIL_NEAR_ME") {
-    // If not already on retail page, navigate to Retail Near Me experience
     if (currentPath !== "/retail") {
-      setTimeout(() => {
-        window.location.href = "/retail";
-      }, 300);
+      window.location.assign("/retail");
       return;
     }
-    // If location is not set yet, prompt location/store selector
     if (!localStorage.getItem("bharatstore_selected_city")) {
-      setTimeout(() => {
-        openHubSwitchModal();
-      }, 400);
+      openHubSwitchModal();
     }
   } else if (targetMode === "ONLINE") {
-    // If on retail page or select-mode, navigate to full online marketplace homepage
     if (currentPath === "/retail" || currentPath === "/select-mode") {
-      setTimeout(() => {
-        window.location.href = "/?view=online";
-      }, 300);
+      window.location.assign("/?view=online");
       return;
     }
   }
@@ -729,20 +776,17 @@ function selectModeFromModal(targetMode) {
 
 function selectModeAndNavigate(targetMode) {
   handleModeSwitchRequest(targetMode);
-  setTimeout(() => {
-    if (targetMode === "RETAIL_NEAR_ME") {
-      window.location.href = "/retail";
-    } else {
-      window.location.href = "/?view=online";
-    }
-  }, 250);
 }
 
-function handleNearbyStoresNav() {
+function handleNearbyStoresNav(e) {
   const nearbyEl = document.getElementById("nearby-stores-section");
   if (nearbyEl) {
+    if (e && e.preventDefault) e.preventDefault();
     nearbyEl.scrollIntoView({ behavior: "smooth" });
   } else {
+    window.location.href = "/retail/stores";
+  }
+}
     window.location.href = "/retail/stores";
   }
 }
@@ -901,7 +945,48 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
       if (appState.collapsedShops) {
         appState.collapsedShops.delete(Number(sId));
       }
-      await syncCartWithBackend();
+      // Reconcile cart directly from response data without duplicate syncCartWithBackend roundtrip
+      if (data.cart && data.cart.items) {
+        const shops = appState.retailCarts || [];
+        const existingIdx = shops.findIndex(s => s.store_id === Number(sId));
+        if (existingIdx >= 0) {
+          shops[existingIdx] = data.cart;
+        } else {
+          shops.push(data.cart);
+        }
+        appState.retailCarts = shops;
+        const newCart = {};
+        shops.forEach(shop => {
+          (shop.items || []).forEach(it => {
+            const key = `${shop.store_id}_${it.product_id}`;
+            newCart[key] = {
+              id: it.item_id || it.id,
+              key: key,
+              store_id: shop.store_id,
+              store_name: shop.store_name,
+              fulfillment: it.fulfillment || shop.fulfillment || "delivery",
+              product: {
+                id: it.product_id,
+                title: it.title,
+                brand: it.brand,
+                price: it.price || it.unit_price,
+                image_url: it.image_url,
+                stock: it.live_stock || it.stock,
+                category: it.category
+              },
+              qty: it.quantity
+            };
+          });
+        });
+        appState.cart = newCart;
+        appState.retailCart = { ...newCart };
+        localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+        localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+        updateHeaderBadges();
+        renderCartDrawer();
+      } else {
+        await syncCartWithBackend();
+      }
       showToast(`Added to ${data.cart?.store_name || storeName || `Store #${sId}`} basket!`);
     } catch (e) {
       console.error("Retail add to cart error:", e);
@@ -922,7 +1007,35 @@ async function addToCart(productId, qty = 1, storeId = null, storeName = null, f
         showToast(data.error || "Cannot add product to online cart", true);
         return;
       }
-      await syncCartWithBackend();
+      if (data.cart && data.cart.items) {
+        const newCart = {};
+        (data.cart.items || []).forEach(it => {
+          const key = `online_${it.product_id}`;
+          newCart[key] = {
+            id: it.item_id || it.id,
+            key: key,
+            fulfillment: "shipping",
+            product: {
+              id: it.product_id,
+              title: it.title,
+              brand: it.brand,
+              price: it.price || it.unit_price,
+              image_url: it.image_url,
+              stock: it.live_stock || it.stock,
+              category: it.category
+            },
+            qty: it.quantity
+          };
+        });
+        appState.cart = newCart;
+        appState.onlineCart = { ...newCart };
+        localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+        localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
+        updateHeaderBadges();
+        renderCartDrawer();
+      } else {
+        await syncCartWithBackend();
+      }
       showToast("Added to Online Shopping cart!");
     } catch (e) {
       console.error("Online add to cart error:", e);
@@ -944,6 +1057,15 @@ async function updateCartItemQty(keyOrId, delta) {
     return;
   }
 
+  // Optimistic local update (instant 0ms response)
+  const prevQty = item.qty;
+  item.qty = newQty;
+  updateHeaderBadges();
+  renderCartDrawer();
+  if (document.getElementById("cart-page-items-list")) {
+    renderCartPage();
+  }
+
   try {
     const res = await fetch(`/api/cart/items/${item.id}`, {
       method: "PATCH",
@@ -952,12 +1074,27 @@ async function updateCartItemQty(keyOrId, delta) {
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
+      // Revert if rejected by backend
+      item.qty = prevQty;
+      updateHeaderBadges();
+      renderCartDrawer();
       showToast(data.error || "Could not update item quantity", true);
       return;
     }
-    await syncCartWithBackend();
+    // Update local storage
+    if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+      appState.retailCart = { ...appState.cart };
+      localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+    } else {
+      appState.onlineCart = { ...appState.cart };
+      localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+    }
+    localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
   } catch (err) {
     console.error("Update item qty error:", err);
+    item.qty = prevQty;
+    updateHeaderBadges();
+    renderCartDrawer();
   }
 }
 
@@ -967,17 +1104,46 @@ async function removeCartItem(keyOrId) {
     item = Object.values(appState.cart).find(it => it.id === Number(keyOrId) || (it.product && it.product.id === Number(keyOrId)) || it.key === String(keyOrId));
   }
   const itemId = item ? item.id : keyOrId;
+  const cartKey = item ? item.key : keyOrId;
+  const savedItem = item;
+
+  // Optimistic local removal (instant 0ms response)
+  delete appState.cart[cartKey];
+  updateHeaderBadges();
+  renderCartDrawer();
+  if (document.getElementById("cart-page-items-list")) {
+    renderCartPage();
+  }
+
   try {
     const res = await fetch(`/api/cart/items/${itemId}`, {
       method: "DELETE"
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
+      // Revert if rejected by backend
+      if (savedItem) appState.cart[cartKey] = savedItem;
+      updateHeaderBadges();
+      renderCartDrawer();
       showToast(data.error || "Could not remove item", true);
       return;
     }
-    await syncCartWithBackend();
+    if (appState.shoppingMode === "RETAIL_NEAR_ME") {
+      appState.retailCart = { ...appState.cart };
+      localStorage.setItem("bharatstore_retail_cart", JSON.stringify(appState.retailCart));
+    } else {
+      appState.onlineCart = { ...appState.cart };
+      localStorage.setItem("bharatstore_online_cart", JSON.stringify(appState.onlineCart));
+    }
+    localStorage.setItem("bharatstore_cart", JSON.stringify(appState.cart));
     showToast("Item removed from basket");
+  } catch (err) {
+    console.error("Remove cart item error:", err);
+    if (savedItem) appState.cart[cartKey] = savedItem;
+    updateHeaderBadges();
+    renderCartDrawer();
+  }
+}
   } catch (err) {
     console.error("Remove cart item error:", err);
   }
@@ -1927,6 +2093,7 @@ document.addEventListener("click", (e) => {
 // 8. Quick View Modal
 // -----------------------------------------------------------------------------
 let quickViewActiveQty = 1;
+const _quickViewCache = {};
 
 async function openQuickView(productId) {
   const modal = document.getElementById("quick-view-overlay");
@@ -1935,12 +2102,13 @@ async function openQuickView(productId) {
 
   quickViewActiveQty = 1;
 
-  let product = appState.products.find(p => p.id === productId);
+  let product = appState.products.find(p => p.id === productId) || _quickViewCache[productId];
   if (!product) {
     try {
       const res = await fetch(`/api/products/${productId}`);
       const data = await res.json();
       product = data.product;
+      if (product) _quickViewCache[productId] = product;
     } catch (e) {
       console.error("QuickView fetch error:", e);
     }

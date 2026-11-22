@@ -220,7 +220,7 @@ class DatabaseService:
                 # Initialize connection pool after verifying connectivity
                 try:
                     pg_url = Config.get_pg_url()
-                    min_conn = getattr(Config, "PG_POOL_MIN", 2)
+                    min_conn = getattr(Config, "PG_POOL_MIN", 1)
                     max_conn = getattr(Config, "PG_POOL_MAX", 10)
                     if pg_url:
                         self._pg_pool = ThreadedConnectionPool(minconn=min_conn, maxconn=max_conn, dsn=pg_url)
@@ -313,6 +313,26 @@ class DatabaseService:
             conn = self._connect_pg_direct()
             conn.autocommit = True
             with conn.cursor() as cur:
+                # 1. Fast startup verification: if schema and domain catalog already exist, skip redundant DDL and 450+ seed queries
+                try:
+                    cur.execute("""
+                        SELECT 
+                            (SELECT to_regclass('products') IS NOT NULL) AS has_products,
+                            (SELECT to_regclass('store_inventory') IS NOT NULL) AS has_store_inventory,
+                            (SELECT to_regclass('product_images') IS NOT NULL) AS has_product_images;
+                    """)
+                    chk_row = cur.fetchone()
+                    if chk_row and chk_row[0] and chk_row[1] and chk_row[2]:
+                        cur.execute("SELECT COUNT(*) FROM products;")
+                        prod_cnt = cur.fetchone()[0]
+                        if prod_cnt >= len(SAMPLE_PRODUCTS):
+                            cur.execute("SELECT COUNT(*) FROM product_images;")
+                            if cur.fetchone()[0] > 0:
+                                logger.info("PostgreSQL schema and domain catalog verified (fast startup path).")
+                                return
+                except Exception as fe:
+                    logger.debug(f"PostgreSQL fast path check notice: {fe}")
+
                 # Hold a session-level advisory lock to eliminate migration races between concurrent gunicorn workers
                 cur.execute("SELECT pg_advisory_lock(742189);")
                 has_lock = True
@@ -378,6 +398,7 @@ class DatabaseService:
     # -------------------------------------------------------------------------
     def _init_sqlite_schema(self):
         conn = self._get_sqlite_connection()
+
         # 1. Execute complete relational schema migration & indexes
         run_migrations(conn, is_postgres=False)
 
@@ -413,6 +434,14 @@ class DatabaseService:
         """Seeds product_images, product_specifications, and product_reviews if not populated"""
         try:
             cur = conn.cursor()
+            # Fast check: skip if already populated
+            cur.execute("SELECT COUNT(*) FROM product_images;")
+            img_total = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM product_specifications;")
+            spec_total = cur.fetchone()[0]
+            if img_total > 0 and spec_total > 0:
+                return
+
             for p in SAMPLE_PRODUCTS:
                 pid = p["id"]
                 # 1. Product Images

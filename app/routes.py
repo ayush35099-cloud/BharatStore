@@ -537,6 +537,8 @@ def build_retail_context() -> Dict[str, Any]:
 # -------------------------------------------------------------------------
 @main_bp.route("/")
 def index():
+    if request.args.get("view") == "online":
+        set_current_shopping_mode("ONLINE")
     mode = get_current_shopping_mode()
     if mode == "RETAIL_NEAR_ME" and request.args.get("view") != "online":
         try:

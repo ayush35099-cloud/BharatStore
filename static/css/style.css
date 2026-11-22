@@ -1442,16 +1442,19 @@ button, input, select, textarea {
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
   z-index: 1000;
-  display: none;
+  display: flex;
   justify-content: flex-end;
   opacity: 0;
-  transition: opacity var(--transition-normal);
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
   overscroll-behavior: contain;
 }
 
 .cart-drawer-overlay.open {
-  display: flex;
   opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 body.cart-drawer-open {
@@ -1472,7 +1475,8 @@ body.cart-drawer-open {
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform var(--transition-normal);
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
   overflow: hidden;
   position: relative;
   box-sizing: border-box;
@@ -1480,6 +1484,23 @@ body.cart-drawer-open {
 
 .cart-drawer-overlay.open .cart-drawer {
   transform: translateX(0);
+}
+
+/* --- High-Responsiveness Tactile Button & Navigation Feedback (0ms active feedback) --- */
+button:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-quick-add:active,
+.btn-compare-5:active,
+.mode-pill-btn:active,
+.retail-cat-pill:active,
+.retail-deal-pill:active,
+.header-action-link:active,
+.category-nav-link:active,
+.drawer-qty-control button:active,
+.retail-store-showcase-card:active {
+  transform: scale(0.97);
+  transition: transform 0.05s ease;
 }
 
 .cart-drawer-header {

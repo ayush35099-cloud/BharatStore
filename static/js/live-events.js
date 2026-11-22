@@ -27,6 +27,13 @@ function initEventStream() {
     console.warn("SSE connection interrupted. Falling back to polling...");
     setTimeout(pollRecentEvents, 3000);
   };
+
+  // Close SSE stream immediately upon navigating away to prevent hung server threads
+  window.addEventListener("pagehide", function () {
+    try {
+      evtSource.close();
+    } catch (e) {}
+  });
 }
 
 async function pollRecentEvents() {

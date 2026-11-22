@@ -509,6 +509,8 @@
   }
 
   // 5-Shop Price Comparison Modal Logic
+  const _priceCompareCache = {};
+
   async function openPriceComparisonModal(productId) {
     const modal = document.getElementById("retail-compare-modal");
     const content = document.getElementById("retail-compare-modal-content");
@@ -517,6 +519,15 @@
 
     modal.classList.add("open");
     document.body.style.overflow = "hidden";
+
+    if (_priceCompareCache[productId]) {
+      content.innerHTML = _priceCompareCache[productId].html;
+      if (titleEl && _priceCompareCache[productId].title) {
+        titleEl.textContent = _priceCompareCache[productId].title;
+      }
+      return;
+    }
+
     content.innerHTML = `
       <div style="text-align:center; padding:36px 0;">
         <i class="fa-solid fa-circle-notch fa-spin" style="font-size:24px; color:var(--color-primary);"></i>
@@ -627,6 +638,10 @@
           ${shopsHtml}
         </div>
       `;
+      _priceCompareCache[productId] = {
+        html: content.innerHTML,
+        title: titleEl ? titleEl.textContent : ""
+      };
     } catch (err) {
       console.error("Comparison load error:", err);
       content.innerHTML = `<div class="ui-state-box ui-error-state"><p>Failed to connect to stores network. Please try again.</p></div>`;

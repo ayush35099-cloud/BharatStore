@@ -57,6 +57,8 @@
             {% for st in stores[:5] %}
             <div 
               class="retail-store-showcase-card {% if current_store and st.id == current_store.id %}active-shop{% endif %}"
+              data-store-id="{{ st.id }}"
+              data-store-url="/retail?store_id={{ st.id }}"
               onclick="switchRetailStore({{ st.id }}, '{{ st.store_name }}', '{{ st.city }}')"
               role="button"
               tabindex="0"
@@ -811,7 +813,9 @@
         }
       });
       if (sections[deptKey]) {
-        sections[deptKey].scrollIntoView({ behavior: "smooth", block: "start" });
+        const yOffset = -70;
+        const y = sections[deptKey].getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
       }
     }
   }
@@ -863,6 +867,8 @@
   // ---------------------------------------------------------------------------
   // 5-Shop Price Comparison Modal Logic
   // ---------------------------------------------------------------------------
+  const _priceCompareCache = {};
+
   async function openPriceComparisonModal(productId) {
     const modal = document.getElementById("retail-compare-modal");
     const content = document.getElementById("retail-compare-modal-content");
@@ -871,6 +877,16 @@
 
     modal.classList.add("open");
     document.body.style.overflow = "hidden";
+
+    // Instant cached render (0ms response)
+    if (_priceCompareCache[productId]) {
+      content.innerHTML = _priceCompareCache[productId].html;
+      if (titleEl && _priceCompareCache[productId].title) {
+        titleEl.textContent = _priceCompareCache[productId].title;
+      }
+      return;
+    }
+
     content.innerHTML = `
       <div style="text-align:center; padding:36px 0;">
         <i class="fa-solid fa-circle-notch fa-spin" style="font-size:24px; color:var(--color-primary);"></i>
@@ -981,6 +997,10 @@
           ${shopsHtml}
         </div>
       `;
+      _priceCompareCache[productId] = {
+        html: content.innerHTML,
+        title: titleEl ? titleEl.textContent : ""
+      };
     } catch (err) {
       console.error("Comparison load error:", err);
       content.innerHTML = `<div class="ui-state-box ui-error-state"><p>Failed to connect to stores network. Please try again.</p></div>`;

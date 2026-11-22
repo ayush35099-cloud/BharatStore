@@ -552,6 +552,14 @@ class OpenSearchService:
         is_retail = (shopping_mode == "RETAIL_NEAR_ME")
         store_inv = self.get_store_inventory_data(store_id) if (is_retail and store_id) else None
 
+        if not self._local_index and not self.is_live_opensearch:
+            try:
+                from app.database import db_service
+                prods = db_service.get_all_products()
+                self.index_all_products(prods)
+            except Exception as e:
+                logger.debug(f"Lazy OpenSearch catalog index notice: {e}")
+
         matched = []
 
         for p in self._local_index.values():

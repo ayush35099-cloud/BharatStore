@@ -9,6 +9,7 @@ import time
 import logging
 import hmac
 import uuid
+import threading
 import concurrent.futures
 from typing import Optional, Dict, Any, List
 from functools import wraps
@@ -83,16 +84,19 @@ def on_kafka_order_consumed(event_payload):
 
 kafka_service = KafkaService(on_order_consumed_callback=on_kafka_order_consumed)
 
-# Pre-populate OpenSearch index with all products and store inventory on startup
-try:
-    all_prods = db_service.get_all_products()
-    opensearch_service.index_all_products(all_prods)
-    stores = db_service.get_retail_stores("Bengaluru")
-    for st in stores:
-        s_inv = db_service.get_store_inventory(st["id"])
-        opensearch_service.index_store_inventory(st["id"], s_inv)
-except Exception as e:
-    logger.error(f"Error seeding OpenSearch on launch: {e}")
+# Non-blocking background warm-up of OpenSearch index to ensure instant Gunicorn port binding
+def _warmup_search_catalog():
+    try:
+        all_prods = db_service.get_all_products()
+        opensearch_service.index_all_products(all_prods)
+        stores = db_service.get_retail_stores("Bengaluru")
+        for st in stores:
+            s_inv = db_service.get_store_inventory(st["id"])
+            opensearch_service.index_store_inventory(st["id"], s_inv)
+    except Exception as e:
+        logger.debug(f"Background OpenSearch index warmup notice: {e}")
+
+threading.Thread(target=_warmup_search_catalog, name="opensearch-warmup", daemon=True).start()
 
 # -------------------------------------------------------------------------
 # Shopping Mode Constants & Persistence Helpers
